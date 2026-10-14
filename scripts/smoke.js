@@ -614,6 +614,108 @@ async function run() {
     }
   });
 
+  // Step 20: B7 Short-Term Memory Sliding Window (8 turns max)
+  await recordStep("Short-Term Memory (Redis session sliding window 8 turns)", async () => {
+    const { shortTermMemory } = await import("../src/ai/memory/shortTerm.js");
+    const threadId = "thread_smoke_test_1";
+    const userId = "user_smoke_mem";
+
+    for (let i = 1; i <= 10; i++) {
+      await shortTermMemory.appendTurn(userId, threadId, i % 2 === 1 ? "user" : "assistant", `Turn ${i}`);
+    }
+
+    const turns = await shortTermMemory.getTurns(userId, threadId);
+    if (turns.length !== 8) {
+      throw new Error(`Expected exactly 8 turns in sliding window, got ${turns.length}`);
+    }
+    if (turns[0].content !== "Turn 3") {
+      throw new Error(`Oldest turn was not evicted, got: ${turns[0].content}`);
+    }
+  });
+
+  // Step 21: B7 Long-Term Memory Deduplication & Vector Storage
+  await recordStep("Long-Term Memory write & deduplication (>0.9 similarity)", async () => {
+    const { longTermMemory } = await import("../src/ai/memory/longTerm.js");
+    const userId = "user_smoke_ltm";
+
+    // Write first memory
+    const mem1 = await longTermMemory.writeMemory({
+      userId,
+      userPlan: "pro",
+      type: "preference",
+      key: "dislikes_agencies",
+      content: "Candidate strongly dislikes working with third-party recruitment agencies.",
+      importance: 4,
+      confidence: 0.9,
+    });
+    if (!mem1) throw new Error("Failed to write initial memory");
+
+    // Write near-duplicate memory
+    await longTermMemory.writeMemory({
+      userId,
+      userPlan: "pro",
+      type: "preference",
+      key: "dislikes_agencies",
+      content: "Candidate strongly dislikes working with third-party recruitment agencies.",
+      importance: 4,
+      confidence: 0.9,
+    });
+
+    const memories = await longTermMemory.listUserMemories(userId);
+    if (memories.length !== 1) {
+      throw new Error(`Expected deduplication to keep 1 memory, got ${memories.length}`);
+    }
+  });
+
+  // Step 22: B7 Compliance Filter (Block Protected Attributes)
+  await recordStep("Memory Compliance Filter (rejection of protected attributes)", async () => {
+    const { longTermMemory } = await import("../src/ai/memory/longTerm.js");
+    let caught = false;
+
+    try {
+      await longTermMemory.writeMemory({
+        userId: "user_smoke_compliance",
+        userPlan: "pro",
+        type: "fact",
+        key: "candidate_age",
+        content: "Candidate is 58 years old and adheres to christian faith.",
+        importance: 3,
+        confidence: 0.9,
+      });
+    } catch (err) {
+      if (err.code === "PROTECTED_ATTRIBUTE_REJECTED") {
+        caught = true;
+      }
+    }
+
+    if (!caught) {
+      throw new Error("Compliance filter failed to reject protected attribute");
+    }
+  });
+
+  // Step 23: B7 Memory API Endpoints (List & Toggle Pause)
+  await recordStep("GET /api/v1/memories & POST /toggle-pause", async () => {
+    // 1. List
+    const listRes = await fetch(`${BASE_URL}/api/v1/memories`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (listRes.status !== 200) throw new Error(`List memories failed: ${listRes.status}`);
+
+    // 2. Toggle pause
+    const pauseRes = await fetch(`${BASE_URL}/api/v1/memories/toggle-pause`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "X-Requested-With": "JobScoutClient",
+      },
+    });
+    if (pauseRes.status !== 200) throw new Error(`Toggle pause failed: ${pauseRes.status}`);
+    const data = await pauseRes.json();
+    if (typeof data.data.memoryPaused !== "boolean") {
+      throw new Error("Missing memoryPaused boolean");
+    }
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();

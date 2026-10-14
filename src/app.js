@@ -10,6 +10,7 @@ import { healthRouter } from "./routes/health.js";
 import { authRouter } from "./routes/auth.js";
 import { profileRouter } from "./routes/profile.js";
 import { aiRouter } from "./routes/ai.js";
+import { memoryRouter } from "./routes/memory.js";
 
 export function createApp() {
   const app = express();
@@ -89,6 +90,9 @@ export function createApp() {
 
   // AI Router & Chat routes
   app.use("/api/v1/ai", aiRouter);
+
+  // Candidate Memory Control routes
+  app.use("/api/v1/memories", memoryRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {
