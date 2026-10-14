@@ -8,6 +8,7 @@ import { httpLogger } from "./shared/utils/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { healthRouter } from "./routes/health.js";
 import { authRouter } from "./routes/auth.js";
+import { profileRouter } from "./routes/profile.js";
 
 export function createApp() {
   const app = express();
@@ -81,6 +82,9 @@ export function createApp() {
 
   // Authentication API routes
   app.use("/api/v1/auth", authRouter);
+
+  // Candidate Profile & Resume routes
+  app.use("/api/v1/profile", profileRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

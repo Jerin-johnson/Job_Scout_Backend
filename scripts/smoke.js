@@ -276,6 +276,160 @@ async function run() {
     if (!proBlocked) throw new Error("Pro feature was not blocked on Free tier");
   });
 
+  // Step 10: B4 Magic Bytes Rejection (Fake PDF with invalid magic bytes)
+  await recordStep("POST /api/v1/profile/upload-resume (reject fake PDF)", async () => {
+    const fakeForm = new FormData();
+    const fakeBlob = new Blob(["Just plain text pretending to be pdf"], {
+      type: "application/pdf",
+    });
+    fakeForm.append("file", fakeBlob, "fake_resume.pdf");
+
+    const res = await fetch(`${BASE_URL}/api/v1/profile/upload-resume`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: fakeForm,
+    });
+
+    if (res.status !== 400) {
+      throw new Error(`Expected 400 for spoofed magic bytes, got ${res.status}`);
+    }
+    const data = await res.json();
+    if (data.error.code !== "INVALID_FILE_TYPE") {
+      throw new Error(`Expected INVALID_FILE_TYPE, got ${data.error.code}`);
+    }
+  });
+
+  // Step 11: B4 Resume Upload & Structured Fact Extraction
+  await recordStep("POST /api/v1/profile/upload-resume (parse facts with factIds)", async () => {
+    // Generate authentic binary PDF using PDFKit
+    const PDFDocument = (await import("pdfkit")).default;
+    const validPdfBuffer = await new Promise((resolve) => {
+      const doc = new PDFDocument();
+      const chunks = [];
+      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+
+      doc.fontSize(16).text("Jane Doe - Senior Full Stack Architect");
+      doc.moveDown();
+      doc.fontSize(12).text("Experience: Tech Systems Inc - Principal Engineer (2020 - Present)");
+      doc.text(
+        "Architected event-driven microservices handling 25,000 requests per second with 99.99% uptime.",
+      );
+      doc.text(
+        "Reduced cloud infrastructure costs by 35% through Redis caching and query optimization.",
+      );
+      doc.moveDown();
+      doc.text("Skills: Node.js, Express, MongoDB, Redis, Docker, Kubernetes");
+      doc.moveDown();
+      doc.text("Education: B.S. in Computer Science, State University (2019)");
+      doc.end();
+    });
+
+    const form = new FormData();
+    const pdfBlob = new Blob([validPdfBuffer], { type: "application/pdf" });
+    form.append("file", pdfBlob, "jane_doe_resume.pdf");
+
+    const res = await fetch(`${BASE_URL}/api/v1/profile/upload-resume`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: form,
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Upload failed with ${res.status}: ${JSON.stringify(err)}`);
+    }
+
+    const data = await res.json();
+    const profile = data.data.profile;
+
+    if (!profile.roles || profile.roles.length === 0) {
+      throw new Error("No roles extracted from resume");
+    }
+
+    // Verify factIds exist and are non-empty
+    const firstRole = profile.roles[0];
+    if (!firstRole.factId || !firstRole.factId.startsWith("role_")) {
+      throw new Error("Missing or malformed factId on role");
+    }
+
+    if (!firstRole.achievements || firstRole.achievements.length === 0) {
+      throw new Error("No achievements extracted for role");
+    }
+
+    const firstAch = firstRole.achievements[0];
+    if (!firstAch.factId || !firstAch.factId.startsWith("ach_")) {
+      throw new Error("Missing or malformed factId on achievement");
+    }
+  });
+
+  // Step 12: B4 Profile Facts List Verification
+  await recordStep("GET /api/v1/profile/facts (retrieve factId registry)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/profile/facts`, {
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+      },
+    });
+
+    if (res.status !== 200) throw new Error(`Get facts failed with ${res.status}`);
+    const data = await res.json();
+
+    if (!data.data.facts || data.data.facts.length === 0) {
+      throw new Error("Fact registry is empty");
+    }
+
+    // Every fact must have factId
+    for (const f of data.data.facts) {
+      if (!f.factId) throw new Error("Fact in registry missing factId");
+    }
+  });
+
+  // Step 13: B4 Preferences Update & Profile Versioning
+  await recordStep("PUT /api/v1/profile/preferences (update & bump version)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/profile/preferences`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        targetRoles: ["Staff Engineer", "Backend Architect"],
+        minimumSalaryUsd: 160000,
+        preferredLocations: ["Remote", "San Francisco"],
+        remotePreference: "remote",
+      }),
+    });
+
+    if (res.status !== 200) throw new Error(`Preferences update failed with ${res.status}`);
+    const data = await res.json();
+    if (data.data.profile.preferences.minimumSalaryUsd !== 160000) {
+      throw new Error("Preferences were not updated accurately");
+    }
+  });
+
+  // Step 14: B4 AES-256-GCM Encryption / Decryption Verification
+  await recordStep("AES-256-GCM Encryption round-trip verification", async () => {
+    const { encryptText, decryptText } = await import("../src/shared/utils/crypto.js");
+    const secretResume = "Confidential Candidate Resume - Top Secret Experience";
+
+    const encrypted = encryptText(secretResume);
+    if (!encrypted.cipherText || !encrypted.iv || !encrypted.tag || encrypted.keyVersion !== "v1") {
+      throw new Error("Encrypted payload missing critical cryptographic components");
+    }
+
+    const decrypted = decryptText(encrypted);
+    if (decrypted !== secretResume) {
+      throw new Error("Decrypted text does not match original plaintext");
+    }
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();
