@@ -15,14 +15,20 @@ export const exportService = {
       doc.on("end", () => resolve(Buffer.concat(buffers)));
 
       // Header
-      doc.fontSize(20).font("Helvetica-Bold").text(candidateName || "Candidate", { align: "center" });
+      doc
+        .fontSize(20)
+        .font("Helvetica-Bold")
+        .text(candidateName || "Candidate", { align: "center" });
       if (email) {
         doc.fontSize(10).font("Helvetica").text(email, { align: "center" });
       }
       doc.moveDown(1.5);
 
       // Target Role
-      doc.fontSize(14).font("Helvetica-Bold").text(`Tailored Application: ${jobTitle} at ${company}`);
+      doc
+        .fontSize(14)
+        .font("Helvetica-Bold")
+        .text(`Tailored Application: ${jobTitle} at ${company}`);
       doc.moveDown(0.5);
 
       // Summary
@@ -83,7 +89,13 @@ export const exportService = {
    */
   async exportAndUpload({ documentId, candidateName, email, jobTitle, company, bullets }) {
     const pdfBuffer = await this.generatePdf({ candidateName, email, jobTitle, company, bullets });
-    const docxBuffer = await this.generateDocx({ candidateName, email, jobTitle, company, bullets });
+    const docxBuffer = await this.generateDocx({
+      candidateName,
+      email,
+      jobTitle,
+      company,
+      bullets,
+    });
 
     const pdfKey = `exports/${documentId}/tailored_resume.pdf`;
     const docxKey = `exports/${documentId}/tailored_resume.docx`;

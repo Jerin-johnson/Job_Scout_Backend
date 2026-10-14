@@ -39,6 +39,7 @@ export const textExtractionService = {
     return (
       rawText
         // Replace non-printable ASCII / null bytes
+        // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
         // Normalize CRLF to LF
         .replace(/\r\n/g, "\n")

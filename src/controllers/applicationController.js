@@ -4,14 +4,7 @@ import { applicationGraph } from "../ai/graphs/applicationGraph.js";
 import { get, set, CacheKeys, TTL } from "../shared/cache.js";
 import { logger } from "../shared/utils/logger.js";
 
-const VALID_STATUSES = [
-  "saved",
-  "applied",
-  "screening",
-  "interviewing",
-  "offer",
-  "rejected",
-];
+const VALID_STATUSES = ["saved", "applied", "screening", "interviewing", "offer", "rejected"];
 
 const CreateApplicationSchema = z.object({
   jobId: z.string().min(1, "jobId is required"),

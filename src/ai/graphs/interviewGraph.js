@@ -86,7 +86,8 @@ export const interviewGraph = {
           {
             id: `q_${nanoid(6)}`,
             category: "technical",
-            question: "How do you approach cache invalidation and stampede prevention in high-throughput APIs?",
+            question:
+              "How do you approach cache invalidation and stampede prevention in high-throughput APIs?",
             context: "Assesses caching patterns, mutex locks, and database protection.",
             recommendedApproach:
               "Discuss single-flight locking, probabilistic early expiration (XFetch), and TTL strategies.",
@@ -94,7 +95,8 @@ export const interviewGraph = {
           {
             id: `q_${nanoid(6)}`,
             category: "situational",
-            question: "How do you resolve architectural disagreements within your engineering team?",
+            question:
+              "How do you resolve architectural disagreements within your engineering team?",
             context: "Evaluates technical leadership and consensus building.",
             recommendedApproach:
               "Highlight RFC documents, benchmark prototypes, and disagree-and-commit culture.",
@@ -103,10 +105,13 @@ export const interviewGraph = {
         suggestedStarStories: [
           {
             factId: firstFactId,
-            situation: "High-traffic spikes caused database connection exhaustion during peak hours.",
+            situation:
+              "High-traffic spikes caused database connection exhaustion during peak hours.",
             task: "Eliminate downtime and protect downstream services without exploding cloud costs.",
-            action: "Implemented single-flight distributed locking and Redis response caching with compression.",
-            result: "Reduced database load by 65% and achieved zero outages during next major spike.",
+            action:
+              "Implemented single-flight distributed locking and Redis response caching with compression.",
+            result:
+              "Reduced database load by 65% and achieved zero outages during next major spike.",
           },
         ],
       };
@@ -201,9 +206,7 @@ Return a JSON object conforming to:
           "Clear explanation of technical constraints and tradeoffs.",
           "Specific metrics and quantifiable impact included in results.",
         ],
-        improvements: [
-          "Briefly mention cross-functional collaboration with product or DevOps.",
-        ],
+        improvements: ["Briefly mention cross-functional collaboration with product or DevOps."],
         feedback:
           "Strong answer following the STAR methodology effectively. Excellent depth on architecture choices.",
         nextQuestion: isLastTurn
@@ -288,9 +291,7 @@ Return JSON with:
 
     const scores = session.turns.map((t) => t.evaluation.score);
     const avgScore =
-      scores.length > 0
-        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-        : 0;
+      scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
     return {
       sessionId,

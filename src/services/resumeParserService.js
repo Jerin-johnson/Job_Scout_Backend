@@ -82,10 +82,7 @@ export const resumeParserService = {
     } else {
       // 2. Perform Structured Fact Extraction
       // In live production with API keys, calls Anthropic Haiku; in test/dev falls back to deterministic extraction
-      if (
-        env.ANTHROPIC_API_KEY &&
-        env.ANTHROPIC_API_KEY !== "dummy_anthropic_key_for_dev"
-      ) {
+      if (env.ANTHROPIC_API_KEY && env.ANTHROPIC_API_KEY !== "dummy_anthropic_key_for_dev") {
         try {
           const { ChatAnthropic } = await import("@langchain/anthropic");
           const { z } = await import("zod");
@@ -168,7 +165,10 @@ export const resumeParserService = {
             preferences: rawFacts.preferences,
           };
         } catch (err) {
-          logger.warn({ err: err.message }, "Live LLM parse failed, falling back to deterministic extractor");
+          logger.warn(
+            { err: err.message },
+            "Live LLM parse failed, falling back to deterministic extractor",
+          );
           facts = extractFactsOffline(rawText);
         }
       } else {

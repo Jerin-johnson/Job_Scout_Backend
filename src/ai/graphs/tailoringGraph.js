@@ -229,7 +229,7 @@ function flattenProfileFacts(profile) {
 // ---------------------------------------------------------------------------
 // Mock tailoring for dev/test mode
 // ---------------------------------------------------------------------------
-function mockTailoring(profile, jobId) {
+function mockTailoring(profile, _jobId) {
   const profileFacts = flattenProfileFacts(profile);
   const validFactIds = new Set(profileFacts.map((f) => f.factId));
   const topFacts = profileFacts.slice(0, 5);

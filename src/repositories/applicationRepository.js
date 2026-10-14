@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { Application } from "../models/Application.js";
 import { isMongoReady } from "../config/database.js";
 
@@ -28,7 +27,9 @@ export const applicationRepository = {
     if (isMongoReady()) {
       const app = new Application({
         ...data,
-        timeline: [{ status: data.status || "saved", changedAt: new Date(), note: "Application created" }],
+        timeline: [
+          { status: data.status || "saved", changedAt: new Date(), note: "Application created" },
+        ],
       });
       return (await app.save()).toObject();
     }

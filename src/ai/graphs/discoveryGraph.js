@@ -3,18 +3,9 @@ import { profileRepository } from "../../repositories/profileRepository.js";
 import { cosineSimilarity, embeddingService } from "../../services/embeddingService.js";
 import { Match } from "../../models/Match.js";
 import { isMongoReady } from "../../config/database.js";
-import { invokeLLM } from "../llm.js";
-import { z } from "zod";
 import { logger } from "../../shared/utils/logger.js";
 
 const inMemoryMatches = [];
-
-const explanationSchema = z.object({
-  score: z.number().min(0).max(100),
-  rationale: z.string(),
-  matchingSkills: z.array(z.string()),
-  missingSkills: z.array(z.string()),
-});
 
 export const discoveryGraph = {
   /**
@@ -54,9 +45,10 @@ export const discoveryGraph = {
 
     // 4. Vector Match: Cosine similarity
     const vectorMatches = jobs.map((job) => {
-      const sim = job.embedding && job.embedding.length > 0
-        ? cosineSimilarity(profileEmbedding, job.embedding)
-        : 0.5;
+      const sim =
+        job.embedding && job.embedding.length > 0
+          ? cosineSimilarity(profileEmbedding, job.embedding)
+          : 0.5;
       return { job, similarity: sim };
     });
 
@@ -100,16 +92,14 @@ export const discoveryGraph = {
 
     for (const { job, similarity } of top10) {
       // Deterministic / LLM explanation
-      const matching = (job.requirements || []).filter((r) =>
-        candidateSkills.has(r.toLowerCase()),
-      );
-      const missing = (job.requirements || []).filter(
-        (r) => !candidateSkills.has(r.toLowerCase()),
-      );
+      const matching = (job.requirements || []).filter((r) => candidateSkills.has(r.toLowerCase()));
+      const missing = (job.requirements || []).filter((r) => !candidateSkills.has(r.toLowerCase()));
 
       const calculatedScore = Math.min(
         100,
-        Math.round(similarity * 60 + (matching.length / Math.max(1, job.requirements?.length || 1)) * 40),
+        Math.round(
+          similarity * 60 + (matching.length / Math.max(1, job.requirements?.length || 1)) * 40,
+        ),
       );
 
       const matchRecord = {

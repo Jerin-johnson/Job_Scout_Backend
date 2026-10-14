@@ -72,7 +72,10 @@ export const embeddingService = {
         return embeddings.embedQuery(text);
       }
     } catch (err) {
-      logger.warn({ err: err.message }, "Embedding generation failed; falling back to deterministic mock");
+      logger.warn(
+        { err: err.message },
+        "Embedding generation failed; falling back to deterministic mock",
+      );
       return generateMockEmbedding(text);
     }
   },

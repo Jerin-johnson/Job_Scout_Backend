@@ -79,7 +79,13 @@ const MemorySchema = new mongoose.Schema(
 
 // Compound index for user memory queries
 MemorySchema.index({ userId: 1, type: 1 });
-MemorySchema.index({ userId: 1, key: 1 }, { unique: true, partialFilterExpression: { type: { $in: ["preference", "goal"] }, isDeleted: false } });
+MemorySchema.index(
+  { userId: 1, key: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { type: { $in: ["preference", "goal"] }, isDeleted: false },
+  },
+);
 
 // TTL index on expiresAt for temporary feedback/memories
 MemorySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -99,7 +105,9 @@ MemorySchema.pre("save", function (next) {
   const fullText = `${this.key} ${this.content}`;
   for (const pattern of protectedPatterns) {
     if (pattern.test(fullText)) {
-      const err = new Error("Compliance violation: Storing protected attributes (religion, ethnicity, caste, health, age inferences) is strictly prohibited.");
+      const err = new Error(
+        "Compliance violation: Storing protected attributes (religion, ethnicity, caste, health, age inferences) is strictly prohibited.",
+      );
       err.code = "PROTECTED_ATTRIBUTE_REJECTED";
       return next(err);
     }

@@ -15,6 +15,9 @@ import { jobRouter } from "./routes/jobs.js";
 import { tailorRouter } from "./routes/tailor.js";
 import { applicationRouter } from "./routes/applications.js";
 import { interviewRouter } from "./routes/interview.js";
+import { billingRouter } from "./routes/billing.js";
+import { adminRouter } from "./routes/admin.js";
+import { privacyRouter } from "./routes/privacy.js";
 
 export function createApp() {
   const app = express();
@@ -109,6 +112,15 @@ export function createApp() {
 
   // Interview Prep & Mock Interview routes
   app.use("/api/v1/interview", interviewRouter);
+
+  // Billing & Subscriptions routes
+  app.use("/api/v1/billing", billingRouter);
+
+  // Admin & Observability Telemetry routes
+  app.use("/api/v1/admin", adminRouter);
+
+  // GDPR / DPDP Privacy & Right-to-be-forgotten routes
+  app.use("/api/v1/privacy", privacyRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

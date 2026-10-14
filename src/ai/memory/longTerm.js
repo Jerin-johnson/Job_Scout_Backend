@@ -95,8 +95,10 @@ export const longTermMemory = {
       if (existingMemories.length >= maxMemories) {
         // Evict least important & oldest memory
         const sorted = [...existingMemories].sort(
-          (a, b) => a.importance * 0.6 + (new Date(a.lastUsedAt).getTime() / 1e12) * 0.4 -
-                    (b.importance * 0.6 + (new Date(b.lastUsedAt).getTime() / 1e12) * 0.4),
+          (a, b) =>
+            a.importance * 0.6 +
+            (new Date(a.lastUsedAt).getTime() / 1e12) * 0.4 -
+            (b.importance * 0.6 + (new Date(b.lastUsedAt).getTime() / 1e12) * 0.4),
         );
         const victim = sorted[0];
         if (victim) {
@@ -222,5 +224,9 @@ export const longTermMemory = {
     }
     await bumpVersion(uid, "memory");
     return true;
+  },
+
+  async forgetAllMemories(userId) {
+    return this.forgetAll(userId);
   },
 };

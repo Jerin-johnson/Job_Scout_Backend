@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { get, set, CacheKeys, TTL } from "../shared/cache.js";
+import { get, CacheKeys } from "../shared/cache.js";
 import { computeSha256 } from "../shared/utils/crypto.js";
 import { invokeLLM } from "./llm.js";
 import { RoutingLog } from "../models/RoutingLog.js";
@@ -36,16 +36,24 @@ const SLASH_COMMANDS = {
 
 // Deterministic natural language queries that map straight to Tier 0 DB queries
 const DETERMINISTIC_PATTERNS = [
-  { pattern: /^show (my )?applications?( this week)?$/i, intent: "db_lookup", query: "applications_recent" },
+  {
+    pattern: /^show (my )?applications?( this week)?$/i,
+    intent: "db_lookup",
+    query: "applications_recent",
+  },
   { pattern: /^list (my )?applications?$/i, intent: "db_lookup", query: "applications_all" },
   { pattern: /^what is my (current )?plan\??$/i, intent: "db_lookup", query: "user_plan" },
-  { pattern: /^how many credits? (do I have|left)\??$/i, intent: "db_lookup", query: "quota_balance" },
+  {
+    pattern: /^how many credits? (do I have|left)\??$/i,
+    intent: "db_lookup",
+    query: "quota_balance",
+  },
 ];
 
 /**
  * Tier 0 Check: Slash commands, deterministic DB regex, and exact cache lookup
  */
-async function checkTier0({ prompt, user, contextVersion = 1 }) {
+async function checkTier0({ prompt, user: _user, contextVersion = 1 }) {
   const normalized = prompt.trim();
 
   // 1. Slash commands ($0.00 cost)

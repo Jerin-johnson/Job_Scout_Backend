@@ -21,7 +21,10 @@ const PRICING = {
   },
 };
 
-function calculateCostUsd(modelName, { inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0 }) {
+function calculateCostUsd(
+  modelName,
+  { inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0 },
+) {
   const isSonnet = modelName.toLowerCase().includes("sonnet");
   const rates = isSonnet ? PRICING.sonnet : PRICING.haiku;
 
@@ -158,8 +161,7 @@ export async function invokeLLM({
 
   // 4. Check if live Anthropic key is available or in mock/offline mode
   const isMockMode =
-    !env.ANTHROPIC_API_KEY ||
-    env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev";
+    !env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev";
 
   if (isMockMode) {
     const latencyMs = Math.round(performance.now() - start);
@@ -266,20 +268,22 @@ export async function invokeLLM({
 
   // 8. Record Telemetry Asynchronously
   if (user) {
-    quotaService.recordUsage({
-      userId: user._id || user.id,
-      userPlan: user.plan || PLANS.FREE,
-      feature,
-      model: modelName,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      costUsd,
-      latencyMs,
-    }).catch((err) => {
-      logger.error({ err: err.message }, "Error recording usage telemetry");
-    });
+    quotaService
+      .recordUsage({
+        userId: user._id || user.id,
+        userPlan: user.plan || PLANS.FREE,
+        feature,
+        model: modelName,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+        costUsd,
+        latencyMs,
+      })
+      .catch((err) => {
+        logger.error({ err: err.message }, "Error recording usage telemetry");
+      });
   }
 
   return result;

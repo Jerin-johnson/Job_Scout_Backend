@@ -16,7 +16,10 @@ export const emailDigestService = {
    */
   async sendDailyDigest({ toEmail, candidateName, matches }) {
     if (env.RESEND_API_KEY === "re_dummy_key") {
-      logger.debug({ toEmail, count: matches.length }, "Mock Resend mode active; skipping live email dispatch");
+      logger.debug(
+        { toEmail, count: matches.length },
+        "Mock Resend mode active; skipping live email dispatch",
+      );
       return { success: true, mock: true };
     }
 

@@ -337,10 +337,7 @@ export async function exportDocument(req, res, next) {
         bullets,
       });
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="tailored_resume_${doc._id}.pdf"`,
-      );
+      res.setHeader("Content-Disposition", `attachment; filename="tailored_resume_${doc._id}.pdf"`);
       return res.send(pdfBuffer);
     } else {
       const docxBuffer = await exportService.generateDocx({

@@ -73,5 +73,4 @@ const DocumentSchema = new mongoose.Schema(
   },
 );
 
-export const Document =
-  mongoose.models.Document || mongoose.model("Document", DocumentSchema);
+export const Document = mongoose.models.Document || mongoose.model("Document", DocumentSchema);

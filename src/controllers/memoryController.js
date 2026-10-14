@@ -57,9 +57,7 @@ export const memoryController = {
       res.status(200).json({
         data: {
           memoryPaused: updated.memoryPaused,
-          message: updated.memoryPaused
-            ? "Memory capture paused"
-            : "Memory capture resumed",
+          message: updated.memoryPaused ? "Memory capture paused" : "Memory capture resumed",
         },
       });
     } catch (err) {

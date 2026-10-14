@@ -126,7 +126,7 @@ Return a JSON object with:
   /**
    * Dispatch approved email (simulated via Resend in dev/test)
    */
-  async sendApprovedEmail({ application, user }) {
+  async sendApprovedEmail({ application, user: _user }) {
     if (!application.followUpDraft || application.followUpDraft.status !== "draft") {
       throw Object.assign(new Error("No draft email awaiting approval"), {
         code: "NO_PENDING_DRAFT",

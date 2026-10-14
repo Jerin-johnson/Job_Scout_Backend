@@ -16,12 +16,7 @@ export const tailorRouter = Router();
 tailorRouter.use(authenticate);
 
 tailorRouter.get("/", listTailoringDocs);
-tailorRouter.post(
-  "/start",
-  csrfProtection,
-  requireQuota("tailor_resume"),
-  startTailor,
-);
+tailorRouter.post("/start", csrfProtection, requireQuota("tailor_resume"), startTailor);
 tailorRouter.get("/:id", getTailoringDoc);
 tailorRouter.post("/:id/approve", csrfProtection, approveTailor);
 tailorRouter.post("/:id/reject", csrfProtection, rejectTailor);

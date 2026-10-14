@@ -61,9 +61,7 @@ export const aiController = {
       // Handle Tier 0 instant responses (< 50ms)
       if (decision.tier === 0) {
         if (decision.cachedOutput) {
-          res.write(
-            `event: token\ndata: ${JSON.stringify({ text: decision.cachedOutput })}\n\n`,
-          );
+          res.write(`event: token\ndata: ${JSON.stringify({ text: decision.cachedOutput })}\n\n`);
         } else if (decision.hitType === "slash_command") {
           res.write(
             `event: token\ndata: ${JSON.stringify({
@@ -86,9 +84,7 @@ export const aiController = {
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
       const profile = await profileRepository.findByUserId(userId);
 
-      const pinnedFacts = profile
-        ? (profile.skills || []).map((s) => s.name).join(", ")
-        : "";
+      const pinnedFacts = profile ? (profile.skills || []).map((s) => s.name).join(", ") : "";
 
       const promptMessages = formatCachedPrompt({
         systemPrompt:

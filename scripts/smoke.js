@@ -440,7 +440,10 @@ async function run() {
       systemPrompt: "You are JobScout agent.",
       pinnedContext: "Skills: Node.js, Kubernetes",
       retrievedMemory: "Target: $160k+",
-      conversationHistory: [{ role: "user", content: "Hi" }, { role: "assistant", content: "Hello!" }],
+      conversationHistory: [
+        { role: "user", content: "Hi" },
+        { role: "assistant", content: "Hello!" },
+      ],
       userMessage: "Match me to jobs",
     });
 
@@ -448,7 +451,10 @@ async function run() {
       throw new Error(`Expected 6 prompt blocks, got ${formatted.length}`);
     }
     // Block 2 must have ephemeral cache_control
-    if (!formatted[1].content[0].cache_control || formatted[1].content[0].cache_control.type !== "ephemeral") {
+    if (
+      !formatted[1].content[0].cache_control ||
+      formatted[1].content[0].cache_control.type !== "ephemeral"
+    ) {
       throw new Error("Missing ephemeral cache_control on pinned facts block");
     }
 
@@ -621,7 +627,12 @@ async function run() {
     const userId = "user_smoke_mem";
 
     for (let i = 1; i <= 10; i++) {
-      await shortTermMemory.appendTurn(userId, threadId, i % 2 === 1 ? "user" : "assistant", `Turn ${i}`);
+      await shortTermMemory.appendTurn(
+        userId,
+        threadId,
+        i % 2 === 1 ? "user" : "assistant",
+        `Turn ${i}`,
+      );
     }
 
     const turns = await shortTermMemory.getTurns(userId, threadId);
@@ -911,7 +922,8 @@ async function run() {
         company: "Stripe",
         role: "Staff Infrastructure Engineer",
         status: "saved",
-        notes: "Found via JobScout discovery; strong alignment with distributed systems background.",
+        notes:
+          "Found via JobScout discovery; strong alignment with distributed systems background.",
       }),
     });
 
@@ -942,121 +954,137 @@ async function run() {
   });
 
   // Step 35: B10 Application Tracker - Pipeline Status Change & Follow-Up Automation Draft
-  await recordStep("PATCH /api/v1/applications/:id/status (pipeline transition & follow-up draft)", async () => {
-    const res = await fetch(`${BASE_URL}/api/v1/applications/${trackedAppId}/status`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${testUserToken}`,
-        "Content-Type": "application/json",
-        "X-Requested-With": "JobScoutClient",
-      },
-      body: JSON.stringify({
-        status: "applied",
-        note: "Submitted application via candidate referral",
-      }),
-    });
+  await recordStep(
+    "PATCH /api/v1/applications/:id/status (pipeline transition & follow-up draft)",
+    async () => {
+      const res = await fetch(`${BASE_URL}/api/v1/applications/${trackedAppId}/status`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${testUserToken}`,
+          "Content-Type": "application/json",
+          "X-Requested-With": "JobScoutClient",
+        },
+        body: JSON.stringify({
+          status: "applied",
+          note: "Submitted application via candidate referral",
+        }),
+      });
 
-    if (res.status !== 200) {
-      const err = await res.json();
-      throw new Error(`Update status failed: ${JSON.stringify(err)}`);
-    }
-    const data = await res.json();
-    const app = data.data.application;
-    if (app.status !== "applied") {
-      throw new Error("Application status did not update to 'applied'");
-    }
-    if (!app.followUpDraft || app.followUpDraft.status !== "draft" || !app.followUpDraft.subject) {
-      throw new Error("Graph D failed to draft follow-up email upon status change to applied");
-    }
-  });
+      if (res.status !== 200) {
+        const err = await res.json();
+        throw new Error(`Update status failed: ${JSON.stringify(err)}`);
+      }
+      const data = await res.json();
+      const app = data.data.application;
+      if (app.status !== "applied") {
+        throw new Error("Application status did not update to 'applied'");
+      }
+      if (
+        !app.followUpDraft ||
+        app.followUpDraft.status !== "draft" ||
+        !app.followUpDraft.subject
+      ) {
+        throw new Error("Graph D failed to draft follow-up email upon status change to applied");
+      }
+    },
+  );
 
   // Step 36: B10 Follow-Up Email Human Approval Flow
-  await recordStep("POST /api/v1/applications/:id/follow-up/approve (human-in-the-loop email send)", async () => {
-    const res = await fetch(`${BASE_URL}/api/v1/applications/${trackedAppId}/follow-up/approve`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${testUserToken}`,
-        "Content-Type": "application/json",
-        "X-Requested-With": "JobScoutClient",
-      },
-      body: JSON.stringify({}),
-    });
+  await recordStep(
+    "POST /api/v1/applications/:id/follow-up/approve (human-in-the-loop email send)",
+    async () => {
+      const res = await fetch(`${BASE_URL}/api/v1/applications/${trackedAppId}/follow-up/approve`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${testUserToken}`,
+          "Content-Type": "application/json",
+          "X-Requested-With": "JobScoutClient",
+        },
+        body: JSON.stringify({}),
+      });
 
-    if (res.status !== 200) {
-      const err = await res.json();
-      throw new Error(`Approve follow-up failed: ${JSON.stringify(err)}`);
-    }
-    const data = await res.json();
-    if (data.data.application.followUpDraft.status !== "sent") {
-      throw new Error("Approved follow-up email draft was not marked as sent");
-    }
-  });
+      if (res.status !== 200) {
+        const err = await res.json();
+        throw new Error(`Approve follow-up failed: ${JSON.stringify(err)}`);
+      }
+      const data = await res.json();
+      if (data.data.application.followUpDraft.status !== "sent") {
+        throw new Error("Approved follow-up email draft was not marked as sent");
+      }
+    },
+  );
 
   // Step 37: B10 Interview Prep (upgrade plan to premium first to test quota-gated access)
   let mockSessionId = null;
-  await recordStep("POST /api/v1/interview/prep (company brief, question bank & STAR stories)", async () => {
-    // Upgrade user to premium in repository to pass quota gate
-    const { userRepository } = await import("../src/repositories/userRepository.js");
-    const u = await userRepository.findByEmail(testEmail);
-    await userRepository.update(u._id, { plan: "premium" });
+  await recordStep(
+    "POST /api/v1/interview/prep (company brief, question bank & STAR stories)",
+    async () => {
+      // Upgrade user to premium in repository to pass quota gate
+      const { userRepository } = await import("../src/repositories/userRepository.js");
+      const u = await userRepository.findByEmail(testEmail);
+      await userRepository.update(u._id, { plan: "premium" });
 
-    const res = await fetch(`${BASE_URL}/api/v1/interview/prep`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${testUserToken}`,
-        "Content-Type": "application/json",
-        "X-Requested-With": "JobScoutClient",
-      },
-      body: JSON.stringify({
-        jobTitle: "Staff Infrastructure Engineer",
-        company: "Stripe",
-        jdText: "Design and operate global distributed storage and caching infrastructure.",
-      }),
-    });
+      const res = await fetch(`${BASE_URL}/api/v1/interview/prep`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${testUserToken}`,
+          "Content-Type": "application/json",
+          "X-Requested-With": "JobScoutClient",
+        },
+        body: JSON.stringify({
+          jobTitle: "Staff Infrastructure Engineer",
+          company: "Stripe",
+          jdText: "Design and operate global distributed storage and caching infrastructure.",
+        }),
+      });
 
-    if (res.status !== 200) {
-      const err = await res.json();
-      throw new Error(`Interview prep failed: ${JSON.stringify(err)}`);
-    }
-    const data = await res.json();
-    if (!data.data.questions || data.data.questions.length === 0) {
-      throw new Error("Interview prep failed to return questions");
-    }
-    if (!data.data.suggestedStarStories || data.data.suggestedStarStories.length === 0) {
-      throw new Error("Interview prep missing STAR story templates");
-    }
-  });
+      if (res.status !== 200) {
+        const err = await res.json();
+        throw new Error(`Interview prep failed: ${JSON.stringify(err)}`);
+      }
+      const data = await res.json();
+      if (!data.data.questions || data.data.questions.length === 0) {
+        throw new Error("Interview prep failed to return questions");
+      }
+      if (!data.data.suggestedStarStories || data.data.suggestedStarStories.length === 0) {
+        throw new Error("Interview prep missing STAR story templates");
+      }
+    },
+  );
 
   // Step 38: B10 Mock Interview Loop (STAR Scoring & Turn Evaluation)
-  await recordStep("POST /api/v1/interview/mock/turn (stateful turn evaluation & STAR score)", async () => {
-    const res = await fetch(`${BASE_URL}/api/v1/interview/mock/turn`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${testUserToken}`,
-        "Content-Type": "application/json",
-        "X-Requested-With": "JobScoutClient",
-      },
-      body: JSON.stringify({
-        questionId: "q_dist_sys_1",
-        question: "Describe a complex distributed system failure you diagnosed and resolved.",
-        candidateAnswer:
-          "During a Black Friday spike, our Redis connection pool became exhausted due to slow downstream writes. I diagnosed the bottleneck using distributed traces in Datadog, deployed a circuit breaker with exponential backoff within 20 minutes, and subsequently implemented single-flight locking which reduced database connection contention by 70%.",
-      }),
-    });
+  await recordStep(
+    "POST /api/v1/interview/mock/turn (stateful turn evaluation & STAR score)",
+    async () => {
+      const res = await fetch(`${BASE_URL}/api/v1/interview/mock/turn`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${testUserToken}`,
+          "Content-Type": "application/json",
+          "X-Requested-With": "JobScoutClient",
+        },
+        body: JSON.stringify({
+          questionId: "q_dist_sys_1",
+          question: "Describe a complex distributed system failure you diagnosed and resolved.",
+          candidateAnswer:
+            "During a Black Friday spike, our Redis connection pool became exhausted due to slow downstream writes. I diagnosed the bottleneck using distributed traces in Datadog, deployed a circuit breaker with exponential backoff within 20 minutes, and subsequently implemented single-flight locking which reduced database connection contention by 70%.",
+        }),
+      });
 
-    if (res.status !== 200) {
-      const err = await res.json();
-      throw new Error(`Mock turn failed: ${JSON.stringify(err)}`);
-    }
-    const data = await res.json();
-    if (typeof data.data.score !== "number" || !data.data.starScores) {
-      throw new Error("Mock turn missing score or STAR breakdown");
-    }
-    if (!data.data.sessionId) {
-      throw new Error("Mock turn missing sessionId");
-    }
-    mockSessionId = data.data.sessionId;
-  });
+      if (res.status !== 200) {
+        const err = await res.json();
+        throw new Error(`Mock turn failed: ${JSON.stringify(err)}`);
+      }
+      const data = await res.json();
+      if (typeof data.data.score !== "number" || !data.data.starScores) {
+        throw new Error("Mock turn missing score or STAR breakdown");
+      }
+      if (!data.data.sessionId) {
+        throw new Error("Mock turn missing sessionId");
+      }
+      mockSessionId = data.data.sessionId;
+    },
+  );
 
   // Step 39: B10 Mock Interview Performance Scorecard Report
   await recordStep("GET /api/v1/interview/:id/report (session report scorecard)", async () => {
@@ -1069,6 +1097,165 @@ async function run() {
       throw new Error("Mock interview report missing averageScore or turn history");
     }
   });
+
+  // Step 40: B11 Billing - Stripe / Razorpay Checkout Session
+  await recordStep("POST /api/v1/billing/checkout (create subscription session)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/billing/checkout`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        plan: "pro",
+        provider: "stripe",
+      }),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Checkout failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (!data.data.checkoutUrl || !data.data.sessionId) {
+      throw new Error("Missing checkoutUrl or sessionId in checkout response");
+    }
+  });
+
+  // Step 41: B11 Billing - Customer Portal Session
+  await recordStep("POST /api/v1/billing/portal (customer self-service portal)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/billing/portal`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (res.status !== 200) throw new Error(`Portal failed: ${res.status}`);
+    const data = await res.json();
+    if (!data.data.portalUrl) {
+      throw new Error("Missing portalUrl in portal response");
+    }
+  });
+
+  // Step 42: B11 Billing - Idempotent Stripe Webhook Handling & Replay Defense
+  await recordStep(
+    "POST /api/v1/billing/stripe-webhook (idempotent event processing)",
+    async () => {
+      const testWebhookEventId = `evt_smoke_${Date.now()}`;
+      const payload = JSON.stringify({
+        id: testWebhookEventId,
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            customer: "cus_mock_smoke_1",
+            metadata: { plan: "pro" },
+          },
+        },
+      });
+
+      // 1. Initial event dispatch -> processed: true
+      const res1 = await fetch(`${BASE_URL}/api/v1/billing/stripe-webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+      if (res1.status !== 200) throw new Error(`Webhook dispatch failed: ${res1.status}`);
+      const data1 = await res1.json();
+      if (!data1.processed || data1.duplicate) {
+        throw new Error("First webhook event was not marked as processed");
+      }
+
+      // 2. Replay SAME event -> duplicate: true, processed: false
+      const res2 = await fetch(`${BASE_URL}/api/v1/billing/stripe-webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+      const data2 = await res2.json();
+      if (!data2.duplicate || data2.processed) {
+        throw new Error("Replayed webhook event was not detected as duplicate");
+      }
+    },
+  );
+
+  // Step 43: B11 Admin Metrics (RBAC enforcement & operational telemetry)
+  await recordStep("GET /api/v1/admin/metrics (RBAC gate & telemetry dashboard)", async () => {
+    // 1. Regular candidate must receive 403 Forbidden
+    const candidateRes = await fetch(`${BASE_URL}/api/v1/admin/metrics`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (candidateRes.status !== 403) {
+      throw new Error(`Expected 403 FORBIDDEN for candidate, got ${candidateRes.status}`);
+    }
+
+    // 2. Create Admin user and obtain token
+    const { userRepository } = await import("../src/repositories/userRepository.js");
+    const { authService } = await import("../src/services/authService.js");
+    const adminUser = await userRepository.create({
+      email: `admin_${Date.now()}@jobscout.internal`,
+      role: "admin",
+      name: "Operations Admin",
+    });
+    const session = await authService.generateSession(adminUser);
+
+    // 3. Admin request must return telemetry metrics
+    const adminRes = await fetch(`${BASE_URL}/api/v1/admin/metrics`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (adminRes.status !== 200) throw new Error(`Admin metrics failed: ${adminRes.status}`);
+    const data = await adminRes.json();
+    if (!data.data.cache || !data.data.aiRouter || !data.data.costTelemetry) {
+      throw new Error("Admin metrics payload missing required telemetry subsystems");
+    }
+    if (typeof data.data.aiRouter.tier0Percentage !== "number") {
+      throw new Error("Missing tier0Percentage in AI Router metrics");
+    }
+  });
+
+  // Step 44: B11 Privacy - GDPR / DPDP Data Export
+  await recordStep("GET /api/v1/privacy/export (GDPR article 12 data portfolio)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/privacy/export`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res.status !== 200) throw new Error(`Export data failed: ${res.status}`);
+    const data = await res.json();
+    if (!data.data.complianceFrameworks || !data.data.profile || !data.data.applications) {
+      throw new Error("Export bundle missing compliance metadata, profile, or applications");
+    }
+  });
+
+  // Step 45: B11 Privacy - Right-to-be-Forgotten Permanent Deletion
+  await recordStep(
+    "DELETE /api/v1/privacy/delete-account (right-to-be-forgotten revocation)",
+    async () => {
+      const res = await fetch(`${BASE_URL}/api/v1/privacy/delete-account`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${testUserToken}`,
+          "X-Requested-With": "JobScoutClient",
+        },
+      });
+
+      if (res.status !== 200) throw new Error(`Delete account failed: ${res.status}`);
+      const data = await res.json();
+      if (!data.data.deletedAt) {
+        throw new Error("Missing deletedAt confirmation");
+      }
+
+      // Subsequent access with revoked session must be rejected (401 USER_NOT_FOUND)
+      const checkRes = await fetch(`${BASE_URL}/api/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${testUserToken}` },
+      });
+      if (checkRes.status !== 401) {
+        throw new Error(`Expected 401 after deletion, got ${checkRes.status}`);
+      }
+    },
+  );
 
   // Clean up server if we started it
   if (server) {
