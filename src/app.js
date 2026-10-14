@@ -13,6 +13,8 @@ import { aiRouter } from "./routes/ai.js";
 import { memoryRouter } from "./routes/memory.js";
 import { jobRouter } from "./routes/jobs.js";
 import { tailorRouter } from "./routes/tailor.js";
+import { applicationRouter } from "./routes/applications.js";
+import { interviewRouter } from "./routes/interview.js";
 
 export function createApp() {
   const app = express();
@@ -101,6 +103,12 @@ export function createApp() {
 
   // Resume Tailoring routes
   app.use("/api/v1/tailor", tailorRouter);
+
+  // Application Tracker (Kanban) routes
+  app.use("/api/v1/applications", applicationRouter);
+
+  // Interview Prep & Mock Interview routes
+  app.use("/api/v1/interview", interviewRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

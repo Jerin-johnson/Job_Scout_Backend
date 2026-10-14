@@ -896,6 +896,180 @@ async function run() {
     }
   });
 
+  // Step 33: B10 Application Tracker - Create & Track Job
+  let trackedAppId = null;
+  await recordStep("POST /api/v1/applications (track job in Kanban)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/applications`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        jobId: discoveredJobId || "job_test_123",
+        company: "Stripe",
+        role: "Staff Infrastructure Engineer",
+        status: "saved",
+        notes: "Found via JobScout discovery; strong alignment with distributed systems background.",
+      }),
+    });
+
+    if (res.status !== 201) {
+      const err = await res.json();
+      throw new Error(`Create application failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (!data.data.application?._id || data.data.application.status !== "saved") {
+      throw new Error("Application tracking failed to return saved record");
+    }
+    trackedAppId = data.data.application._id;
+  });
+
+  // Step 34: B10 Application Tracker - Kanban Column Aggregation
+  await recordStep("GET /api/v1/applications (Kanban columns & cache)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/applications`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res.status !== 200) throw new Error(`Get applications failed: ${res.status}`);
+    const data = await res.json();
+    if (!data.data.columns || !Array.isArray(data.data.columns.saved)) {
+      throw new Error("Missing Kanban columns structure");
+    }
+    if (data.data.columns.saved.length < 1) {
+      throw new Error("Tracked application missing from 'saved' column");
+    }
+  });
+
+  // Step 35: B10 Application Tracker - Pipeline Status Change & Follow-Up Automation Draft
+  await recordStep("PATCH /api/v1/applications/:id/status (pipeline transition & follow-up draft)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/applications/${trackedAppId}/status`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        status: "applied",
+        note: "Submitted application via candidate referral",
+      }),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Update status failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    const app = data.data.application;
+    if (app.status !== "applied") {
+      throw new Error("Application status did not update to 'applied'");
+    }
+    if (!app.followUpDraft || app.followUpDraft.status !== "draft" || !app.followUpDraft.subject) {
+      throw new Error("Graph D failed to draft follow-up email upon status change to applied");
+    }
+  });
+
+  // Step 36: B10 Follow-Up Email Human Approval Flow
+  await recordStep("POST /api/v1/applications/:id/follow-up/approve (human-in-the-loop email send)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/applications/${trackedAppId}/follow-up/approve`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Approve follow-up failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (data.data.application.followUpDraft.status !== "sent") {
+      throw new Error("Approved follow-up email draft was not marked as sent");
+    }
+  });
+
+  // Step 37: B10 Interview Prep (upgrade plan to premium first to test quota-gated access)
+  let mockSessionId = null;
+  await recordStep("POST /api/v1/interview/prep (company brief, question bank & STAR stories)", async () => {
+    // Upgrade user to premium in repository to pass quota gate
+    const { userRepository } = await import("../src/repositories/userRepository.js");
+    const u = await userRepository.findByEmail(testEmail);
+    await userRepository.update(u._id, { plan: "premium" });
+
+    const res = await fetch(`${BASE_URL}/api/v1/interview/prep`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        jobTitle: "Staff Infrastructure Engineer",
+        company: "Stripe",
+        jdText: "Design and operate global distributed storage and caching infrastructure.",
+      }),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Interview prep failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (!data.data.questions || data.data.questions.length === 0) {
+      throw new Error("Interview prep failed to return questions");
+    }
+    if (!data.data.suggestedStarStories || data.data.suggestedStarStories.length === 0) {
+      throw new Error("Interview prep missing STAR story templates");
+    }
+  });
+
+  // Step 38: B10 Mock Interview Loop (STAR Scoring & Turn Evaluation)
+  await recordStep("POST /api/v1/interview/mock/turn (stateful turn evaluation & STAR score)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/interview/mock/turn`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        questionId: "q_dist_sys_1",
+        question: "Describe a complex distributed system failure you diagnosed and resolved.",
+        candidateAnswer:
+          "During a Black Friday spike, our Redis connection pool became exhausted due to slow downstream writes. I diagnosed the bottleneck using distributed traces in Datadog, deployed a circuit breaker with exponential backoff within 20 minutes, and subsequently implemented single-flight locking which reduced database connection contention by 70%.",
+      }),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Mock turn failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (typeof data.data.score !== "number" || !data.data.starScores) {
+      throw new Error("Mock turn missing score or STAR breakdown");
+    }
+    if (!data.data.sessionId) {
+      throw new Error("Mock turn missing sessionId");
+    }
+    mockSessionId = data.data.sessionId;
+  });
+
+  // Step 39: B10 Mock Interview Performance Scorecard Report
+  await recordStep("GET /api/v1/interview/:id/report (session report scorecard)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/interview/${mockSessionId}/report`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res.status !== 200) throw new Error(`Get report failed: ${res.status}`);
+    const data = await res.json();
+    if (typeof data.data.averageScore !== "number" || data.data.totalTurnsCompleted < 1) {
+      throw new Error("Mock interview report missing averageScore or turn history");
+    }
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();
