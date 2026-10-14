@@ -218,7 +218,10 @@ export async function bumpVersion(userId, scope) {
     await redis.expire(verKey, TTL.VERSION);
     return newVer;
   } catch (err) {
-    logger.warn({ err: err.message, verKey }, "Cache bumpVersion failed; falling back to timestamp");
+    logger.warn(
+      { err: err.message, verKey },
+      "Cache bumpVersion failed; falling back to timestamp",
+    );
     return Date.now();
   }
 }

@@ -7,6 +7,7 @@ import { env } from "./config/env.js";
 import { httpLogger } from "./shared/utils/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { healthRouter } from "./routes/health.js";
+import { authRouter } from "./routes/auth.js";
 
 export function createApp() {
   const app = express();
@@ -77,6 +78,9 @@ export function createApp() {
 
   // Root health endpoints
   app.use("/health", healthRouter);
+
+  // Authentication API routes
+  app.use("/api/v1/auth", authRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

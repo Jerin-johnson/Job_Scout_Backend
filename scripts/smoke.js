@@ -75,9 +75,8 @@ async function run() {
 
   // Step 4: B2 Shared Cache get/set/del & getOrSet & compression
   await recordStep("Shared Cache get/set/del & single-flight getOrSet", async () => {
-    const { get, set, del, getOrSet, bumpVersion, CacheKeys, getCacheMetrics } = await import(
-      "../src/shared/cache.js"
-    );
+    const { get, set, del, getOrSet, bumpVersion, CacheKeys, getCacheMetrics } =
+      await import("../src/shared/cache.js");
 
     const testKey = CacheKeys.exactQuery("test-hash-12345");
     await del(testKey);
@@ -129,6 +128,152 @@ async function run() {
     }
 
     await del(testKey);
+  });
+
+  // Step 5: B3 Auth - Registration
+  let testUserToken = null;
+  let testUserRefreshToken = null;
+  const testEmail = `candidate_${Date.now()}@example.com`;
+  const testPassword = "Password123!";
+
+  await recordStep("POST /api/v1/auth/register (create candidate)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/auth/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        email: testEmail,
+        password: testPassword,
+        name: "Test Candidate",
+      }),
+    });
+    if (res.status !== 201) {
+      const err = await res.json();
+      throw new Error(`Register failed with ${res.status}: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (!data.data.accessToken || data.data.user.email !== testEmail) {
+      throw new Error("Invalid register payload response");
+    }
+    testUserToken = data.data.accessToken;
+  });
+
+  // Step 6: B3 Auth - Login
+  await recordStep("POST /api/v1/auth/login (authenticate candidate)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        email: testEmail,
+        password: testPassword,
+      }),
+    });
+    if (res.status !== 200) throw new Error(`Login failed with ${res.status}`);
+    const data = await res.json();
+    testUserToken = data.data.accessToken;
+
+    // Extract set-cookie for refreshToken
+    const cookies = res.headers.get("set-cookie") || "";
+    const match = cookies.match(/refreshToken=([^;]+)/);
+    if (match) {
+      testUserRefreshToken = match[1];
+    }
+  });
+
+  // Step 7: B3 Auth - Protected Route GET /api/v1/auth/me
+  await recordStep("GET /api/v1/auth/me (authenticated session)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+      },
+    });
+    if (res.status !== 200) throw new Error(`Me failed with ${res.status}`);
+    const data = await res.json();
+    if (data.data.user.email !== testEmail || data.data.user.plan !== "free") {
+      throw new Error("Invalid /me user profile details");
+    }
+  });
+
+  // Step 8: B3 Auth - Refresh Token Rotation & Reuse Detection
+  await recordStep("POST /api/v1/auth/refresh (rotation & reuse revocation)", async () => {
+    if (!testUserRefreshToken) {
+      // If cookie was not accessible in node fetch, generate token through service directly
+      const { authService } = await import("../src/services/authService.js");
+      const { userRepository } = await import("../src/repositories/userRepository.js");
+      const u = await userRepository.findByEmail(testEmail);
+      const session = await authService.generateSession(u);
+      testUserRefreshToken = session.refreshToken;
+    }
+
+    // 1. First rotation should succeed
+    const res1 = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({ refreshToken: testUserRefreshToken }),
+    });
+
+    if (res1.status !== 200) {
+      const err = await res1.json();
+      throw new Error(`Refresh failed: ${JSON.stringify(err)}`);
+    }
+
+    // 2. Replaying the SAME old refresh token MUST trigger reuse detection (HTTP 401)
+    const res2 = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({ refreshToken: testUserRefreshToken }),
+    });
+
+    if (res2.status !== 401) {
+      throw new Error(`Expected 401 on token reuse, got ${res2.status}`);
+    }
+    const errData = await res2.json();
+    if (errData.error.code !== "TOKEN_REUSE_DETECTED") {
+      throw new Error(`Expected TOKEN_REUSE_DETECTED, got ${errData.error.code}`);
+    }
+  });
+
+  // Step 9: B3 Quotas & Daily Budgets Check
+  await recordStep("Quota & Budget Validation (Free Tier limits & blocks)", async () => {
+    const { quotaService } = await import("../src/services/quotaService.js");
+    const mockUser = { id: "test_quota_user_1", plan: "free" };
+
+    // Initially quota check should pass
+    await quotaService.checkQuota(mockUser, "chat");
+
+    // Increment chat quota to 20 (free tier max)
+    for (let i = 0; i < 20; i++) {
+      await quotaService.incrementQuota(mockUser.id, "chat");
+    }
+
+    // 21st chat should throw 429 QUOTA_EXCEEDED
+    let threw = false;
+    try {
+      await quotaService.checkQuota(mockUser, "chat");
+    } catch (err) {
+      if (err.code === "QUOTA_EXCEEDED") threw = true;
+    }
+    if (!threw) throw new Error("Free plan daily chat limit was not enforced");
+
+    // Pro-only feature (interview_prep) should be blocked on Free tier (403)
+    let proBlocked = false;
+    try {
+      await quotaService.checkQuota(mockUser, "interview_prep");
+    } catch (err) {
+      if (err.code === "PLAN_UPGRADE_REQUIRED") proBlocked = true;
+    }
+    if (!proBlocked) throw new Error("Pro feature was not blocked on Free tier");
   });
 
   // Clean up server if we started it
