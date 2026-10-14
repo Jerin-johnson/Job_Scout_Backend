@@ -35,6 +35,7 @@ export const profileRepository = {
     const updated = {
       _id: existing?._id || new mongoose.Types.ObjectId().toString(),
       userId: uid,
+      ...(existing || {}),
       ...profileData,
       version: (existing?.version || 0) + 1,
       updatedAt: new Date(),

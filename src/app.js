@@ -12,6 +12,7 @@ import { profileRouter } from "./routes/profile.js";
 import { aiRouter } from "./routes/ai.js";
 import { memoryRouter } from "./routes/memory.js";
 import { jobRouter } from "./routes/jobs.js";
+import { tailorRouter } from "./routes/tailor.js";
 
 export function createApp() {
   const app = express();
@@ -97,6 +98,9 @@ export function createApp() {
 
   // Job Discovery & Matches routes
   app.use("/api/v1/jobs", jobRouter);
+
+  // Resume Tailoring routes
+  app.use("/api/v1/tailor", tailorRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

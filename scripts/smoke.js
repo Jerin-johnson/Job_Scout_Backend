@@ -307,7 +307,7 @@ async function run() {
     // Generate authentic binary PDF using PDFKit
     const PDFDocument = (await import("pdfkit")).default;
     const validPdfBuffer = await new Promise((resolve) => {
-      const doc = new PDFDocument();
+      const doc = new PDFDocument({ pdfVersion: "1.5" });
       const chunks = [];
       doc.on("data", (chunk) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -791,6 +791,108 @@ async function run() {
     const data = await res.json();
     if (data.data.match?.userFeedback !== "thumbs_down") {
       throw new Error("Feedback was not saved correctly");
+    }
+  });
+
+  // Step 28: B9 Tailor Resume Start (truthfulness check + factId linking)
+  let draftDocId = null;
+  await recordStep("POST /api/v1/tailor/start (truthful facts & ATS keyword scoring)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/tailor/start`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        jobId: discoveredJobId || "job_test_123",
+        jobTitle: "Senior Backend Engineer",
+        company: "Stripe",
+        jdText:
+          "Seeking a Senior Backend Engineer proficient in Node.js, Express, MongoDB, and Redis API design.",
+      }),
+    });
+
+    if (res.status !== 201) {
+      const err = await res.json();
+      throw new Error(`Tailor start failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (!data.data.documentId || data.data.status !== "awaiting_approval") {
+      throw new Error("Missing documentId or invalid status in draft");
+    }
+    if (!data.data.bullets || data.data.bullets.length === 0) {
+      throw new Error("No bullets generated");
+    }
+    // Truthfulness verification: every bullet must have a valid factId
+    for (const b of data.data.bullets) {
+      if (!b.factId) throw new Error("Bullet generated without factId reference!");
+    }
+    if (typeof data.data.atsMatch?.score !== "number") {
+      throw new Error("Missing ATS match score");
+    }
+    draftDocId = data.data.documentId;
+  });
+
+  // Step 29: B9 Tailor Document Detail Check
+  await recordStep("GET /api/v1/tailor/:id (verify awaiting_approval state)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/tailor/${draftDocId}`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res.status !== 200) throw new Error(`Get draft doc failed: ${res.status}`);
+    const data = await res.json();
+    if (data.data.document.status !== "awaiting_approval") {
+      throw new Error("Document is not awaiting approval");
+    }
+  });
+
+  // Step 30: B9 Tailor Resume Approve Flow (Generates exports)
+  await recordStep("POST /api/v1/tailor/:id/approve (human approval & S3 upload)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/tailor/${draftDocId}/approve`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.json();
+      throw new Error(`Approve failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    if (data.data.status !== "approved" || !data.data.pdfUrl || !data.data.docxUrl) {
+      throw new Error("Approval response missing approved status or storage URLs");
+    }
+  });
+
+  // Step 31: B9 Tailor Export Binary Download (PDF)
+  await recordStep("GET /api/v1/tailor/:id/export?format=pdf (binary download)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/tailor/${draftDocId}/export?format=pdf`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res.status !== 200) throw new Error(`Export PDF failed: ${res.status}`);
+    const contentType = res.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/pdf")) {
+      throw new Error(`Expected application/pdf, got ${contentType}`);
+    }
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength < 500) {
+      throw new Error("Exported PDF buffer suspiciously small");
+    }
+  });
+
+  // Step 32: B9 List User Tailored Documents
+  await recordStep("GET /api/v1/tailor (list candidate documents)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/tailor`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res.status !== 200) throw new Error(`List documents failed: ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data.data.documents) || data.data.count < 1) {
+      throw new Error("List documents returned empty or invalid structure");
     }
   });
 
