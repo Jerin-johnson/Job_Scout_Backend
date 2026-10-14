@@ -716,6 +716,84 @@ async function run() {
     }
   });
 
+  // Step 24: B8 Job Ingestion & One-Time Vector Embedding
+  await recordStep("Job Ingestion (deduplication & one-time embedding)", async () => {
+    const { jobIngestionService } = await import("../src/services/jobs/jobIngestionService.js");
+    const result = await jobIngestionService.ingestAll();
+
+    if (result.ingested < 1) {
+      throw new Error("Job ingestion failed to produce jobs");
+    }
+    // Verify every job has contentHash
+    for (const j of result.jobs) {
+      if (!j.contentHash) throw new Error("Job missing contentHash");
+    }
+  });
+
+  // Step 25: B8 Discovery Graph A Execution & Rule Filtering
+  let discoveredJobId = null;
+  await recordStep("Discovery Graph A (vector matching, rule filter & top matches)", async () => {
+    const { userRepository } = await import("../src/repositories/userRepository.js");
+    const { discoveryGraph } = await import("../src/ai/graphs/discoveryGraph.js");
+
+    const u = await userRepository.findByEmail(testEmail);
+    const result = await discoveryGraph.runDiscovery(u);
+
+    if (!result.matches || result.matches.length === 0) {
+      throw new Error("Discovery graph produced 0 matches");
+    }
+
+    const firstMatch = result.matches[0];
+    if (typeof firstMatch.score !== "number" || !firstMatch.rationale) {
+      throw new Error("Match record missing score or rationale");
+    }
+    discoveredJobId = firstMatch.jobId;
+  });
+
+  // Step 26: B8 Matches API with L1 Caching
+  await recordStep("GET /api/v1/jobs/matches (precomputed matches & response cache)", async () => {
+    // 1. Initial read
+    const res1 = await fetch(`${BASE_URL}/api/v1/jobs/matches`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    if (res1.status !== 200) throw new Error(`Get matches failed: ${res1.status}`);
+    const data1 = await res1.json();
+    if (!data1.data.matches || data1.data.matches.length === 0) {
+      throw new Error("No matches returned from API");
+    }
+
+    // 2. Second read should hit L1 response cache
+    const res2 = await fetch(`${BASE_URL}/api/v1/jobs/matches`, {
+      headers: { Authorization: `Bearer ${testUserToken}` },
+    });
+    const data2 = await res2.json();
+    if (!data2.data.fromCache) {
+      throw new Error("Second matches request did not hit L1 cache");
+    }
+  });
+
+  // Step 27: B8 Match Feedback Recording (writes preference memory)
+  await recordStep("POST /api/v1/jobs/:id/feedback (thumbs down with reason)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/jobs/${discoveredJobId}/feedback`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        feedback: "thumbs_down",
+        reason: "Compensation range is below preferred baseline",
+      }),
+    });
+
+    if (res.status !== 200) throw new Error(`Feedback failed: ${res.status}`);
+    const data = await res.json();
+    if (data.data.match?.userFeedback !== "thumbs_down") {
+      throw new Error("Feedback was not saved correctly");
+    }
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();

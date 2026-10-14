@@ -11,6 +11,7 @@ import { authRouter } from "./routes/auth.js";
 import { profileRouter } from "./routes/profile.js";
 import { aiRouter } from "./routes/ai.js";
 import { memoryRouter } from "./routes/memory.js";
+import { jobRouter } from "./routes/jobs.js";
 
 export function createApp() {
   const app = express();
@@ -93,6 +94,9 @@ export function createApp() {
 
   // Candidate Memory Control routes
   app.use("/api/v1/memories", memoryRouter);
+
+  // Job Discovery & Matches routes
+  app.use("/api/v1/jobs", jobRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {
