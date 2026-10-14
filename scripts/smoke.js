@@ -430,6 +430,60 @@ async function run() {
     }
   });
 
+  // Step 15: B5 Central LLM Wrapper Prompt Format Caching & Invocation
+  await recordStep("Central LLM Wrapper (prompt caching order & invocation)", async () => {
+    const { formatCachedPrompt, invokeLLM } = await import("../src/ai/llm.js");
+    const { z } = await import("zod");
+
+    // 1. Verify prompt formatting order
+    const formatted = formatCachedPrompt({
+      systemPrompt: "You are JobScout agent.",
+      pinnedContext: "Skills: Node.js, Kubernetes",
+      retrievedMemory: "Target: $160k+",
+      conversationHistory: [{ role: "user", content: "Hi" }, { role: "assistant", content: "Hello!" }],
+      userMessage: "Match me to jobs",
+    });
+
+    if (formatted.length !== 6) {
+      throw new Error(`Expected 6 prompt blocks, got ${formatted.length}`);
+    }
+    // Block 2 must have ephemeral cache_control
+    if (!formatted[1].content[0].cache_control || formatted[1].content[0].cache_control.type !== "ephemeral") {
+      throw new Error("Missing ephemeral cache_control on pinned facts block");
+    }
+
+    // 2. Invoke LLM with small model
+    const mockUser = { id: "test_llm_user", plan: "pro" };
+    const textRes = await invokeLLM({
+      user: mockUser,
+      tier: "small",
+      feature: "chat",
+      prompt: formatted,
+    });
+
+    if (!textRes || typeof textRes !== "string") {
+      throw new Error("LLM invocation failed to return text response");
+    }
+
+    // 3. Structured Output invocation with Zod schema
+    const testSchema = z.object({
+      intent: z.string(),
+      confidence: z.number(),
+    });
+
+    const structuredRes = await invokeLLM({
+      user: mockUser,
+      tier: "small",
+      feature: "router_classify",
+      prompt: formatted,
+      schema: testSchema,
+    });
+
+    if (!structuredRes.intent || typeof structuredRes.confidence !== "number") {
+      throw new Error("Structured output failed Zod schema verification");
+    }
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();
