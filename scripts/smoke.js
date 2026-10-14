@@ -73,6 +73,64 @@ async function run() {
     }
   });
 
+  // Step 4: B2 Shared Cache get/set/del & getOrSet & compression
+  await recordStep("Shared Cache get/set/del & single-flight getOrSet", async () => {
+    const { get, set, del, getOrSet, bumpVersion, CacheKeys, getCacheMetrics } = await import(
+      "../src/shared/cache.js"
+    );
+
+    const testKey = CacheKeys.exactQuery("test-hash-12345");
+    await del(testKey);
+
+    // Test direct set and get
+    await set(testKey, { direct: true }, 60);
+    const directVal = await get(testKey);
+    if (!directVal || !directVal.direct) throw new Error("Direct set failed");
+    await del(testKey);
+
+    // Test getOrSet
+    let computeCalls = 0;
+    const val1 = await getOrSet(
+      testKey,
+      async () => {
+        computeCalls++;
+        return { msg: "computed-value", largeData: "X".repeat(3000) };
+      },
+      60,
+    );
+
+    if (val1.msg !== "computed-value" || computeCalls !== 1) {
+      throw new Error("getOrSet did not compute value");
+    }
+
+    // Second call should hit cache without calling computeFn
+    const val2 = await getOrSet(
+      testKey,
+      async () => {
+        computeCalls++;
+        return { msg: "should-not-be-called" };
+      },
+      60,
+    );
+
+    if (val2.msg !== "computed-value" || computeCalls !== 1) {
+      throw new Error("getOrSet called computeFn on cached value");
+    }
+
+    // Version bump invalidation
+    const ver1 = await bumpVersion("usr_123", "profile");
+    const ver2 = await bumpVersion("usr_123", "profile");
+    if (ver2 <= ver1) throw new Error("Version did not increment on bumpVersion");
+
+    // Metrics tracking
+    const metrics = getCacheMetrics();
+    if (metrics.hits < 1 || metrics.misses < 1) {
+      throw new Error("Cache metrics did not record hit/miss");
+    }
+
+    await del(testKey);
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();
