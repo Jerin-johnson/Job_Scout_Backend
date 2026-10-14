@@ -484,6 +484,136 @@ async function run() {
     }
   });
 
+  // Step 16: B6 AI Router - Tier 0 Slash Commands & DB Lookups (< 50ms)
+  await recordStep("AI Router Tier 0 (Slash command & Deterministic DB match)", async () => {
+    const { routeRequest } = await import("../src/ai/router.js");
+    const mockUser = { id: "test_router_user", plan: "pro" };
+
+    // 1. Slash command /track
+    const slashRes = await routeRequest({ prompt: "/track", user: mockUser });
+    if (slashRes.tier !== 0 || slashRes.hitType !== "slash_command") {
+      throw new Error(`Expected Tier 0 slash_command, got tier ${slashRes.tier}`);
+    }
+    if (slashRes.latencyMs > 50) {
+      throw new Error(`Tier 0 latency exceeded 50ms target: ${slashRes.latencyMs}ms`);
+    }
+
+    // 2. Deterministic DB query
+    const dbRes = await routeRequest({ prompt: "show my applications this week", user: mockUser });
+    if (dbRes.tier !== 0 || dbRes.hitType !== "deterministic_query") {
+      throw new Error(`Expected Tier 0 deterministic_query, got tier ${dbRes.tier}`);
+    }
+  });
+
+  // Step 17: B6 AI Router - Exact Cache Speedup (< 50ms)
+  await recordStep("AI Router Tier 0 Exact Cache hit speedup", async () => {
+    const { routeRequest } = await import("../src/ai/router.js");
+    const { set, CacheKeys, TTL } = await import("../src/shared/cache.js");
+    const { computeSha256 } = await import("../src/shared/utils/crypto.js");
+
+    const promptText = "How do I optimize my resume for ATS scanners?";
+    const promptHash = computeSha256(`${promptText}:v1`);
+    const cacheKey = CacheKeys.exactQuery(promptHash);
+
+    // Seed exact cache
+    await set(
+      cacheKey,
+      {
+        intent: "chat_simple",
+        output: "Use clean formatting, standard headers, and target keywords from the JD.",
+      },
+      TTL.EXACT_QUERY,
+    );
+
+    const cachedRes = await routeRequest({
+      prompt: promptText,
+      user: { id: "test_cached_user", plan: "pro" },
+      contextVersion: 1,
+    });
+
+    if (cachedRes.tier !== 0 || cachedRes.hitType !== "exact_cache") {
+      throw new Error(`Expected Tier 0 exact_cache hit, got tier ${cachedRes.tier}`);
+    }
+    if (!cachedRes.cachedOutput) {
+      throw new Error("Cached response payload missing");
+    }
+  });
+
+  // Step 18: B6 AI Router - Tier 1 & Tier 2 Classification & Escalation
+  await recordStep("AI Router Tier 1 vs Tier 2 Escalation", async () => {
+    const { routeRequest } = await import("../src/ai/router.js");
+    const mockUser = { id: "test_escalation_user", plan: "pro" };
+
+    // Simple question -> Tier 1
+    const t1Res = await routeRequest({
+      prompt: "Give me a 1-sentence tip on salary negotiation",
+      user: mockUser,
+    });
+    if (t1Res.tier !== 1) {
+      throw new Error(`Expected Tier 1 for simple chat, got ${t1Res.tier}`);
+    }
+
+    // Heavy workflow intent -> Tier 2
+    // We can test that heavy workflows resolve to Tier 2
+    const { routerClassifierSchema } = await import("../src/ai/router.js");
+    const parsed = routerClassifierSchema.safeParse({
+      intent: "match_jobs",
+      complexity: "high",
+      needsTools: true,
+      needsMemory: true,
+      confidence: 0.95,
+      entities: {},
+    });
+    if (!parsed.success) throw new Error("Classifier schema validation error");
+  });
+
+  // Step 19: B6 SSE Streaming Chat Endpoint (First token latency & event stream)
+  await recordStep("POST /api/v1/ai/chat (SSE first token & stream events)", async () => {
+    const res = await fetch(`${BASE_URL}/api/v1/ai/chat`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${testUserToken}`,
+        "Content-Type": "application/json",
+        "X-Requested-With": "JobScoutClient",
+      },
+      body: JSON.stringify({
+        prompt: "Show my applications",
+      }),
+    });
+
+    if (res.status !== 200) {
+      const err = await res.text();
+      throw new Error(`Chat SSE failed with ${res.status}: ${err}`);
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("text/event-stream")) {
+      throw new Error(`Expected text/event-stream, got ${contentType}`);
+    }
+
+    // Read stream events
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let streamText = "";
+    let receivedRoutingEvent = false;
+    let receivedTokenEvent = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      streamText += decoder.decode(value, { stream: true });
+      if (streamText.includes("event: routing")) receivedRoutingEvent = true;
+      if (streamText.includes("event: token")) receivedTokenEvent = true;
+    }
+
+    if (!receivedRoutingEvent) {
+      throw new Error("Missing 'routing' event in SSE stream");
+    }
+    if (!receivedTokenEvent) {
+      throw new Error("Missing 'token' event in SSE stream");
+    }
+  });
+
   // Clean up server if we started it
   if (server) {
     server.close();

@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { healthRouter } from "./routes/health.js";
 import { authRouter } from "./routes/auth.js";
 import { profileRouter } from "./routes/profile.js";
+import { aiRouter } from "./routes/ai.js";
 
 export function createApp() {
   const app = express();
@@ -85,6 +86,9 @@ export function createApp() {
 
   // Candidate Profile & Resume routes
   app.use("/api/v1/profile", profileRouter);
+
+  // AI Router & Chat routes
+  app.use("/api/v1/ai", aiRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {
