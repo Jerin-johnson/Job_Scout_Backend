@@ -2,6 +2,7 @@ import { validateResumeMagicBytes } from "../shared/utils/fileValidation.js";
 import { textExtractionService } from "../services/textExtractionService.js";
 import { resumeParserService } from "../services/resumeParserService.js";
 import { profileRepository } from "../repositories/profileRepository.js";
+import { invalidateCandidateContext } from "../ai/candidateContext.js";
 import { z } from "zod";
 
 const preferencesSchema = z.object({
@@ -87,6 +88,7 @@ export const profileController = {
         rawText,
         mimeType: validation.mimeType,
       });
+      await invalidateCandidateContext(userId);
 
       res.status(200).json({
         data: {
@@ -127,6 +129,7 @@ export const profileController = {
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
 
       const profile = await profileRepository.upsertProfile(userId, { preferences });
+      await invalidateCandidateContext(userId);
       res.status(200).json({ data: { profile } });
     } catch (err) {
       next(err);

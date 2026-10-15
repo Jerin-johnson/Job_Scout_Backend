@@ -1,25 +1,31 @@
 import { env } from "../../config/env.js";
-import { createAnthropicModel, estimateAnthropicCost } from "./anthropic.js";
-import { createGeminiModel, estimateGeminiCost } from "./gemini.js";
+import { anthropicProvider } from "./anthropic.js";
+import { geminiProvider } from "./gemini.js";
+import { groqProvider } from "./groq.js";
 
-const providers = {
-  gemini: {
-    isConfigured: () => Boolean(env.GEMINI_API_KEY),
-    modelForTier: (tier) => (tier === "strong" ? env.GEMINI_MODEL_STRONG : env.GEMINI_MODEL_SMALL),
-    createModel: createGeminiModel,
-    estimateCostUsd: estimateGeminiCost,
-  },
-  anthropic: {
-    isConfigured: () =>
-      Boolean(env.ANTHROPIC_API_KEY) && env.ANTHROPIC_API_KEY !== "dummy_anthropic_key_for_dev",
-    modelForTier: (tier) => (tier === "strong" ? env.MODEL_STRONG : env.MODEL_SMALL),
-    createModel: createAnthropicModel,
-    estimateCostUsd: estimateAnthropicCost,
-  },
-};
+const providers = new Map();
+
+/** Register a provider adapter once at application startup. */
+export function registerLLMProvider(provider) {
+  if (!provider?.id || typeof provider.createModel !== "function" ||
+    typeof provider.isConfigured !== "function" || typeof provider.modelForTier !== "function" ||
+    typeof provider.estimateCostUsd !== "function") {
+    throw new TypeError("LLM providers must implement id, createModel, isConfigured, modelForTier, and estimateCostUsd.");
+  }
+  if (providers.has(provider.id)) throw new Error(`LLM provider already registered: ${provider.id}`);
+  providers.set(provider.id, Object.freeze(provider));
+}
+
+for (const provider of [geminiProvider, groqProvider, anthropicProvider]) {
+  registerLLMProvider(provider);
+}
 
 export function getLLMProvider(name = env.LLM_PROVIDER) {
-  const provider = providers[name];
+  const provider = providers.get(name);
   if (!provider) throw new Error(`Unsupported LLM provider: ${name}`);
   return provider;
+}
+
+export function listLLMProviders() {
+  return [...providers.values()];
 }

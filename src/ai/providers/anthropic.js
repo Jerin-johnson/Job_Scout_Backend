@@ -39,3 +39,13 @@ export function estimateAnthropicCost(
     cacheWriteTokens * rates.cacheWrite
   );
 }
+
+export const anthropicProvider = {
+  id: "anthropic",
+  isConfigured: () => Boolean(env.ANTHROPIC_API_KEY) && env.ANTHROPIC_API_KEY !== "dummy_anthropic_key_for_dev",
+  modelForTier: (tier) => (tier === "strong" ? env.MODEL_STRONG : env.MODEL_SMALL),
+  createModel: createAnthropicModel,
+  estimateCostUsd: estimateAnthropicCost,
+  // Anthropic models are paid and intentionally not exposed in the free chat picker.
+  chatModels: [],
+};

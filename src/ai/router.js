@@ -168,26 +168,10 @@ async function logRoutingDecision({
  */
 export async function routeRequest({ prompt, user, contextVersion = 1 }) {
   const start = performance.now();
-  const abortController = new AbortController();
-
   try {
-    // 1. Race Tier 0 and Tier 1 in PARALLEL
-    const tier0Promise = checkTier0({ prompt, user, contextVersion });
-    const tier1Promise = runTier1Classifier({
-      prompt,
-      user,
-      signal: abortController.signal,
-    }).catch((err) => {
-      if (abortController.signal.aborted) return null;
-      throw err;
-    });
-
-    // Check Tier 0 result
-    const tier0Result = await tier0Promise;
-
+    // Run deterministic rules first. Avoid paying for a classifier on common chat requests.
+    const tier0Result = await checkTier0({ prompt, user, contextVersion });
     if (tier0Result) {
-      // Tier 0 instant hit! Abort Tier 1 classifier to save tokens & latency
-      abortController.abort();
       const latencyMs = Math.round(performance.now() - start);
 
       const decision = {
@@ -212,8 +196,11 @@ export async function routeRequest({ prompt, user, contextVersion = 1 }) {
       return decision;
     }
 
-    // Tier 0 missed: await Tier 1 classifier
-    const tier1Result = await tier1Promise;
+    const heuristic = classifyHeuristically(prompt);
+    let tier1Result = heuristic;
+    if (!heuristic) {
+      tier1Result = await runTier1Classifier({ prompt, user });
+    }
 
     // 2. Evaluate Tier 1 Output
     let selectedTier = 1;
@@ -237,7 +224,7 @@ export async function routeRequest({ prompt, user, contextVersion = 1 }) {
     }
 
     const latencyMs = Math.round(performance.now() - start);
-    const costUsd = selectedTier === 2 ? 0.0015 : 0.0003;
+    const costUsd = 0;
 
     const decision = {
       tier: selectedTier,
@@ -259,12 +246,8 @@ export async function routeRequest({ prompt, user, contextVersion = 1 }) {
     });
 
     return decision;
-  } catch (err) {
-    if (abortController.signal.aborted) {
-      // Handled cleanly
-      return null;
-    }
-    logger.error({ err: err.message }, "Routing failed; falling back to Tier 1 simple chat");
+  } catch {
+    logger.warn({ reason: "classifier_unavailable" }, "Routing classifier unavailable; using safe default");
     return {
       tier: 1,
       intent: "chat_simple",
@@ -275,4 +258,22 @@ export async function routeRequest({ prompt, user, contextVersion = 1 }) {
       costUsd: 0.0,
     };
   }
+}
+
+export function classifyHeuristically(prompt) {
+  const text = String(prompt || "").trim().toLowerCase();
+  if (!text) return null;
+  const rules = [
+    { pattern: /\b(applications?|job search|follow.?up|companies|company|offer|recruiter)\b/, intent: "db_lookup", confidence: 0.84 },
+    { pattern: /\b(resume|cv|profile|my name|my skills|my experience|target role)\b/, intent: "chat_simple", confidence: 0.9 },
+    { pattern: /\b(mock interview|interview|interview score)\b/, intent: "interview_prep", confidence: 0.86 },
+    { pattern: /\b(tailor|rewrite|improve this resume|cover letter)\b/, intent: "tailor_resume", confidence: 0.82 },
+    { pattern: /\b(find|search|match|recommend)\b.*\b(job|role|position|opening)s?\b/, intent: "match_jobs", confidence: 0.85 },
+  ];
+  const matched = rules.find((rule) => rule.pattern.test(text));
+  if (matched) return { ...matched, complexity: "low", needsTools: false, needsMemory: false, entities: {} };
+  // Ordinary open-ended conversation is a deterministic default. Very short follow-ups
+  // such as "that one" remain ambiguous and may use the structured fallback classifier.
+  if (/^(that|this|it|those|them|why|how about)\b/.test(text)) return null;
+  return { intent: "chat_simple", complexity: text.length > 500 ? "medium" : "low", needsTools: false, needsMemory: false, confidence: 0.74, entities: {} };
 }

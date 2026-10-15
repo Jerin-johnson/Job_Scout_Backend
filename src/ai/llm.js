@@ -1,10 +1,11 @@
 import CircuitBreaker from "opossum";
 import { env } from "../config/env.js";
 import { getLLMProvider } from "./providers/index.js";
-import { resolveSelectableChatModel } from "./modelCatalog.js";
+import { getChatModelProvider } from "./modelCatalog.js";
 import { quotaService } from "../services/quotaService.js";
 import { logger } from "../shared/utils/logger.js";
 import { PLANS } from "../shared/constants/plans.js";
+import { invokeWithTransientRetry } from "./providerErrors.js";
 
 // Circuit breaker options
 const breakerOptions = {
@@ -125,12 +126,12 @@ export async function invokeLLM({
   }
 
   // 2. Resolve Model Name from Environment
-  const selectedModel = modelId ? resolveSelectableChatModel(modelId) : null;
-  if (modelId && (feature !== "chat" || !selectedModel)) {
+  const selectedProvider = modelId ? getChatModelProvider(modelId) : null;
+  if (modelId && (feature !== "chat" || !selectedProvider)) {
     throw new Error("The selected model is unavailable for this feature.");
   }
-  const provider = getLLMProvider(selectedModel?.provider || env.LLM_PROVIDER);
-  const modelName = selectedModel?.id || provider.modelForTier(tier);
+  const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
+  const modelName = modelId || provider.modelForTier(tier);
 
   // 3. Prepare messages
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
@@ -203,11 +204,8 @@ export async function invokeLLM({
 
       attempts++;
       if (attempts > maxRetries) {
-        logger.error(
-          { err: err.message, modelName, feature, attempts },
-          "LLM invocation failed after retries",
-        );
-        throw new Error(`AI service temporarily unavailable: ${err.message}`);
+        logger.error({ modelName, feature, attempts }, "LLM invocation failed after retries");
+        throw new Error("AI service temporarily unavailable.");
       }
 
       // Exponential backoff with jitter: 200ms * 2^attempts + random(50ms)
@@ -253,4 +251,116 @@ export async function invokeLLM({
   }
 
   return result;
+}
+
+function messageText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return String(content ?? "");
+  return content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("\n");
+}
+
+function approximateTokens(messages) {
+  const chars = messages.reduce((sum, message) => sum + messageText(message.content).length, 0);
+  return Math.ceil(chars / 4);
+}
+
+/** Stream provider chunks and record aggregate usage after the response completes. */
+export async function* streamLLM({
+  user,
+  tier = "small",
+  feature = "chat",
+  prompt,
+  maxTokens = 1200,
+  temperature = 0.2,
+  signal = null,
+  modelId = null,
+}) {
+  const startedAt = performance.now();
+  if (user) await quotaService.checkQuota(user, feature);
+  const selectedProvider = modelId ? getChatModelProvider(modelId) : null;
+  if (modelId && (feature !== "chat" || !selectedProvider)) {
+    throw new Error("The selected model is unavailable for this feature.");
+  }
+  const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
+  const modelName = modelId || provider.modelForTier(tier);
+  const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
+  const mockMode = !provider.isConfigured();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let outputText = "";
+  let firstTokenLatencyMs = null;
+
+  if (mockMode) {
+    const mockText = `[JobScout AI Mock Response for ${feature} via ${modelName}]`;
+    for (let index = 0; index < mockText.length; index += 12) {
+      if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
+      const text = mockText.slice(index, index + 12);
+      outputText += text;
+      firstTokenLatencyMs ??= Math.round(performance.now() - startedAt);
+      yield { text };
+    }
+    inputTokens = 0;
+    outputTokens = 0;
+  } else {
+    const model = provider.createModel({ modelName, temperature, maxTokens, schema: null });
+    if (typeof model.stream !== "function") {
+      const response = await invokeWithTransientRetry(() => model.invoke(messages, { signal }));
+      const content = typeof response === "string" ? response : messageText(response?.content);
+      outputText = content;
+      firstTokenLatencyMs = Math.round(performance.now() - startedAt);
+      yield { text: content };
+    } else {
+      const stream = model.stream(messages, { signal });
+      let emitted = false;
+      try {
+        for await (const chunk of stream) {
+          if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
+          const text = messageText(chunk?.content);
+          if (text) {
+            emitted = true;
+            outputText += text;
+            firstTokenLatencyMs ??= Math.round(performance.now() - startedAt);
+            yield { text };
+          }
+          inputTokens = chunk?.usage_metadata?.input_tokens ?? inputTokens;
+          outputTokens = chunk?.usage_metadata?.output_tokens ?? outputTokens;
+        }
+      } catch (error) {
+        if (emitted || signal?.aborted) throw error;
+        const response = await invokeWithTransientRetry(() => model.invoke(messages, { signal }));
+        outputText = messageText(response?.content);
+        firstTokenLatencyMs = Math.round(performance.now() - startedAt);
+        yield { text: outputText };
+        inputTokens = response?.usage_metadata?.input_tokens || 0;
+        outputTokens = response?.usage_metadata?.output_tokens || 0;
+      }
+      // LangChain's Google adapter surfaces usage on the final chunk when supported.
+      if (inputTokens === 0) inputTokens = approximateTokens(messages);
+      if (outputTokens === 0) outputTokens = Math.ceil(outputText.length / 4);
+    }
+  }
+
+  const latencyMs = Math.round(performance.now() - startedAt);
+  const usageIsEstimated = !mockMode && (inputTokens === 0 || outputTokens === 0);
+  const costUsd = provider.estimateCostUsd(modelName, { inputTokens, outputTokens });
+  if (user && !mockMode) {
+    quotaService.recordUsage({
+      userId: user._id || user.id,
+      userPlan: user.plan || PLANS.FREE,
+      feature,
+      model: modelName,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd,
+      latencyMs,
+    }).catch(() => {});
+  }
+  yield {
+    done: true,
+    usage: { inputTokens, outputTokens, usageIsEstimated, costUsd },
+    latencyMs,
+    firstTokenLatencyMs,
+  };
 }

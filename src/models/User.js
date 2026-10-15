@@ -35,6 +35,7 @@ const UserSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    preferredName: { type: String, trim: true, maxlength: 80, default: "" },
     role: {
       type: String,
       enum: Object.values(ROLES),

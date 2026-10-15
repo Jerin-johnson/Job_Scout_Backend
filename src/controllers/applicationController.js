@@ -9,6 +9,7 @@ import {
   cancelApplicationReminder,
 } from "../services/applicationReminderQueue.js";
 import { applicationReminderTransition } from "../services/applicationLifecycle.js";
+import { invalidateCandidateContext } from "../ai/candidateContext.js";
 
 const VALID_STATUSES = ["saved", "applied", "screening", "interviewing", "offer", "rejected"];
 const optionalDate = z.preprocess(
@@ -213,6 +214,7 @@ export const applicationController = {
         }
       }
       await del(CacheKeys.response(userId, "kanban", 1));
+      await invalidateCandidateContext(userId);
 
       logger.info({ userId, appId: app._id, company: app.company }, "Application created");
 
@@ -318,6 +320,7 @@ export const applicationController = {
         }
       }
       await del(CacheKeys.response(userId, "kanban", 1));
+      await invalidateCandidateContext(userId);
       return res.status(200).json({ data: { application: updated } });
     } catch (err) {
       next(err);
@@ -382,6 +385,7 @@ export const applicationController = {
         }
       }
       await del(CacheKeys.response(userId, "kanban", 1));
+      await invalidateCandidateContext(userId);
 
       return res.status(200).json({
         data: {
@@ -412,6 +416,7 @@ export const applicationController = {
         user: req.user,
       });
       await del(CacheKeys.response(userId, "kanban", 1));
+      await invalidateCandidateContext(userId);
 
       return res.status(200).json({
         data: {
@@ -459,6 +464,7 @@ export const applicationController = {
       );
       if (reminderTransition.cancel) await cancelApplicationReminder(app);
       await del(CacheKeys.response(userId, "kanban", 1));
+      await invalidateCandidateContext(userId);
       return res.status(200).json({ data: { application: updated } });
     } catch (err) {
       next(err);
@@ -480,6 +486,7 @@ export const applicationController = {
       await applicationRepository.delete(req.params.id);
       await cancelApplicationReminder(app);
       await del(CacheKeys.response(userId, "kanban", 1));
+      await invalidateCandidateContext(userId);
       return res.status(200).json({
         data: { message: "Application deleted successfully", id: req.params.id },
       });

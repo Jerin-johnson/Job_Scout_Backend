@@ -1,48 +1,61 @@
-import { getLLMProvider } from "./providers/index.js";
+import { env } from "../config/env.js";
+import { getLLMProvider, listLLMProviders } from "./providers/index.js";
 
-// This is deliberately a server-owned allowlist. A model being callable by the
-// provider does not make it selectable in the product (especially if it bills).
-const CHAT_MODELS = [
-  {
-    id: "gemini-3.1-flash-lite",
-    provider: "gemini",
-    name: "Gemini 3.1 Flash-Lite",
-    description: "Fast, capable, and cost-efficient",
-    access: "free_tier",
-    enabled: true,
-  },
-  {
-    id: "gemini-3.5-flash-lite",
-    provider: "gemini",
-    name: "Gemini 3.5 Flash-Lite",
-    description: "Lowest-cost, high-throughput chat",
-    access: "free_tier",
-    enabled: true,
-  },
-];
+export const AUTO_CHAT_MODEL_ID = "auto";
+
+function configuredProvidersInPreferenceOrder() {
+  return listLLMProviders()
+    .filter((provider) => provider.isConfigured())
+    .sort((left, right) => Number(right.id === env.LLM_PROVIDER) - Number(left.id === env.LLM_PROVIDER));
+}
 
 export function listSelectableChatModels() {
-  return CHAT_MODELS.filter((model) => model.enabled && isProviderConfigured(model.provider)).map(
-    ({ id, provider, name, description, access }) => ({
-      id,
-      provider,
-      name,
-      description,
-      access,
-    }),
+  return configuredProvidersInPreferenceOrder().flatMap((provider) =>
+    (provider.chatModels || [])
+      .filter((model) => model.enabled && model.access === "free_tier")
+      .map(({ id, name, description, access, tier }) => ({
+        id,
+        provider: provider.id,
+        name,
+        description,
+        access,
+        tier,
+      })),
   );
 }
 
-export function resolveSelectableChatModel(modelId) {
-  const model = CHAT_MODELS.find((entry) => entry.id === modelId && entry.enabled);
-  if (!model || !isProviderConfigured(model.provider)) return null;
-  return model;
+export function listChatModelOptions() {
+  const available = listSelectableChatModels();
+  if (!available.length) return [];
+  return [
+    {
+      id: AUTO_CHAT_MODEL_ID,
+      provider: "auto",
+      name: "Auto (recommended)",
+      description: "JobScout selects a configured free-tier model for your question",
+      access: "free_tier",
+    },
+    ...available,
+  ];
 }
 
-function isProviderConfigured(provider) {
-  try {
-    return getLLMProvider(provider).isConfigured();
-  } catch {
-    return false;
-  }
+export function resolveChatModelForTier(tier = "small") {
+  const available = listSelectableChatModels();
+  if (!available.length) return null;
+  const preferred = available.filter((model) => model.provider === env.LLM_PROVIDER);
+  return preferred.find((model) => model.tier === tier)
+    || available.find((model) => model.tier === tier)
+    || preferred.find((model) => model.tier === "small")
+    || available.find((model) => model.tier === "small")
+    || available[0];
+}
+
+export function resolveSelectableChatModel(modelId) {
+  if (!modelId || modelId === AUTO_CHAT_MODEL_ID) return null;
+  return listSelectableChatModels().find((model) => model.id === modelId) || null;
+}
+
+export function getChatModelProvider(modelId) {
+  const model = resolveSelectableChatModel(modelId);
+  return model ? getLLMProvider(model.provider) : null;
 }

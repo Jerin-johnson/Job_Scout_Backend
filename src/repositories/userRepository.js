@@ -42,6 +42,7 @@ export const userRepository = {
       passwordHash: userData.passwordHash || null,
       googleId: userData.googleId || null,
       name: userData.name || "",
+      preferredName: userData.preferredName || "",
       role: userData.role || ROLES.USER,
       plan: userData.plan || PLANS.FREE,
       planSource: userData.planSource || "manual",

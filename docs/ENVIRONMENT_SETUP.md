@@ -9,8 +9,17 @@ The backend owns all private credentials. Never put model, storage, payment, ema
    ```dotenv
    LLM_PROVIDER=gemini
    GEMINI_API_KEY=your-key
-   GEMINI_MODEL_SMALL=gemini-3.1-flash-lite
-   GEMINI_MODEL_STRONG=gemini-3.1-flash-lite
+   GEMINI_MODEL_SMALL=gemini-3.5-flash-lite
+   GEMINI_MODEL_STRONG=gemini-3.5-flash-lite
+   ```
+
+   Or configure Groq instead / additionally:
+
+   ```dotenv
+   LLM_PROVIDER=groq
+   GROQ_API_KEY=your-server-side-key
+   GROQ_MODEL_SMALL=openai/gpt-oss-20b
+   GROQ_MODEL_STRONG=openai/gpt-oss-120b
    ```
 
 2. Set backend secrets. `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` must each be at least 32 characters. `RESUME_ENCRYPTION_KEY` must be at least 32 characters; a 64-character hex value is recommended.
@@ -24,7 +33,7 @@ The backend owns all private credentials. Never put model, storage, payment, ema
    NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
 
-The frontend does **not** need a Gemini key. Model calls are made by the backend, so the key never reaches the browser. Resume uploads fail with `AI_PROVIDER_NOT_CONFIGURED` until the selected backend provider has a real key; the API no longer fills a profile with demo facts.
+The frontend does **not** need any model provider key. Model calls are made by the backend, so provider keys never reach the browser. Resume uploads fail with `AI_PROVIDER_NOT_CONFIGURED` until the selected backend provider has a real key; the API no longer fills a profile with demo facts.
 
 ## Frontend variables
 
@@ -42,7 +51,8 @@ The frontend does **not** need a Gemini key. Model calls are made by the backend
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`                                                                               | Authentication                                      | Each must be at least 32 characters; generate random independent values.                                                                                                                                                                          |
 | `SUPER_ADMIN_EMAIL`                                                                                                     | First super administrator bootstrap                 | Existing account email promoted by the API at startup. Clear after provisioning; future roles are managed in the protected super-admin console.                                                                                                   |
 | `RESUME_ENCRYPTION_KEY`                                                                                                 | Resume text encryption                              | At least 32 characters. Keep backups secure; losing it prevents decryption of saved resume text.                                                                                                                                                  |
-| `GEMINI_API_KEY`                                                                                                        | AI and resume extraction when `LLM_PROVIDER=gemini` | Backend only. The Gemini implementation uses LangChain. Flash-Lite is the default for both tiers and selectable chat models; paid models are excluded from the chat allowlist. Free-tier data-use terms differ from paid-tier terms; see [LLM provider and privacy guidance](./LLM_PROVIDERS.md). |
+| `GEMINI_API_KEY`                                                                                                        | AI and resume extraction when `LLM_PROVIDER=gemini` | Backend only. The Gemini implementation uses LangChain. Gemini 3.5 Flash-Lite is the low-cost default for both tiers. The server allowlists free-tier chat model IDs and rejects paid/unknown Gemini IDs. Free-tier data-use terms differ from paid-tier terms; see [LLM provider and privacy guidance](./LLM_PROVIDERS.md). |
+| `GROQ_API_KEY`                                                                                                          | AI and resume extraction when `LLM_PROVIDER=groq`   | Backend only. Uses the existing LangChain OpenAI-compatible adapter. Defaults: `GROQ_MODEL_SMALL=openai/gpt-oss-20b`, `GROQ_MODEL_STRONG=openai/gpt-oss-120b`. Provider free-tier limits apply; Developer-tier usage can incur charges. See [LLM provider guidance](./LLM_PROVIDERS.md). |
 | `ANTHROPIC_API_KEY`                                                                                                     | AI when `LLM_PROVIDER=anthropic`                    | Use this instead of the Gemini key when selecting Anthropic. Configure `MODEL_SMALL` and `MODEL_STRONG` with supported model IDs.                                                                                                                 |
 | `MONGODB_URI`                                                                                                           | Persistent accounts, profiles, jobs, and audit data | Defaults to local MongoDB for development. Use a secured hosted URI in production.                                                                                                                                                                |
 | `REDIS_URL`                                                                                                             | Shared cache, quotas, and queues                    | Defaults to local Redis. Use a secured hosted instance in production.                                                                                                                                                                             |
@@ -56,4 +66,4 @@ The frontend does **not** need a Gemini key. Model calls are made by the backend
 
 ## Provider switching
 
-Provider choice and model IDs are backend configuration only. To switch from Gemini to Anthropic, set `LLM_PROVIDER=anthropic` and provide the Anthropic key and two model IDs. To add a future provider, implement an adapter under `src/ai/providers/`, register it, and use the shared `invokeLLM` boundary. See [LLM_PROVIDERS.md](./LLM_PROVIDERS.md).
+Provider choice and model IDs are backend configuration only. Set `LLM_PROVIDER=gemini`, `groq`, or `anthropic` and provide the matching server-side API key. To add a future provider, implement the provider contract under `src/ai/providers/`, register it, and use the shared `invokeLLM` boundary. See [LLM_PROVIDERS.md](./LLM_PROVIDERS.md).

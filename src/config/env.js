@@ -30,10 +30,13 @@ const envSchema = z.object({
 
   // AI Models & Gateways
   ANTHROPIC_API_KEY: z.string().default("dummy_anthropic_key_for_dev"),
-  LLM_PROVIDER: z.enum(["anthropic", "gemini"]).default("gemini"),
+  LLM_PROVIDER: z.enum(["anthropic", "gemini", "groq"]).default("gemini"),
   GEMINI_API_KEY: z.string().optional().default(""),
-  GEMINI_MODEL_SMALL: z.string().default("gemini-3.1-flash-lite"),
-  GEMINI_MODEL_STRONG: z.string().default("gemini-3.1-flash-lite"),
+  GEMINI_MODEL_SMALL: z.string().default("gemini-3.5-flash-lite"),
+  GEMINI_MODEL_STRONG: z.string().default("gemini-3.5-flash-lite"),
+  GROQ_API_KEY: z.string().optional().default(""),
+  GROQ_MODEL_SMALL: z.string().default("openai/gpt-oss-20b"),
+  GROQ_MODEL_STRONG: z.string().default("openai/gpt-oss-120b"),
   MODEL_SMALL: z.string().default("claude-3-5-haiku-20241022"),
   MODEL_STRONG: z.string().default("claude-3-5-sonnet-20241022"),
   EMBEDDING_PROVIDER: z.enum(["voyage", "openai"]).default("openai"),
