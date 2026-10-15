@@ -65,4 +65,17 @@ export const profileRepository = {
     }
     return inMemoryResumes.filter((r) => r.userId.toString() === uid);
   },
+
+  async findResumeByIdAndUserId(resumeId, userId) {
+    if (isMongoReady()) {
+      return Resume.findOne({ _id: resumeId, userId }).lean();
+    }
+    return (
+      inMemoryResumes.find(
+        (resume) =>
+          resume._id.toString() === resumeId.toString() &&
+          resume.userId.toString() === userId.toString(),
+      ) || null
+    );
+  },
 };

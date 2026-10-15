@@ -5,6 +5,7 @@ import { PLAN_CONFIG, PLANS } from "../shared/constants/plans.js";
 import { UsageEvent } from "../models/UsageEvent.js";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
+import { interviewRepository } from "../repositories/interviewRepository.js";
 
 // In-memory counters for offline/test mode
 const inMemoryCounters = new Map();
@@ -19,6 +20,50 @@ function getMonthKey(date = new Date()) {
 }
 
 export const quotaService = {
+  async reserveInterviewSession(
+    user,
+    {
+      sessionId,
+      day,
+      allowFreeTrial = process.env.MOCK_INTERVIEW_FREE_TRIAL_ENABLED === "true",
+    } = {},
+  ) {
+    const plan = user.plan || PLANS.FREE;
+    const userId = user._id ? user._id.toString() : user.id;
+    const isPremium = plan === PLANS.PREMIUM;
+    const limit = Math.max(
+      1,
+      Number.parseInt(process.env.MOCK_INTERVIEW_PREMIUM_DAILY_LIMIT || "3", 10) || 3,
+    );
+    if (!isPremium && !allowFreeTrial) {
+      const error = new Error("Mock interviews require Premium access");
+      error.statusCode = 403;
+      error.code = "PLAN_UPGRADE_REQUIRED";
+      throw error;
+    }
+
+    if (!sessionId || !day) {
+      const error = new Error("A session id and user's local quota day are required");
+      error.statusCode = 400;
+      error.code = "INVALID_QUOTA_RESERVATION";
+      throw error;
+    }
+    const reservation = await interviewRepository.reserveStartQuota({
+      userId,
+      sessionId,
+      day,
+      isPremium,
+      limit,
+    });
+    if (!reservation) {
+      const error = new Error(`Daily mock interview limit reached (${limit} per day)`);
+      error.statusCode = 429;
+      error.code = "QUOTA_EXCEEDED";
+      throw error;
+    }
+    return reservation;
+  },
+
   /**
    * Check if user has quota for a specific feature before executing LLM/graph
    */
@@ -98,7 +143,11 @@ export const quotaService = {
         err.code = "QUOTA_EXCEEDED";
         throw err;
       }
-    } else if (feature === "interview_prep" || feature === "mock_interview") {
+    } else if (
+      feature === "interview_prep" ||
+      feature === "mock_interview" ||
+      feature === "mock_interview_trial"
+    ) {
       if (!planConfig.features.interviewPrep && feature === "interview_prep") {
         const err = new Error("Interview prep requires a Pro or Premium subscription");
         err.statusCode = 403;

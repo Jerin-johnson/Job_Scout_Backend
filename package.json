@@ -13,7 +13,10 @@
     "worker": "node src/worker.js",
     "worker:dev": "node --watch src/worker.js",
     "smoke": "node scripts/smoke.js",
+    "test": "node --test tests/*.test.js",
     "ensure-indexes": "node scripts/ensure-indexes.js",
+    "interview:usage": "node scripts/interview-usage-report.js",
+    "eval:interviews": "node scripts/eval-interviews.js",
     "openapi": "node scripts/openapi.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -63,6 +66,7 @@
     "@eslint/js": "^9.20.0",
     "eslint": "^9.20.1",
     "globals": "^15.15.0",
+    "mongodb-memory-server": "^11.3.0",
     "pino-pretty": "^13.0.0",
     "prettier": "^3.5.1"
   }

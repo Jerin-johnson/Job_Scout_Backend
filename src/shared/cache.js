@@ -63,6 +63,7 @@ export const CacheKeys = {
   response: (userId, resource, ver) => `${CACHE_NAMESPACE}resp:${userId}:${resource}:v${ver}`,
   pinnedMemory: (userId, ver) => `${CACHE_NAMESPACE}mem:pinned:${userId}:v${ver}`,
   session: (userId, threadId) => `${CACHE_NAMESPACE}sess:${userId}:${threadId}`,
+  interviewSession: (userId, interviewId) => `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
   exactQuery: (sha256) => `${CACHE_NAMESPACE}exact:${sha256}`,
   jobDescription: (hash) => `${CACHE_NAMESPACE}jd:${hash}`,
   embedding: (hash) => `${CACHE_NAMESPACE}emb:${hash}`,

@@ -135,13 +135,17 @@ Return a JSON object with:
     }
 
     // Mark as approved and sent
-    const updated = await applicationRepository.update(application._id, {
-      followUpDraft: {
-        ...application.followUpDraft,
-        status: "sent",
-        sentAt: new Date(),
+    const updated = await applicationRepository.update(
+      application._id,
+      {
+        followUpDraft: {
+          ...application.followUpDraft,
+          status: "sent",
+          sentAt: new Date(),
+        },
       },
-    });
+      { activity: true },
+    );
 
     logger.info(
       { appId: application._id, recipient: application.company },

@@ -8,11 +8,16 @@ import {
   scheduleApplicationReminder,
   cancelApplicationReminder,
 } from "../services/applicationReminderQueue.js";
+import { applicationReminderTransition } from "../services/applicationLifecycle.js";
 
 const VALID_STATUSES = ["saved", "applied", "screening", "interviewing", "offer", "rejected"];
 const optionalDate = z.preprocess(
   (value) => (value === null || value === "" ? null : value),
-  z.union([z.coerce.date(), z.null()]),
+  z.union([z.null(), z.coerce.date()]),
+);
+const optionalSalary = z.preprocess(
+  (value) => (value === null || value === "" ? null : value),
+  z.union([z.null(), z.coerce.number().finite().nonnegative()]),
 );
 
 const CreateApplicationSchema = z.object({
@@ -20,6 +25,11 @@ const CreateApplicationSchema = z.object({
   company: z.string().min(1, "company is required"),
   role: z.string().min(1, "role is required"),
   status: z.enum(VALID_STATUSES).optional().default("saved"),
+  priority: z.enum(["high", "medium", "low"]).optional().default("medium"),
+  source: z.string().max(120).optional().default(""),
+  location: z.string().max(160).optional().default(""),
+  salaryMin: optionalSalary.optional(),
+  salaryMax: optionalSalary.optional(),
   notes: z.string().optional().default(""),
   jobUrl: z.string().url().optional().or(z.literal("")),
   hrPhone: z.string().max(40).optional().default(""),
@@ -29,12 +39,23 @@ const CreateApplicationSchema = z.object({
 });
 
 const UpdateApplicationSchema = z.object({
+  priority: z.enum(["high", "medium", "low"]).optional(),
+  location: z.string().max(160).optional(),
+  salaryMin: optionalSalary.optional(),
+  salaryMax: optionalSalary.optional(),
+  pinnedAt: optionalDate.optional(),
+  source: z.string().max(120).optional(),
   notes: z.string().max(5000).optional(),
   jobUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
   hrPhone: z.string().max(40).optional(),
   companyEmail: z.union([z.string().email(), z.literal(""), z.null()]).optional(),
   nextFollowUpAt: optionalDate.optional(),
   reminderEnabled: z.boolean().optional(),
+});
+
+const ArchiveApplicationSchema = z.object({
+  archived: z.boolean().optional().default(true),
+  reason: z.enum(["withdrawn", "ghosted", "no_longer_interested", ""]).optional().default(""),
 });
 
 const UpdateStatusSchema = z.object({
@@ -55,15 +76,50 @@ export const applicationController = {
   async getApplications(req, res, next) {
     try {
       const userId = getUserId(req.user);
+      const allowedSort = new Set(["recommended", "recent", "follow-up", "priority"]);
+      const sort = allowedSort.has(req.query.sort) ? req.query.sort : "recommended";
+      const stages = String(req.query.stage || "")
+        .split(",")
+        .filter((stage) => VALID_STATUSES.includes(stage));
+      const filters = {
+        search: String(req.query.q || "")
+          .trim()
+          .slice(0, 100),
+        stages,
+        priority: ["high", "medium", "low"].includes(req.query.priority)
+          ? req.query.priority
+          : undefined,
+        pinned:
+          req.query.pinned === "true" ? true : req.query.pinned === "false" ? false : undefined,
+        followUp: ["overdue", "due-soon"].includes(req.query.followUp)
+          ? req.query.followUp
+          : undefined,
+        stale: req.query.stale === "true",
+        appliedSinceDays: req.query.appliedSinceDays === "7" ? 7 : undefined,
+        staleDays: Math.max(1, Number(process.env.APPLICATION_STALE_DAYS || 7)),
+        sort,
+      };
       const cacheKey = CacheKeys.response(userId, "kanban", 1);
 
-      // Check cache
-      const cached = await get(cacheKey);
+      // Preserve the low-latency cache for the default board only.
+      const isDefaultQuery =
+        !filters.search &&
+        !stages.length &&
+        !filters.priority &&
+        filters.pinned === undefined &&
+        !filters.followUp &&
+        !filters.stale &&
+        !filters.appliedSinceDays &&
+        sort === "recommended";
+      const cached = isDefaultQuery ? await get(cacheKey) : null;
       if (cached) {
         return res.status(200).json({ data: { ...cached, fromCache: true } });
       }
 
-      const applications = await applicationRepository.findByUserId(userId);
+      const [applications, stats] = await Promise.all([
+        applicationRepository.findByUserId(userId, filters),
+        applicationRepository.getBoardStats(userId),
+      ]);
 
       // Group into Kanban columns
       const columns = {
@@ -84,10 +140,11 @@ export const applicationController = {
         total: applications.length,
         columns,
         applications,
+        stats,
       };
 
       // Cache for 60s
-      await set(cacheKey, result, TTL.RESPONSE);
+      if (isDefaultQuery) await set(cacheKey, result, TTL.RESPONSE);
 
       return res.status(200).json({ data: result });
     } catch (err) {
@@ -112,17 +169,31 @@ export const applicationController = {
         });
       }
 
+      if (
+        parsed.data.salaryMin !== null &&
+        parsed.data.salaryMin !== undefined &&
+        parsed.data.salaryMax !== null &&
+        parsed.data.salaryMax !== undefined &&
+        parsed.data.salaryMin > parsed.data.salaryMax
+      ) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Maximum salary must be at least minimum salary",
+            requestId: req.id,
+          },
+        });
+      }
+
       const userId = getUserId(req.user);
       if (parsed.data.reminderEnabled && !parsed.data.nextFollowUpAt) {
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "A follow-up date is required to schedule a reminder",
-              requestId: req.id,
-            },
-          });
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "A follow-up date is required to schedule a reminder",
+            requestId: req.id,
+          },
+        });
       }
       let app = await applicationRepository.create({
         ...parsed.data,
@@ -161,16 +232,11 @@ export const applicationController = {
    */
   async getApplicationById(req, res, next) {
     try {
-      const app = await applicationRepository.findById(req.params.id);
+      const userId = getUserId(req.user);
+      const app = await applicationRepository.findOwnedById(req.params.id, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
-        });
-      }
-      const userId = getUserId(req.user);
-      if (app.userId.toString() !== userId) {
-        return res.status(403).json({
-          error: { code: "FORBIDDEN", message: "Not your application", requestId: req.id },
         });
       }
       return res.status(200).json({ data: { application: app } });
@@ -183,49 +249,62 @@ export const applicationController = {
     try {
       const parsed = UpdateApplicationSchema.safeParse(req.body);
       if (!parsed.success)
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: "VALIDATION_ERROR",
-              message: parsed.error.issues[0].message,
-              requestId: req.id,
-            },
-          });
-      const app = await applicationRepository.findById(req.params.id);
-      if (!app)
-        return res
-          .status(404)
-          .json({
-            error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
-          });
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: parsed.error.issues[0].message,
+            requestId: req.id,
+          },
+        });
       const userId = getUserId(req.user);
-      if (app.userId.toString() !== userId)
-        return res
-          .status(403)
-          .json({
-            error: { code: "FORBIDDEN", message: "Not your application", requestId: req.id },
-          });
+      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      if (!app)
+        return res.status(404).json({
+          error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
+        });
       const updates = { ...parsed.data };
+      const salaryMin = Object.hasOwn(updates, "salaryMin") ? updates.salaryMin : app.salaryMin;
+      const salaryMax = Object.hasOwn(updates, "salaryMax") ? updates.salaryMax : app.salaryMax;
+      if (
+        salaryMin !== null &&
+        salaryMin !== undefined &&
+        salaryMax !== null &&
+        salaryMax !== undefined &&
+        salaryMin > salaryMax
+      )
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Maximum salary must be at least minimum salary",
+            requestId: req.id,
+          },
+        });
       const enabled = updates.reminderEnabled ?? app.reminderEnabled ?? false;
       const dueAt = Object.hasOwn(updates, "nextFollowUpAt")
         ? updates.nextFollowUpAt
         : app.nextFollowUpAt;
       if (enabled && !dueAt)
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "A follow-up date is required to schedule a reminder",
-              requestId: req.id,
-            },
-          });
-      await cancelApplicationReminder(app);
-      updates.reminderStatus = enabled ? "scheduled" : "none";
-      updates.reminderSentAt = null;
-      const updated = await applicationRepository.update(req.params.id, updates);
-      if (enabled) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "A follow-up date is required to schedule a reminder",
+            requestId: req.id,
+          },
+        });
+      const reminderTransition = applicationReminderTransition({
+        application: app,
+        nextFollowUpAt: dueAt,
+        reminderEnabled: enabled,
+      });
+      if (reminderTransition.cancel) {
+        updates.reminderStatus = reminderTransition.enabled ? "scheduled" : "none";
+        updates.reminderSentAt = null;
+      }
+      const updated = await applicationRepository.update(req.params.id, updates, {
+        activity: true,
+      });
+      if (reminderTransition.cancel) await cancelApplicationReminder(app);
+      if (reminderTransition.schedule) {
         try {
           await scheduleApplicationReminder(updated);
         } catch (error) {
@@ -262,25 +341,46 @@ export const applicationController = {
         });
       }
 
-      const app = await applicationRepository.findById(req.params.id);
+      const userId = getUserId(req.user);
+      const app = await applicationRepository.findOwnedById(req.params.id, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
       }
-      const userId = getUserId(req.user);
-      if (app.userId.toString() !== userId) {
-        return res.status(403).json({
-          error: { code: "FORBIDDEN", message: "Not your application", requestId: req.id },
-        });
-      }
-
-      const updated = await applicationGraph.handleStageChange({
+      let updated = await applicationGraph.handleStageChange({
         application: app,
         user: req.user,
         newStatus: parsed.data.status,
         note: parsed.data.note,
       });
+      const reminderTransition = applicationReminderTransition({
+        application: app,
+        status: parsed.data.status,
+        nextFollowUpAt: updated?.nextFollowUpAt,
+      });
+      if (reminderTransition.terminal) {
+        updated = await applicationRepository.update(app._id, {
+          reminderEnabled: false,
+          reminderStatus: "none",
+        });
+        if (reminderTransition.cancel) await cancelApplicationReminder(app);
+      } else {
+        if (reminderTransition.cancel) await cancelApplicationReminder(app);
+        if (reminderTransition.schedule) {
+          try {
+            await scheduleApplicationReminder(updated);
+          } catch (error) {
+            updated =
+              (await applicationRepository.update(app._id, { reminderStatus: "failed" })) ||
+              updated;
+            logger.warn(
+              { appId: app._id, error: error.message },
+              "Updated follow-up reminder could not be scheduled",
+            );
+          }
+        }
+      }
       await del(CacheKeys.response(userId, "kanban", 1));
 
       return res.status(200).json({
@@ -300,19 +400,13 @@ export const applicationController = {
    */
   async approveFollowUp(req, res, next) {
     try {
-      const app = await applicationRepository.findById(req.params.id);
+      const userId = getUserId(req.user);
+      const app = await applicationRepository.findOwnedById(req.params.id, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
       }
-      const userId = getUserId(req.user);
-      if (app.userId.toString() !== userId) {
-        return res.status(403).json({
-          error: { code: "FORBIDDEN", message: "Not your application", requestId: req.id },
-        });
-      }
-
       const sent = await applicationGraph.sendApprovedEmail({
         application: app,
         user: req.user,
@@ -330,25 +424,61 @@ export const applicationController = {
     }
   },
 
+  async archiveApplication(req, res, next) {
+    try {
+      const parsed = ArchiveApplicationSchema.safeParse(req.body);
+      if (!parsed.success)
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: parsed.error.issues[0].message,
+            requestId: req.id,
+          },
+        });
+      const userId = getUserId(req.user);
+      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      if (!app)
+        return res.status(404).json({
+          error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
+        });
+      const reminderTransition = applicationReminderTransition({
+        application: app,
+        archived: parsed.data.archived,
+      });
+      const updated = await applicationRepository.update(
+        app._id,
+        parsed.data.archived
+          ? {
+              archivedAt: new Date(),
+              archiveReason: parsed.data.reason,
+              reminderEnabled: false,
+              reminderStatus: "none",
+            }
+          : { archivedAt: null, archiveReason: "" },
+        { activity: true },
+      );
+      if (reminderTransition.cancel) await cancelApplicationReminder(app);
+      await del(CacheKeys.response(userId, "kanban", 1));
+      return res.status(200).json({ data: { application: updated } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   /**
    * DELETE /api/v1/applications/:id
    */
   async deleteApplication(req, res, next) {
     try {
-      const app = await applicationRepository.findById(req.params.id);
+      const userId = getUserId(req.user);
+      const app = await applicationRepository.findOwnedById(req.params.id, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
       }
-      const userId = getUserId(req.user);
-      if (app.userId.toString() !== userId) {
-        return res.status(403).json({
-          error: { code: "FORBIDDEN", message: "Not your application", requestId: req.id },
-        });
-      }
-
       await applicationRepository.delete(req.params.id);
+      await cancelApplicationReminder(app);
       await del(CacheKeys.response(userId, "kanban", 1));
       return res.status(200).json({
         data: { message: "Application deleted successfully", id: req.params.id },

@@ -12,6 +12,7 @@ applicationRouter.post("/", csrfProtection, applicationController.createApplicat
 applicationRouter.get("/:id", applicationController.getApplicationById);
 applicationRouter.patch("/:id", csrfProtection, applicationController.updateApplication);
 applicationRouter.patch("/:id/status", csrfProtection, applicationController.updateStatus);
+applicationRouter.patch("/:id/archive", csrfProtection, applicationController.archiveApplication);
 applicationRouter.post(
   "/:id/follow-up/approve",
   csrfProtection,

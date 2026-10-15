@@ -12,6 +12,28 @@ const preferencesSchema = z.object({
 });
 
 export const profileController = {
+  async listResumes(req, res, next) {
+    try {
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const resumes = await profileRepository.findResumesByUserId(userId);
+      return res.status(200).json({
+        data: {
+          resumes: resumes.map(
+            ({ _id, originalFilename, mimeType, parsedFactsCount, createdAt }) => ({
+              id: _id.toString(),
+              originalFilename,
+              mimeType,
+              parsedFactsCount,
+              createdAt,
+            }),
+          ),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async uploadResume(req, res, next) {
     try {
       if (!req.file) {

@@ -23,5 +23,6 @@ profileRouter.post(
 );
 
 profileRouter.get("/", profileController.getProfile);
+profileRouter.get("/resumes", profileController.listResumes);
 profileRouter.put("/preferences", csrfProtection, profileController.updatePreferences);
 profileRouter.get("/facts", profileController.getFacts);

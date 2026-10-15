@@ -43,6 +43,16 @@ const envSchema = z.object({
   // Cost & Guardrails
   DAILY_USER_USD_BUDGET: z.coerce.number().default(5.0),
   GLOBAL_DAILY_USD_CAP: z.coerce.number().default(500.0),
+  MOCK_INTERVIEW_PREMIUM_DAILY_LIMIT: z.coerce.number().int().min(1).default(3),
+  MOCK_INTERVIEW_SESSION_TOKEN_CAP: z.coerce.number().int().min(1000).default(12000),
+  MOCK_INTERVIEW_FREE_TRIAL_ENABLED: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
+  MOCK_INTERVIEW_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
+  MOCK_INTERVIEW_QUESTION_TIER: z.enum(["small", "strong"]).default("small"),
+  MOCK_INTERVIEW_EVALUATION_TIER: z.enum(["small", "strong"]).default("small"),
+  MOCK_INTERVIEW_REPORT_TIER: z.enum(["small", "strong"]).default("strong"),
   AI_KILL_SWITCH: z
     .string()
     .transform((val) => val === "true")

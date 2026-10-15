@@ -98,7 +98,19 @@ export const aiController = {
         modelId: selectedModel.id,
       });
 
-      const responseText = typeof response === "string" ? response : JSON.stringify(response);
+      // LangChain chat models return an AIMessage-like object. Stream only the
+      // human-readable content instead of leaking usage metadata into chat.
+      const responseText =
+        typeof response === "string"
+          ? response
+          : typeof response?.content === "string"
+            ? response.content
+            : Array.isArray(response?.content)
+              ? response.content
+                  .map((part) => (typeof part === "string" ? part : part?.text || ""))
+                  .filter(Boolean)
+                  .join("\n")
+              : "";
 
       // Stream text chunks
       res.write(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);

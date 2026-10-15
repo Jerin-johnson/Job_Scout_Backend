@@ -4,9 +4,10 @@ import { logger } from "./shared/utils/logger.js";
 import { initSentry } from "./config/sentry.js";
 import { connectMongo } from "./config/database.js";
 import { getRedisClient } from "./config/redis.js";
-import { setupGracefulShutdown } from "./config/shutdown.js";
+import { setupGracefulShutdown, registerShutdownHandler } from "./config/shutdown.js";
 import { userRepository } from "./repositories/userRepository.js";
 import { ROLES } from "./shared/constants/plans.js";
+import { interviewRepository } from "./repositories/interviewRepository.js";
 
 async function startServer() {
   initSentry();
@@ -14,6 +15,18 @@ async function startServer() {
   // Connect to databases
   await connectMongo();
   getRedisClient();
+
+  const interviewExpirySweep = setInterval(async () => {
+    try {
+      const result = await interviewRepository.expirePastSessions();
+      if (result.modifiedCount)
+        logger.info({ expiredCount: result.modifiedCount }, "Expired timed-out mock interviews");
+    } catch (error) {
+      logger.warn({ code: error.code, name: error.name }, "Mock interview expiry sweep failed");
+    }
+  }, 60_000);
+  interviewExpirySweep.unref();
+  registerShutdownHandler(() => clearInterval(interviewExpirySweep));
 
   if (env.SUPER_ADMIN_EMAIL) {
     const bootstrapUser = await userRepository.findByEmail(env.SUPER_ADMIN_EMAIL);

@@ -87,6 +87,15 @@ const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    timezone: { type: String, default: "UTC", trim: true, maxlength: 64 },
+    mockInterviewTrialUsedAt: { type: Date, default: undefined },
+    mockInterviewTrialSessionId: { type: mongoose.Schema.Types.ObjectId, default: undefined },
+    mockInterviewQuotaDay: { type: String, default: undefined },
+    mockInterviewQuotaCount: { type: Number, default: 0 },
+    mockInterviewQuotaSessionIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: undefined,
+    },
     profileVersion: {
       type: Number,
       default: 1,

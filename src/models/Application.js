@@ -29,6 +29,19 @@ const ApplicationSchema = new mongoose.Schema(
       default: "saved",
       index: true,
     },
+    priority: { type: String, enum: ["high", "medium", "low"], default: "medium", index: true },
+    pinnedAt: { type: Date, default: null, index: true },
+    archivedAt: { type: Date, default: null, index: true },
+    archiveReason: {
+      type: String,
+      enum: ["withdrawn", "ghosted", "no_longer_interested", ""],
+      default: "",
+    },
+    source: { type: String, trim: true, default: "" },
+    location: { type: String, trim: true, default: "" },
+    salaryMin: { type: Number, min: 0, default: null },
+    salaryMax: { type: Number, min: 0, default: null },
+    lastActivityAt: { type: Date, default: null, index: true },
     timeline: [
       {
         status: { type: String, required: true },
@@ -74,6 +87,15 @@ const ApplicationSchema = new mongoose.Schema(
 );
 
 ApplicationSchema.index({ userId: 1, status: 1 });
+// Board reads are scoped to a user and exclude archived cards, then group by stage.
+ApplicationSchema.index(
+  { userId: 1, archivedAt: 1, status: 1 },
+  { name: "application_board_by_stage" },
+);
+ApplicationSchema.index(
+  { userId: 1, archivedAt: 1, nextFollowUpAt: 1 },
+  { name: "application_board_follow_up" },
+);
 ApplicationSchema.index({ reminderStatus: 1, nextFollowUpAt: 1 });
 
 export const Application =

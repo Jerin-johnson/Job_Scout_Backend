@@ -5,6 +5,10 @@ import { userRepository } from "../repositories/userRepository.js";
 import { Document } from "../models/Document.js";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
+import { InterviewMessage } from "../models/InterviewMessage.js";
+import { InterviewReport } from "../models/InterviewReport.js";
+import { InterviewSession } from "../models/InterviewSession.js";
+import { interviewGraph } from "../ai/graphs/interviewGraph.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -26,8 +30,26 @@ export const privacyController = {
       const memories = await longTermMemory.listUserMemories(userId);
 
       let documents = [];
+      let interviews = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
+        interviews = await InterviewSession.find({ userId }).select("-questionPlan").lean();
+        const interviewIds = interviews.map((session) => session._id);
+        const [messages, reports] = await Promise.all([
+          InterviewMessage.find({ userId, interviewId: { $in: interviewIds } })
+            .select("-userId -idempotencyKey")
+            .lean(),
+          InterviewReport.find({ userId, interviewId: { $in: interviewIds } }).lean(),
+        ]);
+        interviews = interviews.map((session) => ({
+          ...session,
+          transcript: messages.filter(
+            (message) => message.interviewId.toString() === session._id.toString(),
+          ),
+          report:
+            reports.find((report) => report.interviewId.toString() === session._id.toString())
+              ?.report || null,
+        }));
       }
 
       const exportBundle = {
@@ -44,6 +66,7 @@ export const privacyController = {
         applications: applications || [],
         tailoredDocuments: documents,
         agentMemories: memories || [],
+        interviews,
       };
 
       res.setHeader("Content-Type", "application/json");
@@ -71,6 +94,16 @@ export const privacyController = {
 
       // 1. Purge agent memories
       await longTermMemory.forgetAllMemories(userId);
+
+      // Remove durable interview transcripts/reports and legacy process-local sessions.
+      if (isMongoReady()) {
+        await Promise.all([
+          InterviewMessage.deleteMany({ userId }),
+          InterviewReport.deleteMany({ userId }),
+          InterviewSession.deleteMany({ userId }),
+        ]);
+      }
+      interviewGraph.deleteMockSessionsByUserId(userId);
 
       // 2. Soft delete user and revoke all refresh tokens
       await userRepository.update(userId, {

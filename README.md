@@ -13,6 +13,7 @@ Production-ready backend API service for **JobScout**, the subscription-based AI
 - **Job discovery**: authenticated catalog search spans all jobs currently indexed by enabled adapters; profile-ranked recommendations are a separate endpoint.
 - **Admin operations**: role-protected metrics, account/job directories, audit entries, and explicit job ingestion are available under `/api/v1/admin`.
 - **Admin setup**: see [`docs/ADMIN_OPERATIONS.md`](./docs/ADMIN_OPERATIONS.md) for secure first-admin provisioning and console operations.
+- **AI mock interviews**: see [`docs/AI_MOCK_INTERVIEWS.md`](./docs/AI_MOCK_INTERVIEWS.md) for the session API, consent, quotas, lifecycle, database indexes, and rollout steps.
 
 ## Quickstart
 

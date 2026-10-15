@@ -2,8 +2,10 @@ import { Queue } from "bullmq";
 import { getRedisClient, isRedisReady } from "../config/redis.js";
 
 let reminderQueue;
+let queueFactoryOverride = null;
 
 function queue() {
+  if (queueFactoryOverride) return queueFactoryOverride();
   if (!isRedisReady())
     throw Object.assign(new Error("Reminder scheduling requires an available Redis connection"), {
       code: "REMINDER_QUEUE_UNAVAILABLE",
@@ -19,6 +21,12 @@ function queue() {
     },
   });
   return reminderQueue;
+}
+
+// Allows integration tests to verify reminder lifecycle behavior without Redis.
+export function setApplicationReminderQueueFactoryForTests(factory) {
+  queueFactoryOverride = factory;
+  reminderQueue = undefined;
 }
 
 export async function scheduleApplicationReminder(application) {
@@ -46,7 +54,7 @@ export async function scheduleApplicationReminder(application) {
 }
 
 export async function cancelApplicationReminder(application) {
-  if (!application?.nextFollowUpAt || !isRedisReady()) return;
+  if (!application?.nextFollowUpAt || (!queueFactoryOverride && !isRedisReady())) return;
   const id = String(application._id || application.id);
   const job = await queue().getJob(
     `follow-up-${id}-${new Date(application.nextFollowUpAt).getTime()}`,
