@@ -71,6 +71,30 @@
         "responses": { "200": { "description": "User session details" } }
       }
     },
+    "/api/v1/profile/resume-upload-url": {
+      "post": {
+        "summary": "Create a short-lived user-scoped S3 resume upload URL",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Presigned S3 PUT URL and required headers" },
+          "400": { "description": "Invalid resume file metadata" },
+          "503": { "description": "S3 storage is unavailable or mock mode is active" }
+        }
+      }
+    },
+    "/api/v1/profile/resume-upload-complete": {
+      "post": {
+        "summary": "Verify an S3 upload and parse its resume facts",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Resume verified, encrypted, parsed, and stored" },
+          "400": { "description": "Invalid or unsupported uploaded resume" },
+          "503": { "description": "S3 storage or AI provider is unavailable" }
+        }
+      }
+    },
     "/api/v1/profile/upload-resume": {
       "post": {
         "summary": "Upload PDF/DOCX resume for structured fact parsing",

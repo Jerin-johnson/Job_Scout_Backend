@@ -296,6 +296,22 @@ sequenceDiagram
 
 ### 3.3. Candidate Profile & Resume Parsing (`/api/v1/profile`)
 
+#### `POST /api/v1/profile/resume-upload-url`
+
+- **Purpose**: Creates a five-minute, user-scoped AWS S3 `PUT` URL for direct browser upload.
+- **Headers**: Bearer authentication and `X-Requested-With: JobScoutClient` (or the authenticated session cookie plus CSRF headers).
+- **JSON body**: `{ "originalFilename": "resume.pdf", "mimeType": "application/pdf", "fileSize": 12345 }`. DOCX uses its standard OpenXML MIME type. Files must be 1–5 MB.
+- **Response**: `{ "data": { "uploadId": "<uuid>", "uploadUrl": "<presigned-url>", "requiredHeaders": { "Content-Type": "application/pdf" }, "expiresInSeconds": 300 } }`.
+- **Browser upload**: `PUT` the file bytes to `uploadUrl` with every `requiredHeaders` value. The S3 bucket CORS policy must allow the frontend origin, `PUT`, and the `Content-Type` request header.
+
+#### `POST /api/v1/profile/resume-upload-complete`
+
+- **Purpose**: Verifies the authenticated user's uploaded object in S3, checks its size/content type and file magic, then extracts and stores resume facts. Completion is safe to retry for the same `uploadId`.
+- **JSON body**: `{ "uploadId": "<uuid>", "originalFilename": "resume.pdf", "mimeType": "application/pdf" }`.
+- **Storage**: The API constructs the object key from the authenticated user and UUID; clients cannot choose another user's key. Original bytes are downloaded only after the S3 metadata and size checks.
+
+The existing multipart endpoint below remains available for compatibility and local mock mode.
+
 #### `POST /api/v1/profile/upload-resume`
 
 - **Purpose**: Uploads and parses resume into immutable structured facts with unique `factId`s.

@@ -136,7 +136,15 @@ function assignFactIds(facts) {
 
 export const resumeParserService = {
   /** Parse source-grounded resume facts, cached by file hash for 30 days. */
-  async parseResume({ user, userId, fileBuffer, originalFilename, rawText, mimeType }) {
+  async parseResume({
+    user,
+    userId,
+    fileBuffer,
+    originalFilename,
+    rawText,
+    mimeType,
+    storedS3Key,
+  }) {
     const fileHash = computeSha256(fileBuffer);
     // Versioning the key bypasses legacy cached parses from the demo extractor,
     // which could contain facts that were never present in the uploaded resume.
@@ -199,8 +207,13 @@ export const resumeParserService = {
     // different candidates must not share fact identifiers.
     facts = assignFactIds(facts);
     const encryptedRawText = encryptText(rawText);
-    const s3Key = `resumes/${userId}/${fileHash}/${originalFilename}`;
-    await storageService.uploadFile({ key: s3Key, buffer: fileBuffer, contentType: mimeType });
+    // Keep user-supplied filenames out of object paths. The original name is
+    // retained in the private Resume record; content hash makes this write stable.
+    const extension = mimeType === "application/pdf" ? "pdf" : "docx";
+    const s3Key = storedS3Key || `resumes/${userId}/${fileHash}.${extension}`;
+    if (!storedS3Key) {
+      await storageService.uploadFile({ key: s3Key, buffer: fileBuffer, contentType: mimeType });
+    }
 
     const totalFacts = factCount(facts);
 

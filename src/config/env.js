@@ -30,7 +30,10 @@ const envSchema = z.object({
 
   // AI Models & Gateways
   ANTHROPIC_API_KEY: z.string().default("dummy_anthropic_key_for_dev"),
-  LLM_PROVIDER: z.enum(["anthropic", "gemini", "groq"]).default("gemini"),
+  LLM_PROVIDER: z.enum(["anthropic", "gemini", "groq"]).default("groq"),
+  ANTHROPIC_MODEL_SMALL: z.string().default("claude-3.0-100k"),
+  ANTHROPIC_MODEL_STRONG: z.string().default("claude-3.0-100k"),
+  ANTHROPIC_DATA_POLICY_CLASS: z.enum(["unpaid_free_tier", "paid_api"]).default("unpaid_free_tier"),
   GEMINI_API_KEY: z.string().optional().default(""),
   GEMINI_MODEL_SMALL: z.string().default("gemini-3.5-flash-lite"),
   GEMINI_MODEL_STRONG: z.string().default("gemini-3.5-flash-lite"),
@@ -46,9 +49,18 @@ const envSchema = z.object({
   OPENAI_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(3072).default(1536),
   VOYAGE_EMBEDDING_MODEL: z.string().default("voyage-large-2-instruct"),
   VOYAGE_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(4096).default(1024),
-  AI_ALLOW_MOCKS: z.string().transform((value) => value === "true").default("false"),
-  AI_BLOCK_UNPAID_PERSONAL_DATA: z.string().transform((value) => value !== "false").default("true"),
-  AI_MONTHLY_ALLOWANCE_SHADOW_MODE: z.string().transform((value) => value !== "false").default("true"),
+  AI_ALLOW_MOCKS: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
+  AI_BLOCK_UNPAID_PERSONAL_DATA: z
+    .string()
+    .transform((value) => value !== "false")
+    .default("true"),
+  AI_MONTHLY_ALLOWANCE_SHADOW_MODE: z
+    .string()
+    .transform((value) => value !== "false")
+    .default("true"),
   AI_MONTHLY_ALLOWANCE_SHADOW_RATIO: z.coerce.number().finite().positive().max(1).default(0.25),
   AI_PROVIDER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
   OPENAI_API_KEY: z.string().optional().default("dummy_openai_key"),

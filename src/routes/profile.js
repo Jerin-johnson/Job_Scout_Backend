@@ -16,6 +16,16 @@ export const profileRouter = Router();
 profileRouter.use(authenticate);
 
 profileRouter.post(
+  "/resume-upload-url",
+  csrfProtection,
+  profileController.createResumeUploadUrl,
+);
+profileRouter.post(
+  "/resume-upload-complete",
+  csrfProtection,
+  profileController.completeResumeUpload,
+);
+profileRouter.post(
   "/upload-resume",
   csrfProtection,
   upload.single("file"),

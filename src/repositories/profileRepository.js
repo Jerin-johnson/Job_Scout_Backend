@@ -78,4 +78,15 @@ export const profileRepository = {
       ) || null
     );
   },
+
+  async findResumeByS3KeyAndUserId(s3Key, userId) {
+    if (isMongoReady()) {
+      return Resume.findOne({ s3Key, userId }).lean();
+    }
+    return (
+      inMemoryResumes.find(
+        (resume) => resume.s3Key === s3Key && resume.userId.toString() === userId.toString(),
+      ) || null
+    );
+  },
 };
