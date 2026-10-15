@@ -4,6 +4,8 @@
 **Scope:** Research and read-only audit of the current JobScout backend. This report does not change application code.  
 **Pricing note:** Public provider rates and terms change. Prices below are the values visible in the linked provider sources on the access date; verify again before rollout.
 
+> **Implementation status (2026-10-15):** The original audit and phase plan below are a point-in-time snapshot. Approved Phase 0 and Phase 1 work has since been implemented; see [AI_COST_CONTROL_IMPLEMENTATION.md](./AI_COST_CONTROL_IMPLEMENTATION.md) for current behavior and deployment requirements. Phase 2 (atomic reservations, monthly enforcement, UI meter, and dashboards) was explicitly not started. The decisions to throttle at existing limits, keep monthly allowance in shadow mode, disable paid models, and fail closed on production Redis/Mongo outages are reflected in code/config.
+
 ## Executive summary
 
 ### Five findings that matter most
