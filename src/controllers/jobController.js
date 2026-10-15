@@ -1,12 +1,30 @@
 import { discoveryGraph } from "../ai/graphs/discoveryGraph.js";
 import { get, set, CacheKeys, TTL } from "../shared/cache.js";
 import { longTermMemory } from "../ai/memory/longTerm.js";
+import { jobIngestionService } from "../services/jobs/jobIngestionService.js";
 import { z } from "zod";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
   reason: z.string().optional().default(""),
 });
+
+function serializeMatch(match) {
+  const job = match.jobId && typeof match.jobId === "object" ? match.jobId : match.jobDetails || {};
+  return {
+    jobId: String(job._id || match.jobId),
+    title: match.title || job.title || "Job title unavailable",
+    company: match.company || job.company || "Company unavailable",
+    location: match.location || job.location || "",
+    sourceUrl: match.sourceUrl || job.sourceUrl || "",
+    sourceBoard: match.sourceBoard || job.sourceBoard || "",
+    salaryRange: match.salaryRange || job.salaryRange,
+    score: match.score,
+    rationale: match.rationale,
+    matchingSkills: match.matchingSkills || [],
+    missingSkills: match.missingSkills || [],
+  };
+}
 
 export const jobController = {
   async getMatches(req, res, next) {
@@ -18,7 +36,10 @@ export const jobController = {
       // Check L1 response cache
       const cached = await get(cacheKey);
       if (cached) {
-        return res.status(200).json({ data: { matches: cached, fromCache: true } });
+        const matches = cached.map(serializeMatch);
+        return res
+          .status(200)
+          .json({ data: { totalMatches: matches.length, matches, fromCache: true } });
       }
 
       let matches = await discoveryGraph.getUserMatches(userId);
@@ -28,6 +49,8 @@ export const jobController = {
         const run = await discoveryGraph.runDiscovery(req.user);
         matches = run.matches || [];
       }
+
+      matches = matches.map(serializeMatch);
 
       // Cache matches response for 60s
       await set(cacheKey, matches, TTL.RESPONSE);
@@ -43,14 +66,33 @@ export const jobController = {
     }
   },
 
+  async searchCatalog(req, res, next) {
+    try {
+      const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+      const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+      const filters = {
+        q: String(req.query.q || "").trim(),
+        location: String(req.query.location || "").trim(),
+        source: String(req.query.source || "").trim(),
+        remoteType: String(req.query.remoteType || "").trim(),
+      };
+      const result = await jobIngestionService.searchJobs({ ...filters, page, limit });
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async runDiscovery(req, res, next) {
     try {
       const result = await discoveryGraph.runDiscovery(req.user);
+      const matches = result.matches.map(serializeMatch);
       res.status(200).json({
         data: {
           message: "Discovery run completed successfully",
-          totalFound: result.matches.length,
-          matches: result.matches,
+          totalFound: matches.length,
+          totalMatches: matches.length,
+          matches,
         },
       });
     } catch (err) {

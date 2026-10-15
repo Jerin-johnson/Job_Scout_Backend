@@ -8,8 +8,5 @@ export const billingRouter = Router();
 // Protected user billing endpoints
 billingRouter.post("/checkout", authenticate, csrfProtection, billingController.checkout);
 
-billingRouter.post("/portal", authenticate, csrfProtection, billingController.portal);
-
-// Webhook endpoints (signature-verified, no auth/csrf middleware)
-billingRouter.post("/stripe-webhook", billingController.stripeWebhook);
+// Razorpay webhook endpoint (signature-verified, no auth/csrf middleware)
 billingRouter.post("/razorpay-webhook", billingController.razorpayWebhook);

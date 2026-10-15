@@ -49,7 +49,7 @@ export const profileController = {
           error: {
             code: "INSUFFICIENT_TEXT",
             message:
-              "Unable to extract sufficient text from document. Ensure it is not scanned/image-only.",
+              "We could not read enough selectable text. Scanned or image-only PDFs need OCR before upload.",
             requestId: req.id || req.headers["x-request-id"] || "req_unknown",
           },
         });
@@ -58,6 +58,7 @@ export const profileController = {
       // 3. Parse into structured facts and store
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
       const result = await resumeParserService.parseResume({
+        user: req.user,
         userId,
         fileBuffer: req.file.buffer,
         originalFilename: req.file.originalname,
@@ -116,13 +117,10 @@ export const profileController = {
       const profile = await profileRepository.findByUserId(userId);
 
       if (!profile) {
-        return res.status(404).json({
-          error: {
-            code: "PROFILE_NOT_FOUND",
-            message: "No profile found",
-            requestId: req.id || req.headers["x-request-id"] || "req_unknown",
-          },
-        });
+        // Facts are a collection resource: a user without an uploaded resume has
+        // an empty collection, not a failed request. This keeps first-run UI in
+        // its upload state and gives clients the same contract in both cases.
+        return res.status(200).json({ data: { totalFacts: 0, facts: [] } });
       }
 
       // Flatten facts for truthfulness check and candidate review
@@ -138,6 +136,7 @@ export const profileController = {
           facts.push({
             factId: ach.factId,
             type: "achievement",
+            label: ach.bullet,
             bullet: ach.bullet,
             metrics: ach.metrics,
           });
@@ -148,6 +147,7 @@ export const profileController = {
         facts.push({
           factId: skill.factId,
           type: "skill",
+          label: skill.name,
           name: skill.name,
           category: skill.category,
         });
@@ -157,6 +157,7 @@ export const profileController = {
         facts.push({
           factId: edu.factId,
           type: "education",
+          label: [edu.degree, edu.institution].filter(Boolean).join(" at "),
           degree: edu.degree,
           institution: edu.institution,
         });

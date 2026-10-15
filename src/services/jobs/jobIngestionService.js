@@ -10,7 +10,9 @@ const inMemoryJobs = new Map();
 
 export const jobIngestionService = {
   getAdapters() {
-    return [new MockBoardAdapter(), new RemoteOkAdapter()];
+    const adapters = [new RemoteOkAdapter()];
+    if (process.env.NODE_ENV !== "production") adapters.unshift(new MockBoardAdapter());
+    return adapters;
   },
 
   /**
@@ -39,23 +41,34 @@ export const jobIngestionService = {
       }
     }
     const uniqueJobs = Array.from(uniqueMap.values());
+    const defaultExpiry = new Date(Date.now() + 60 * 86400 * 1000);
+    for (const job of uniqueJobs) {
+      if (!job.expiresAt) job.expiresAt = defaultExpiry;
+    }
 
     // 2. Embed once per job (check 90-day shared Redis embedding cache)
     let newEmbeddingsCount = 0;
 
-    for (const job of uniqueJobs) {
-      const embKey = CacheKeys.embedding(job.contentHash);
-      let embedding = await get(embKey);
+    const embeddingWorkers = Array.from(
+      { length: Math.min(5, uniqueJobs.length) },
+      async (_, worker) => {
+        for (let index = worker; index < uniqueJobs.length; index += 5) {
+          const job = uniqueJobs[index];
+          const embKey = CacheKeys.embedding(job.contentHash);
+          let embedding = await get(embKey);
 
-      if (!embedding) {
-        const textToEmbed = `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.substring(0, 500)}`;
-        embedding = await embeddingService.getEmbedding(textToEmbed);
-        await set(embKey, embedding, TTL.EMBEDDING);
-        newEmbeddingsCount++;
-      }
+          if (!embedding) {
+            const textToEmbed = `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.substring(0, 500)}`;
+            embedding = await embeddingService.getEmbedding(textToEmbed);
+            await set(embKey, embedding, TTL.EMBEDDING);
+            newEmbeddingsCount++;
+          }
 
-      job.embedding = embedding;
-    }
+          job.embedding = embedding;
+        }
+      },
+    );
+    await Promise.all(embeddingWorkers);
 
     // 3. Persist to MongoDB using bulkWrite
     if (isMongoReady()) {
@@ -72,6 +85,7 @@ export const jobIngestionService = {
       for (const job of uniqueJobs) {
         inMemoryJobs.set(job.contentHash, {
           _id: `job_${job.contentHash.substring(0, 10)}`,
+          expiresAt: job.expiresAt || new Date(Date.now() + 60 * 86400 * 1000),
           ...job,
         });
       }
@@ -91,8 +105,72 @@ export const jobIngestionService = {
 
   async getAllJobs() {
     if (isMongoReady()) {
-      return Job.find({}).sort({ postedAt: -1 }).limit(100).lean();
+      return Job.find({ expiresAt: { $gt: new Date() } })
+        .sort({ postedAt: -1 })
+        .lean();
     }
-    return Array.from(inMemoryJobs.values());
+    return Array.from(inMemoryJobs.values()).filter((job) => new Date(job.expiresAt) > new Date());
+  },
+
+  async searchJobs({ q = "", location = "", source = "", remoteType = "", page = 1, limit = 20 }) {
+    const safeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (isMongoReady()) {
+      const filter = {};
+      if (q) {
+        const expression = new RegExp(safeRegex(q), "i");
+        filter.$or = [
+          { title: expression },
+          { company: expression },
+          { tags: expression },
+          { requirements: expression },
+        ];
+      }
+      if (location) filter.location = new RegExp(safeRegex(location), "i");
+      if (source) filter.sourceBoard = new RegExp(`^${safeRegex(source)}$`, "i");
+      if (["remote", "hybrid", "onsite"].includes(remoteType)) filter.remoteType = remoteType;
+      const [jobs, total] = await Promise.all([
+        Job.find({ ...filter, expiresAt: { $gt: new Date() } })
+          .sort({ postedAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .select("-embedding")
+          .lean(),
+        Job.countDocuments({ ...filter, expiresAt: { $gt: new Date() } }),
+      ]);
+      return {
+        jobs: jobs.map((job) => ({ ...job, jobId: String(job._id) })),
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      };
+    }
+    const terms = q.toLowerCase();
+    const now = new Date();
+    const filtered = Array.from(inMemoryJobs.values())
+      .filter(
+        (job) =>
+          new Date(job.expiresAt) > now &&
+          (!terms ||
+            [job.title, job.company, ...(job.tags || []), ...(job.requirements || [])]
+              .join(" ")
+              .toLowerCase()
+              .includes(terms)) &&
+          (!location || (job.location || "").toLowerCase().includes(location.toLowerCase())) &&
+          (!source || job.sourceBoard?.toLowerCase() === source.toLowerCase()) &&
+          (!remoteType || job.remoteType === remoteType),
+      )
+      .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
+    const start = (page - 1) * limit;
+    return {
+      jobs: filtered.slice(start, start + limit).map(({ embedding: _embedding, ...job }) => ({
+        ...job,
+        jobId: String(job._id || job.contentHash),
+      })),
+      total: filtered.length,
+      page,
+      limit,
+      pages: Math.ceil(filtered.length / limit),
+    };
   },
 };

@@ -153,7 +153,11 @@ export const discoveryGraph = {
   async getUserMatches(userId) {
     const uid = userId.toString();
     if (isMongoReady()) {
-      return Match.find({ userId: uid }).sort({ score: -1 }).limit(20).lean();
+      return Match.find({ userId: uid })
+        .populate("jobId", "title company location sourceUrl salaryRange sourceBoard")
+        .sort({ score: -1 })
+        .limit(20)
+        .lean();
     }
     return inMemoryMatches.filter((m) => m.userId === uid);
   },

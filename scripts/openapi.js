@@ -114,6 +114,14 @@ async function generateOpenApi() {
         },
       },
       // AI Router
+      "/api/v1/ai/models": {
+        get: {
+          summary: "List configured free-tier chat models",
+          tags: ["AI Router"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Configured models allowed for user chat" } },
+        },
+      },
       "/api/v1/ai/route": {
         post: {
           summary: "Classify and route candidate prompt across 3 tiers",
@@ -125,6 +133,8 @@ async function generateOpenApi() {
       "/api/v1/ai/chat": {
         post: {
           summary: "SSE streaming AI conversational endpoint",
+          description:
+            "Required modelId is checked against the server-side selectable free-tier model allowlist.",
           tags: ["AI Router"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "Text event stream with routing & token events" } },
@@ -162,6 +172,26 @@ async function generateOpenApi() {
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "List of scored job matches" } },
+        },
+      },
+      "/api/v1/jobs/catalog": {
+        get: {
+          summary: "Search the paginated catalog of indexed jobs",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "q", in: "query", schema: { type: "string" } },
+            { name: "location", in: "query", schema: { type: "string" } },
+            { name: "source", in: "query", schema: { type: "string" } },
+            {
+              name: "remoteType",
+              in: "query",
+              schema: { type: "string", enum: ["remote", "hybrid", "onsite"] },
+            },
+            { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+            { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50 } },
+          ],
+          responses: { 200: { description: "Filtered indexed jobs and pagination metadata" } },
         },
       },
       "/api/v1/jobs/discover": {
@@ -220,6 +250,20 @@ async function generateOpenApi() {
           responses: { 201: { description: "Application tracked" } },
         },
       },
+      "/api/v1/applications/{id}": {
+        get: {
+          summary: "Get a tracked application and its details",
+          tags: ["Applications"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Application details" } },
+        },
+        patch: {
+          summary: "Update application contacts, job link, notes, and reminder",
+          tags: ["Applications"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Application details updated" } },
+        },
+      },
       "/api/v1/applications/{id}/status": {
         patch: {
           summary: "Update pipeline stage and draft automated follow-up email",
@@ -264,25 +308,10 @@ async function generateOpenApi() {
       // Billing & Subscriptions
       "/api/v1/billing/checkout": {
         post: {
-          summary: "Create Stripe or Razorpay checkout session",
+          summary: "Create Razorpay subscription checkout session",
           tags: ["Billing"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "Checkout session URL" } },
-        },
-      },
-      "/api/v1/billing/portal": {
-        post: {
-          summary: "Get Stripe Customer Portal session URL",
-          tags: ["Billing"],
-          security: [{ bearerAuth: [] }],
-          responses: { 200: { description: "Portal session URL" } },
-        },
-      },
-      "/api/v1/billing/stripe-webhook": {
-        post: {
-          summary: "Idempotent signed Stripe webhook handler",
-          tags: ["Billing"],
-          responses: { 200: { description: "Event processed" } },
         },
       },
       "/api/v1/billing/razorpay-webhook": {
@@ -301,6 +330,133 @@ async function generateOpenApi() {
           responses: {
             200: { description: "Telemetry metrics payload" },
             403: { description: "Forbidden - Admin role required" },
+          },
+        },
+      },
+      "/api/v1/admin/users": {
+        get: {
+          summary: "Search active accounts (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "q", in: "query", schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer" } },
+          ],
+          responses: {
+            200: { description: "Paginated account directory" },
+            403: { description: "Admin role required" },
+            503: { description: "MongoDB unavailable" },
+          },
+        },
+      },
+      "/api/v1/admin/users/{id}": {
+        patch: {
+          summary: "Set account plan or access role (super administrator only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Account updated" },
+            403: { description: "Super administrator role required" },
+            409: { description: "Change conflicts with account protection or active billing" },
+          },
+        },
+      },
+      "/api/v1/admin/billing/overview": {
+        get: {
+          summary:
+            "Revenue, payments, plans, and active subscription summary (super administrator only)",
+          tags: ["Admin Billing"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Razorpay billing overview" },
+            403: { description: "Super administrator role required" },
+          },
+        },
+      },
+      "/api/v1/admin/billing/subscriptions": {
+        get: {
+          summary: "List recorded subscription lifecycle data (super administrator only)",
+          tags: ["Admin Billing"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Subscription records" },
+            403: { description: "Super administrator role required" },
+          },
+        },
+      },
+      "/api/v1/admin/billing/subscriptions/{id}/cancel": {
+        post: {
+          summary:
+            "Schedule an active Razorpay subscription to cancel at period end (super administrator only)",
+          tags: ["Admin Billing"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Cancellation scheduled" },
+            403: { description: "Super administrator role required" },
+            409: { description: "Subscription is not cancellable" },
+          },
+        },
+      },
+      "/api/v1/admin/billing/payments": {
+        get: {
+          summary: "List captured and refunded payments (super administrator only)",
+          tags: ["Admin Billing"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Paginated payment records" },
+            403: { description: "Super administrator role required" },
+          },
+        },
+      },
+      "/api/v1/admin/billing/payments/{paymentId}/refund": {
+        post: {
+          summary: "Request refund of the remaining payment balance (super administrator only)",
+          tags: ["Admin Billing"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            202: { description: "Refund submitted to Razorpay" },
+            403: { description: "Super administrator role required" },
+            409: { description: "Payment cannot be refunded" },
+          },
+        },
+      },
+      "/api/v1/admin/jobs": {
+        get: {
+          summary: "Search indexed job inventory (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "q", in: "query", schema: { type: "string" } },
+            { name: "source", in: "query", schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer" } },
+          ],
+          responses: {
+            200: { description: "Paginated job inventory" },
+            403: { description: "Admin role required" },
+          },
+        },
+      },
+      "/api/v1/admin/audit": {
+        get: {
+          summary: "List recent admin audit events (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "page", in: "query", schema: { type: "integer" } }],
+          responses: {
+            200: { description: "Paginated admin audit history" },
+            403: { description: "Admin role required" },
+            503: { description: "MongoDB unavailable" },
+          },
+        },
+      },
+      "/api/v1/admin/jobs/ingest": {
+        post: {
+          summary: "Run enabled job ingestion adapters (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Source ingestion summary" },
+            403: { description: "Admin role required" },
           },
         },
       },

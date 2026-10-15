@@ -44,6 +44,7 @@ export const userRepository = {
       name: userData.name || "",
       role: userData.role || ROLES.USER,
       plan: userData.plan || PLANS.FREE,
+      planSource: userData.planSource || "manual",
       planVersion: 1,
       profileVersion: 1,
       failedLoginAttempts: 0,

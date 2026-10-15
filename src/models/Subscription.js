@@ -16,7 +16,7 @@ const SubscriptionSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ["stripe", "razorpay", "manual"],
+      enum: ["razorpay", "manual"],
       default: "manual",
     },
     status: {
@@ -48,6 +48,7 @@ const SubscriptionSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    lastProviderEventAt: { type: Date, default: null },
     processedWebhookEvents: [
       {
         eventId: { type: String, required: true },

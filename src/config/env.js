@@ -6,6 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
   HOST: z.string().default("0.0.0.0"),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
+  SUPER_ADMIN_EMAIL: z.string().email().optional().or(z.literal("")),
   COOKIE_DOMAIN: z.string().default("localhost"),
   TRUST_PROXY: z.string().default("1"),
 
@@ -29,6 +30,10 @@ const envSchema = z.object({
 
   // AI Models & Gateways
   ANTHROPIC_API_KEY: z.string().default("dummy_anthropic_key_for_dev"),
+  LLM_PROVIDER: z.enum(["anthropic", "gemini"]).default("gemini"),
+  GEMINI_API_KEY: z.string().optional().default(""),
+  GEMINI_MODEL_SMALL: z.string().default("gemini-3.1-flash-lite"),
+  GEMINI_MODEL_STRONG: z.string().default("gemini-3.1-flash-lite"),
   MODEL_SMALL: z.string().default("claude-3-5-haiku-20241022"),
   MODEL_STRONG: z.string().default("claude-3-5-sonnet-20241022"),
   EMBEDDING_PROVIDER: z.enum(["voyage", "openai"]).default("openai"),
@@ -54,11 +59,6 @@ const envSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().default("dummy_s3_secret"),
 
   // Payments
-  STRIPE_SECRET_KEY: z.string().default("sk_test_dummy"),
-  STRIPE_WEBHOOK_SECRET: z.string().default("whsec_dummy"),
-  STRIPE_PRICE_ID_PRO: z.string().default("price_dummy_pro"),
-  STRIPE_PRICE_ID_PREMIUM: z.string().default("price_dummy_premium"),
-
   RAZORPAY_KEY_ID: z.string().default("rzp_test_dummy"),
   RAZORPAY_KEY_SECRET: z.string().default("rzp_secret_dummy"),
   RAZORPAY_WEBHOOK_SECRET: z.string().default("rzp_whsec_dummy"),

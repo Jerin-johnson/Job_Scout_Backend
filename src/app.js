@@ -79,7 +79,6 @@ export function createApp() {
   app.use(cookieParser());
 
   // Webhooks need raw body for signature verification before JSON parsing
-  app.use("/api/v1/billing/stripe-webhook", express.raw({ type: "application/json" }));
   app.use("/api/v1/billing/razorpay-webhook", express.raw({ type: "application/json" }));
 
   // Standard JSON and urlencoded parser

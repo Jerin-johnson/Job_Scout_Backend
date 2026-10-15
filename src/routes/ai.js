@@ -8,5 +8,6 @@ export const aiRouter = Router();
 
 aiRouter.use(authenticate);
 
+aiRouter.get("/models", aiController.listChatModels);
 aiRouter.post("/route", csrfProtection, aiController.route);
 aiRouter.post("/chat", heavyAiLimiter, csrfProtection, aiController.streamChat);

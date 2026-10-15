@@ -17,7 +17,7 @@ A single production Docker image powers two independently scalable processes:
 flowchart TD
     subgraph ClientLayer["Frontend & Clients"]
         NextClient["JobScout Web (Next.js 15)"]
-        ThirdParty["Webhooks (Stripe / Razorpay)"]
+        ThirdParty["Webhooks (Razorpay)"]
     end
 
     subgraph ServiceLayer["JobScout API Container"]

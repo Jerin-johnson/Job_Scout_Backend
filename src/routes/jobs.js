@@ -9,5 +9,6 @@ export const jobRouter = Router();
 jobRouter.use(authenticate);
 
 jobRouter.get("/matches", jobController.getMatches);
+jobRouter.get("/catalog", jobController.searchCatalog);
 jobRouter.post("/discover", csrfProtection, requireQuota("match_jobs"), jobController.runDiscovery);
 jobRouter.post("/:id/feedback", csrfProtection, jobController.recordFeedback);

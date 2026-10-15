@@ -1,194 +1,215 @@
+import Razorpay from "razorpay";
+import crypto from "node:crypto";
 import { env } from "../config/env.js";
 import { PLANS, PLAN_CONFIG } from "../shared/constants/plans.js";
 import { userRepository } from "../repositories/userRepository.js";
-import { logger } from "../shared/utils/logger.js";
-import crypto from "crypto";
-
-// In-memory processed webhook event store for idempotent replays
-const processedEvents = new Set();
+import { isMongoReady } from "../config/database.js";
+import { Subscription } from "../models/Subscription.js";
+import { Payment } from "../models/Payment.js";
 
 function getUserId(user) {
-  if (!user) return "";
-  return user._id ? user._id.toString() : user.id ? user.id.toString() : "";
+  return String(user?._id || user?.id || "");
+}
+
+function razorpayClient() {
+  if (
+    !env.RAZORPAY_KEY_ID ||
+    env.RAZORPAY_KEY_ID.includes("dummy") ||
+    !env.RAZORPAY_KEY_SECRET ||
+    env.RAZORPAY_KEY_SECRET.includes("dummy")
+  ) {
+    throw Object.assign(
+      new Error("Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable checkout"),
+      { code: "BILLING_NOT_CONFIGURED", statusCode: 503 },
+    );
+  }
+  return new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET });
 }
 
 export const billingService = {
-  /**
-   * Create Checkout Session for Stripe or Razorpay
-   */
-  async createCheckoutSession({ user, plan, provider = "stripe" }) {
-    if (!PLAN_CONFIG[plan] || plan === PLANS.FREE) {
+  async createCheckoutSession({ user, plan }) {
+    if (!PLAN_CONFIG[plan] || plan === PLANS.FREE)
       throw Object.assign(new Error("Invalid paid subscription plan"), {
         code: "INVALID_PLAN",
         statusCode: 400,
       });
-    }
-
-    const userId = getUserId(user);
-    const planDetails = PLAN_CONFIG[plan];
-
-    if (provider === "stripe") {
-      // In live production with real Stripe keys, calls Stripe SDK; in dev returns mock URL
-      if (env.STRIPE_SECRET_KEY && !env.STRIPE_SECRET_KEY.includes("dummy")) {
-        const { default: Stripe } = await import("stripe");
-        const stripe = new Stripe(env.STRIPE_SECRET_KEY);
-        const session = await stripe.checkout.sessions.create({
-          payment_method_types: ["card"],
-          line_items: [
-            {
-              price_data: {
-                currency: "usd",
-                product_data: { name: `JobScout ${planDetails.name}` },
-                unit_amount: planDetails.priceUsd * 100,
-                recurring: { interval: "month" },
-              },
-              quantity: 1,
-            },
-          ],
-          mode: "subscription",
-          success_url: `${env.WEB_ORIGIN}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${env.WEB_ORIGIN}/billing/cancel`,
-          customer_email: user.email,
-          metadata: { userId, plan },
-        });
-
-        return { checkoutUrl: session.url, sessionId: session.id, provider: "stripe" };
-      }
-
-      // Mock checkout response for test/dev
-      const mockSessionId = `cs_test_${crypto.randomBytes(12).toString("hex")}`;
-      return {
-        checkoutUrl: `https://checkout.stripe.com/pay/${mockSessionId}`,
-        sessionId: mockSessionId,
-        provider: "stripe",
-      };
-    } else {
-      // Razorpay flow (India)
-      const mockOrderId = `order_${crypto.randomBytes(8).toString("hex")}`;
-      return {
-        orderId: mockOrderId,
-        amount: planDetails.priceInr * 100,
-        currency: "INR",
-        provider: "razorpay",
-      };
-    }
-  },
-
-  /**
-   * Create Stripe Customer Portal URL
-   */
-  async createPortalSession({ user }) {
-    if (env.STRIPE_SECRET_KEY && !env.STRIPE_SECRET_KEY.includes("dummy")) {
-      const { default: Stripe } = await import("stripe");
-      const stripe = new Stripe(env.STRIPE_SECRET_KEY);
-      const session = await stripe.billingPortal.sessions.create({
-        customer: user.stripeCustomerId || "cus_mock_customer",
-        return_url: `${env.WEB_ORIGIN}/settings/billing`,
+    const planId = plan === PLANS.PRO ? env.RAZORPAY_PLAN_ID_PRO : env.RAZORPAY_PLAN_ID_PREMIUM;
+    if (!planId || planId.includes("dummy"))
+      throw Object.assign(new Error(`Configure the Razorpay subscription plan ID for ${plan}`), {
+        code: "BILLING_NOT_CONFIGURED",
+        statusCode: 503,
       });
-      return { portalUrl: session.url };
-    }
-
+    const subscription = await razorpayClient().subscriptions.create({
+      plan_id: planId,
+      customer_notify: 1,
+      total_count: 120,
+      quantity: 1,
+      notes: { userId: getUserId(user), plan },
+    });
+    if (!subscription.short_url) throw new Error("Razorpay did not return a checkout URL");
     return {
-      portalUrl: `https://billing.stripe.com/p/session/test_${crypto.randomBytes(10).toString("hex")}`,
+      checkoutUrl: subscription.short_url,
+      sessionId: subscription.id,
+      provider: "razorpay",
     };
   },
 
-  /**
-   * Idempotent Stripe Webhook handler
-   */
-  async handleStripeWebhook(rawPayload, signature) {
-    let event;
-
-    // Verify webhook signature if secret key configured
-    if (env.STRIPE_WEBHOOK_SECRET && !env.STRIPE_WEBHOOK_SECRET.includes("dummy")) {
-      const { default: Stripe } = await import("stripe");
-      const stripe = new Stripe(env.STRIPE_SECRET_KEY);
-      try {
-        event = stripe.webhooks.constructEvent(rawPayload, signature, env.STRIPE_WEBHOOK_SECRET);
-      } catch (err) {
-        throw Object.assign(new Error(`Webhook signature verification failed: ${err.message}`), {
-          code: "INVALID_WEBHOOK_SIGNATURE",
-          statusCode: 400,
-        });
-      }
-    } else {
-      // Parse payload directly in mock/test mode
-      if (Buffer.isBuffer(rawPayload)) {
-        event = JSON.parse(rawPayload.toString("utf8"));
-      } else if (typeof rawPayload === "string") {
-        event = JSON.parse(rawPayload);
-      } else {
-        event = rawPayload;
-      }
-    }
-
-    const eventId = event.id || `evt_${crypto.randomBytes(8).toString("hex")}`;
-
-    // Idempotency check: discard already-processed event IDs
-    if (processedEvents.has(eventId)) {
-      logger.info({ eventId }, "Stripe webhook event already processed (idempotent skip)");
-      return { processed: false, duplicate: true, eventId };
-    }
-
-    processedEvents.add(eventId);
-
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data?.object || {};
-        const userId = session.metadata?.userId;
-        const plan = session.metadata?.plan || PLANS.PRO;
-
-        if (userId) {
-          await userRepository.update(userId, {
-            plan,
-            stripeCustomerId: session.customer || null,
-          });
-          logger.info({ userId, plan }, "Subscription activated via Stripe checkout");
-        }
-        break;
-      }
-
-      case "customer.subscription.deleted": {
-        const subscription = event.data?.object || {};
-        const customerId = subscription.customer;
-        // Downgrade user back to free tier
-        logger.info({ customerId }, "Subscription canceled; downgraded user to free plan");
-        break;
-      }
-
-      default:
-        logger.info({ eventType: event.type }, "Stripe webhook received unhandled event type");
-    }
-
-    return { processed: true, duplicate: false, eventId, type: event.type };
+  async cancelSubscription(subscriptionId, atPeriodEnd = true) {
+    return razorpayClient().subscriptions.cancel(subscriptionId, atPeriodEnd);
   },
 
-  /**
-   * Idempotent Razorpay Webhook handler
-   */
-  async handleRazorpayWebhook(payload, _signature) {
-    let event;
-    if (Buffer.isBuffer(payload)) {
-      event = JSON.parse(payload.toString("utf8"));
-    } else if (typeof payload === "string") {
-      event = JSON.parse(payload);
-    } else {
-      event = payload;
+  async refundPayment(paymentId, amountMinor, notes = {}) {
+    return razorpayClient().payments.refund(paymentId, { amount: amountMinor, notes });
+  },
+
+  async handleRazorpayWebhook(payload, signature) {
+    if (!env.RAZORPAY_WEBHOOK_SECRET || env.RAZORPAY_WEBHOOK_SECRET.includes("dummy")) {
+      throw Object.assign(new Error("Razorpay webhook secret is not configured"), {
+        code: "WEBHOOK_NOT_CONFIGURED",
+        statusCode: 503,
+      });
     }
-    const eventId = event.id || `rzp_evt_${crypto.randomBytes(8).toString("hex")}`;
-
-    if (processedEvents.has(eventId)) {
-      logger.info({ eventId }, "Razorpay webhook event already processed (idempotent skip)");
-      return { processed: false, duplicate: true, eventId };
+    const raw = Buffer.isBuffer(payload)
+      ? payload
+      : Buffer.from(typeof payload === "string" ? payload : JSON.stringify(payload));
+    const expected = crypto
+      .createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET)
+      .update(raw)
+      .digest("hex");
+    const supplied = String(signature || "");
+    const expectedBuffer = Buffer.from(expected);
+    const suppliedBuffer = Buffer.from(supplied);
+    if (
+      expectedBuffer.length !== suppliedBuffer.length ||
+      !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)
+    ) {
+      throw Object.assign(new Error("Razorpay webhook signature verification failed"), {
+        code: "INVALID_WEBHOOK_SIGNATURE",
+        statusCode: 400,
+      });
     }
-
-    processedEvents.add(eventId);
-
-    if (event.event === "subscription.charged") {
-      const payment = event.payload?.payment?.entity;
-      logger.info({ paymentId: payment?.id }, "Razorpay payment succeeded");
+    const event = JSON.parse(raw.toString("utf8"));
+    const subscription = event.payload?.subscription?.entity;
+    const payment = event.payload?.payment?.entity;
+    let subscriptionRecord = null;
+    if (subscription) {
+      const existingRecord =
+        isMongoReady() && subscription.id
+          ? await Subscription.findOne({ subscriptionId: subscription.id }).lean()
+          : null;
+      const userId = subscription.notes?.userId || existingRecord?.userId?.toString();
+      const plan = subscription.notes?.plan || existingRecord?.plan;
+      const normalizedStatus = {
+        "subscription.activated": "active",
+        "subscription.authenticated": "active",
+        "subscription.charged": "active",
+        "subscription.halted": "past_due",
+        "subscription.cancelled": "canceled",
+      }[event.event];
+      const eventAt = event.created_at ? new Date(event.created_at * 1000) : new Date();
+      const isCurrentEvent =
+        !existingRecord?.lastProviderEventAt || eventAt >= existingRecord.lastProviderEventAt;
+      if (isMongoReady() && subscription.id && isCurrentEvent) {
+        subscriptionRecord = await Subscription.findOneAndUpdate(
+          { subscriptionId: subscription.id },
+          {
+            $set: {
+              ...(userId ? { userId } : {}),
+              ...(plan && PLAN_CONFIG[plan] ? { plan } : {}),
+              provider: "razorpay",
+              status: normalizedStatus || existingRecord?.status || "incomplete",
+              customerId: subscription.customer_id || null,
+              ...(subscription.current_start
+                ? { currentPeriodStart: new Date(subscription.current_start * 1000) }
+                : {}),
+              currentPeriodEnd: subscription.current_end
+                ? new Date(subscription.current_end * 1000)
+                : null,
+              cancelAtPeriodEnd:
+                event.event === "subscription.cancelled"
+                  ? false
+                  : Boolean(
+                      subscription.has_scheduled_changes || existingRecord?.cancelAtPeriodEnd,
+                    ),
+              lastProviderEventAt: eventAt,
+            },
+          },
+          { upsert: Boolean(userId && PLAN_CONFIG[plan]), new: true, setDefaultsOnInsert: true },
+        ).lean();
+      }
+      if (isCurrentEvent && userId && PLAN_CONFIG[plan] && plan !== PLANS.FREE) {
+        if (
+          ["subscription.activated", "subscription.charged", "subscription.authenticated"].includes(
+            event.event,
+          )
+        ) {
+          await userRepository.update(userId, {
+            plan,
+            planSource: "razorpay",
+            subscriptionProvider: "razorpay",
+            subscriptionId: subscription.id,
+            subscriptionStatus: normalizedStatus || "active",
+          });
+        } else if (event.event === "subscription.cancelled") {
+          await userRepository.update(userId, {
+            plan: PLANS.FREE,
+            planSource: "razorpay",
+            subscriptionStatus: "canceled",
+          });
+        } else if (event.event === "subscription.halted") {
+          await userRepository.update(userId, { subscriptionStatus: "past_due" });
+        }
+      }
     }
-
-    return { processed: true, duplicate: false, eventId, event: event.event };
+    if (payment?.id && isMongoReady()) {
+      const subscriptionId = payment.subscription_id || subscription?.id || null;
+      if (!subscriptionRecord && subscriptionId) {
+        subscriptionRecord = await Subscription.findOne({ subscriptionId }).lean();
+      }
+      if (event.event === "payment.captured" || event.event === "subscription.charged") {
+        await Payment.findOneAndUpdate(
+          { providerPaymentId: payment.id },
+          {
+            $setOnInsert: {
+              userId: subscriptionRecord?.userId || null,
+              subscriptionId,
+              provider: "razorpay",
+              providerPaymentId: payment.id,
+              providerEventId: event.id || null,
+              amountMinor: Number(payment.amount || 0),
+              currency: payment.currency || "INR",
+              status: "captured",
+              paidAt: payment.created_at ? new Date(payment.created_at * 1000) : new Date(),
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true },
+        );
+      } else if (event.event === "payment.refunded") {
+        const amountRefunded = Number(payment.amount_refunded || payment.amount || 0);
+        await Payment.findOneAndUpdate(
+          { providerPaymentId: payment.id },
+          {
+            $set: {
+              amountRefundedMinor: amountRefunded,
+              status:
+                amountRefunded >= Number(payment.amount || 0) ? "refunded" : "partially_refunded",
+            },
+          },
+        );
+      }
+    }
+    if (event.event === "refund.failed" && isMongoReady()) {
+      const refund = event.payload?.refund?.entity;
+      if (refund?.payment_id) {
+        const prior = await Payment.findOne({ providerPaymentId: refund.payment_id })
+          .select("amountRefundedMinor")
+          .lean();
+        await Payment.updateOne(
+          { providerPaymentId: refund.payment_id, status: "refund_pending" },
+          { $set: { status: prior?.amountRefundedMinor ? "partially_refunded" : "captured" } },
+        );
+      }
+    }
+    return { processed: true, eventId: event.id || null, event: event.event };
   },
 };

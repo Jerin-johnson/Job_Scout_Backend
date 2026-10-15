@@ -29,7 +29,7 @@ export class RemoteOkAdapter extends BaseJobAdapter {
 
       const data = await res.json();
       // First item in RemoteOK is a legal notice/disclaimer object, not a job
-      const rawJobs = Array.isArray(data) ? data.slice(1, 20) : [];
+      const rawJobs = Array.isArray(data) ? data.slice(1) : [];
 
       return rawJobs
         .filter((j) => j && j.position && j.company)

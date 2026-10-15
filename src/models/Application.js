@@ -40,6 +40,18 @@ const ApplicationSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    jobUrl: { type: String, trim: true, default: "" },
+    hrPhone: { type: String, trim: true, default: "" },
+    companyEmail: { type: String, trim: true, lowercase: true, default: "" },
+    reminderEnabled: { type: Boolean, default: false },
+    reminderStatus: {
+      type: String,
+      enum: ["none", "scheduled", "processing", "sent", "mock", "failed"],
+      default: "none",
+      index: true,
+    },
+    reminderSentAt: { type: Date, default: null },
+    reminderClaimId: { type: String, default: "" },
     nextFollowUpAt: {
       type: Date,
       default: null,
@@ -62,6 +74,7 @@ const ApplicationSchema = new mongoose.Schema(
 );
 
 ApplicationSchema.index({ userId: 1, status: 1 });
+ApplicationSchema.index({ reminderStatus: 1, nextFollowUpAt: 1 });
 
 export const Application =
   mongoose.models.Application || mongoose.model("Application", ApplicationSchema);

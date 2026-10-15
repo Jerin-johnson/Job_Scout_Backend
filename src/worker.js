@@ -7,6 +7,8 @@ import { setupGracefulShutdown } from "./config/shutdown.js";
 import { jobIngestionService } from "./services/jobs/jobIngestionService.js";
 import { emailDigestService } from "./services/emailDigestService.js";
 import { Worker } from "bullmq";
+import { applicationRepository } from "./repositories/applicationRepository.js";
+import { userRepository } from "./repositories/userRepository.js";
 
 const activeWorkers = [];
 
@@ -46,6 +48,40 @@ async function initializeQueues() {
     },
   );
 
+  const reminderWorker = new Worker(
+    "application-reminders",
+    async (job) => {
+      const { applicationId, dueAt } = job.data;
+      const app = await applicationRepository.claimDueReminder(
+        applicationId,
+        new Date(dueAt),
+        String(job.id),
+      );
+      if (!app)
+        return { skipped: true, reason: "Reminder was changed, disabled, or already processed" };
+      const user = await userRepository.findById(String(app.userId));
+      if (!user?.email) {
+        await applicationRepository.update(applicationId, { reminderStatus: "failed" });
+        throw new Error("Reminder owner email is unavailable");
+      }
+      const result = await emailDigestService.sendApplicationReminder({
+        toEmail: user.email,
+        candidateName: user.name,
+        application: app,
+      });
+      if (!result.success) {
+        await applicationRepository.update(applicationId, { reminderStatus: "scheduled" });
+        throw new Error(result.error || "Reminder delivery failed");
+      }
+      await applicationRepository.update(applicationId, {
+        reminderStatus: result.mock ? "mock" : "sent",
+        reminderSentAt: new Date(),
+      });
+      return { sent: true, mock: Boolean(result.mock) };
+    },
+    { connection: redis, concurrency: 10 },
+  );
+
   ingestionWorker.on("completed", (job) => {
     logger.info({ jobId: job.id }, "Job ingestion task completed successfully");
   });
@@ -54,7 +90,7 @@ async function initializeQueues() {
     logger.error({ jobId: job?.id, err: err.message }, "Job ingestion task failed");
   });
 
-  activeWorkers.push(ingestionWorker, digestWorker);
+  activeWorkers.push(ingestionWorker, digestWorker, reminderWorker);
 }
 
 async function startWorker() {

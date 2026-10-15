@@ -47,6 +47,11 @@ const UserSchema = new mongoose.Schema(
       default: PLANS.FREE,
       index: true,
     },
+    planSource: {
+      type: String,
+      enum: ["manual", "razorpay", "admin"],
+      default: "manual",
+    },
     planVersion: {
       type: Number,
       default: 1,
@@ -57,7 +62,7 @@ const UserSchema = new mongoose.Schema(
     },
     subscriptionProvider: {
       type: String,
-      enum: ["stripe", "razorpay", null],
+      enum: ["razorpay", null],
       default: null,
     },
     subscriptionStatus: {

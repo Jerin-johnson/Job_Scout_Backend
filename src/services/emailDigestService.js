@@ -4,6 +4,13 @@ import { logger } from "../shared/utils/logger.js";
 
 let resendClient = null;
 
+function escapeHtml(value = "") {
+  return String(value).replace(
+    /[&<>"']/g,
+    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char],
+  );
+}
+
 function getResendClient() {
   if (resendClient) return resendClient;
   resendClient = new Resend(env.RESEND_API_KEY);
@@ -11,6 +18,28 @@ function getResendClient() {
 }
 
 export const emailDigestService = {
+  async sendApplicationReminder({ toEmail, candidateName, application }) {
+    if (env.RESEND_API_KEY === "re_dummy_key") {
+      logger.info(
+        { toEmail, applicationId: application._id },
+        "Mock application reminder dispatched",
+      );
+      return { success: true, mock: true };
+    }
+    try {
+      const result = await getResendClient().emails.send({
+        from: env.FROM_EMAIL,
+        to: toEmail,
+        subject: `Follow up with ${application.company} about ${application.role}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#172033"><h2>Time for a follow-up</h2><p>Hi ${escapeHtml(candidateName || "there")},</p><p>Your reminder to follow up about <strong>${escapeHtml(application.role)}</strong> at <strong>${escapeHtml(application.company)}</strong> is due today.</p>${application.jobUrl ? `<p><a href="${escapeHtml(application.jobUrl)}">Open job posting</a></p>` : ""}<p>Open your JobScout application board to review the contact details and next steps.</p></div>`,
+      });
+      if (result.error) throw new Error(result.error.message || "Email delivery failed");
+      return { success: true, result };
+    } catch (error) {
+      logger.error({ error: error.message, toEmail }, "Failed to send application reminder");
+      return { success: false, error: error.message };
+    }
+  },
   /**
    * Send daily job match digest via Resend
    */

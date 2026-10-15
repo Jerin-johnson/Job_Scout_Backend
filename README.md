@@ -8,6 +8,11 @@ Production-ready backend API service for **JobScout**, the subscription-based AI
 - **Dual Process Entry**: `server.js` (HTTP REST + SSE) and `worker.js` (BullMQ workers), built from a single Docker image.
 - **AI Router & Cost Guard**: 3-tier routing (Tier 0: exact/semantic cache, slash commands, direct DB; Tier 1: Haiku intent classification; Tier 2: Sonnet LangGraph workflows).
 - **Security**: AES-256-GCM encryption for resume PII, strict SSRF blocking, CSRF defense, rate-limiting, and quota enforcement.
+- **LLM providers**: Gemini is the default provider; Anthropic remains selectable through the shared `invokeLLM` boundary. See [`docs/LLM_PROVIDERS.md`](./docs/LLM_PROVIDERS.md).
+- **Environment and credentials**: See [`docs/ENVIRONMENT_SETUP.md`](./docs/ENVIRONMENT_SETUP.md) for the backend/frontend variables, required secrets, integrations, and setup steps.
+- **Job discovery**: authenticated catalog search spans all jobs currently indexed by enabled adapters; profile-ranked recommendations are a separate endpoint.
+- **Admin operations**: role-protected metrics, account/job directories, audit entries, and explicit job ingestion are available under `/api/v1/admin`.
+- **Admin setup**: see [`docs/ADMIN_OPERATIONS.md`](./docs/ADMIN_OPERATIONS.md) for secure first-admin provisioning and console operations.
 
 ## Quickstart
 

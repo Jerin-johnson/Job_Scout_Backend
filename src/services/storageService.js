@@ -21,11 +21,20 @@ function getS3Client() {
 
 export const storageService = {
   /**
-   * Upload encrypted file to S3 / Cloudflare R2
+   * Upload original file to S3 / Cloudflare R2. Resume text is encrypted
+   * separately before it is stored in the database.
    */
   async uploadFile({ key, buffer, contentType }) {
-    if (env.S3_ACCESS_KEY_ID === "dummy_s3_key") {
-      logger.debug({ key }, "Mock storage mode active; bypassing remote S3 upload");
+    const storageConfigured =
+      env.S3_ACCESS_KEY_ID !== "dummy_s3_key" && env.S3_SECRET_ACCESS_KEY !== "dummy_s3_secret";
+    if (!storageConfigured) {
+      if (env.NODE_ENV === "production") {
+        const error = new Error("Resume file storage is not configured.");
+        error.statusCode = 503;
+        error.code = "STORAGE_NOT_CONFIGURED";
+        throw error;
+      }
+      logger.debug({ key }, "Mock storage mode active; no original file is persisted");
       return `s3://${env.S3_BUCKET}/${key}`;
     }
 
@@ -41,8 +50,11 @@ export const storageService = {
       );
       return `s3://${env.S3_BUCKET}/${key}`;
     } catch (err) {
-      logger.warn({ err: err.message, key }, "Failed to upload file to S3/R2");
-      return `local://${key}`;
+      logger.error({ err: err.message, key }, "Failed to upload file to S3/R2");
+      const error = new Error("Resume file storage is temporarily unavailable.");
+      error.statusCode = 503;
+      error.code = "STORAGE_UNAVAILABLE";
+      throw error;
     }
   },
 

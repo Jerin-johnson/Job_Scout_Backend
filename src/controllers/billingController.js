@@ -4,7 +4,6 @@ import { PLANS } from "../shared/constants/plans.js";
 
 const CheckoutSchema = z.object({
   plan: z.enum([PLANS.PRO, PLANS.PREMIUM]),
-  provider: z.enum(["stripe", "razorpay"]).optional().default("stripe"),
 });
 
 export const billingController = {
@@ -27,45 +26,10 @@ export const billingController = {
       const session = await billingService.createCheckoutSession({
         user: req.user,
         plan: parsed.data.plan,
-        provider: parsed.data.provider,
       });
 
       return res.status(200).json({
         data: session,
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  /**
-   * POST /api/v1/billing/portal
-   */
-  async portal(req, res, next) {
-    try {
-      const result = await billingService.createPortalSession({
-        user: req.user,
-      });
-
-      return res.status(200).json({
-        data: result,
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  /**
-   * POST /api/v1/billing/stripe-webhook
-   */
-  async stripeWebhook(req, res, next) {
-    try {
-      const signature = req.headers["stripe-signature"];
-      const result = await billingService.handleStripeWebhook(req.body, signature);
-
-      return res.status(200).json({
-        received: true,
-        ...result,
       });
     } catch (err) {
       next(err);

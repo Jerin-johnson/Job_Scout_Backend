@@ -1,14 +1,20 @@
 import { routeRequest } from "../ai/router.js";
 import { invokeLLM, formatCachedPrompt } from "../ai/llm.js";
 import { profileRepository } from "../repositories/profileRepository.js";
+import { listSelectableChatModels, resolveSelectableChatModel } from "../ai/modelCatalog.js";
 import { z } from "zod";
 
 const chatRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt cannot be empty").max(2000),
   threadId: z.string().optional(),
 });
+const streamChatRequestSchema = chatRequestSchema.extend({ modelId: z.string().min(1).max(100) });
 
 export const aiController = {
+  async listChatModels(_req, res) {
+    res.status(200).json({ data: { models: listSelectableChatModels() } });
+  },
+
   /**
    * Route inspection / Dry-run endpoint
    */
@@ -32,21 +38,28 @@ export const aiController = {
    */
   async streamChat(req, res, next) {
     try {
-      const { prompt } = chatRequestSchema.parse(req.body);
+      const { prompt, modelId } = streamChatRequestSchema.parse(req.body);
+      const selectedModel = resolveSelectableChatModel(modelId);
+      if (!selectedModel) {
+        return res.status(400).json({
+          error: {
+            code: "CHAT_MODEL_UNAVAILABLE",
+            message: "That model is not available for chat. Choose an enabled free-tier model.",
+            requestId: req.id || "req_unknown",
+          },
+        });
+      }
 
-      // 1. Establish SSE headers
+      // Establish SSE headers after validating the chosen model so invalid choices
+      // still receive the standard JSON API error envelope.
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
-      // 2. Execute AI Router (Tier 0 & Tier 1 parallel race)
-      const decision = await routeRequest({
-        prompt,
-        user: req.user,
-        contextVersion: req.user.profileVersion || 1,
-      });
+      // Explicit model selection skips the separate router model call and cache.
+      const decision = { tier: 1, intent: "chat_model_selected", confidence: 1, latencyMs: 0 };
 
       // Send router decision progress event
       res.write(
@@ -58,29 +71,7 @@ export const aiController = {
         })}\n\n`,
       );
 
-      // Handle Tier 0 instant responses (< 50ms)
-      if (decision.tier === 0) {
-        if (decision.cachedOutput) {
-          res.write(`event: token\ndata: ${JSON.stringify({ text: decision.cachedOutput })}\n\n`);
-        } else if (decision.hitType === "slash_command") {
-          res.write(
-            `event: token\ndata: ${JSON.stringify({
-              text: `[Executing command ${prompt}: opening application tracker]`,
-            })}\n\n`,
-          );
-        } else {
-          res.write(
-            `event: token\ndata: ${JSON.stringify({
-              text: `[Database query executed: 0 active applications this week]`,
-            })}\n\n`,
-          );
-        }
-
-        res.write(`event: done\ndata: ${JSON.stringify({ finishReason: "stop", tier: 0 })}\n\n`);
-        return res.end();
-      }
-
-      // 3. For Tier 1 and Tier 2, fetch candidate pinned facts
+      // Fetch candidate pinned facts for the selected model.
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
       const profile = await profileRepository.findByUserId(userId);
 
@@ -101,9 +92,10 @@ export const aiController = {
       // 4. Stream response from LLM wrapper
       const response = await invokeLLM({
         user: req.user,
-        tier: decision.tier === 2 ? "strong" : "small",
+        tier: "small",
         feature: "chat",
         prompt: promptMessages,
+        modelId: selectedModel.id,
       });
 
       const responseText = typeof response === "string" ? response : JSON.stringify(response);

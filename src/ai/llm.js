@@ -1,40 +1,10 @@
 import CircuitBreaker from "opossum";
-import { ChatAnthropic } from "@langchain/anthropic";
 import { env } from "../config/env.js";
+import { getLLMProvider } from "./providers/index.js";
+import { resolveSelectableChatModel } from "./modelCatalog.js";
 import { quotaService } from "../services/quotaService.js";
 import { logger } from "../shared/utils/logger.js";
 import { PLANS } from "../shared/constants/plans.js";
-
-// Token pricing table (per token in USD)
-const PRICING = {
-  haiku: {
-    input: 0.0000008, // $0.80 / MTok
-    output: 0.000004, // $4.00 / MTok
-    cacheRead: 0.00000008, // $0.08 / MTok (90% discount)
-    cacheWrite: 0.000001, // $1.00 / MTok
-  },
-  sonnet: {
-    input: 0.000003, // $3.00 / MTok
-    output: 0.000015, // $15.00 / MTok
-    cacheRead: 0.0000003, // $0.30 / MTok (90% discount)
-    cacheWrite: 0.00000375, // $3.75 / MTok
-  },
-};
-
-function calculateCostUsd(
-  modelName,
-  { inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0 },
-) {
-  const isSonnet = modelName.toLowerCase().includes("sonnet");
-  const rates = isSonnet ? PRICING.sonnet : PRICING.haiku;
-
-  return (
-    inputTokens * rates.input +
-    outputTokens * rates.output +
-    cacheReadTokens * rates.cacheRead +
-    cacheWriteTokens * rates.cacheWrite
-  );
-}
 
 // Circuit breaker options
 const breakerOptions = {
@@ -145,6 +115,7 @@ export async function invokeLLM({
   maxTokens = 2000,
   temperature = 0,
   signal = null,
+  modelId = null,
 }) {
   const start = performance.now();
 
@@ -154,14 +125,18 @@ export async function invokeLLM({
   }
 
   // 2. Resolve Model Name from Environment
-  const modelName = tier === "strong" ? env.MODEL_STRONG : env.MODEL_SMALL;
+  const selectedModel = modelId ? resolveSelectableChatModel(modelId) : null;
+  if (modelId && (feature !== "chat" || !selectedModel)) {
+    throw new Error("The selected model is unavailable for this feature.");
+  }
+  const provider = getLLMProvider(selectedModel?.provider || env.LLM_PROVIDER);
+  const modelName = selectedModel?.id || provider.modelForTier(tier);
 
   // 3. Prepare messages
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
 
   // 4. Check if live Anthropic key is available or in mock/offline mode
-  const isMockMode =
-    !env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev";
+  const isMockMode = !provider.isConfigured();
 
   if (isMockMode) {
     const latencyMs = Math.round(performance.now() - start);
@@ -193,11 +168,11 @@ export async function invokeLLM({
         userPlan: user.plan || PLANS.FREE,
         feature,
         model: modelName,
-        inputTokens: 150,
-        outputTokens: 50,
-        cacheReadTokens: 100,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
         cacheWriteTokens: 0,
-        costUsd: 0.0002,
+        costUsd: 0,
         latencyMs,
       });
     }
@@ -206,16 +181,7 @@ export async function invokeLLM({
   }
 
   // 5. Construct ChatAnthropic instance
-  let modelInstance = new ChatAnthropic({
-    modelName,
-    anthropicApiKey: env.ANTHROPIC_API_KEY,
-    temperature,
-    maxTokens,
-  });
-
-  if (schema) {
-    modelInstance = modelInstance.withStructuredOutput(schema);
-  }
+  const modelInstance = provider.createModel({ modelName, temperature, maxTokens, schema });
 
   // 6. Execute model call through Opossum Circuit Breaker with exponential backoff & jitter
   let result;
@@ -259,7 +225,7 @@ export async function invokeLLM({
   const cacheReadTokens = usage.cache_read_input_tokens || 0;
   const cacheWriteTokens = usage.cache_creation_input_tokens || 0;
 
-  const costUsd = calculateCostUsd(modelName, {
+  const costUsd = provider.estimateCostUsd(modelName, {
     inputTokens,
     outputTokens,
     cacheReadTokens,

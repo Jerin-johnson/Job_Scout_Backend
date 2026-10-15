@@ -38,7 +38,7 @@ const ProfileSchema = new mongoose.Schema(
       {
         factId: { type: String, required: true },
         degree: { type: String, required: true },
-        institution: { type: String, required: true },
+        institution: { type: String, default: "" },
         graduationYear: { type: Number, default: null },
       },
     ],

@@ -1,9 +1,33 @@
-import Redis from "ioredis";
-import { env } from "./env.js";
+import { Redis } from "ioredis";
+import dotenv from "dotenv";
+
 import { logger } from "../shared/utils/logger.js";
+import { env } from "./env.js";
 
 let redisClient = null;
 let isRedisConnected = false;
+
+dotenv.config();
+
+// export function getRedisClient() {
+//   redisClient = new IORedis({
+//     host: process.env.REDIS_HOST,
+//     port: Number(process.env.REDIS_PORT),
+//     username: process.env.REDIS_USERNAME,
+//     password: process.env.REDIS_PASSWORD,
+//     maxRetriesPerRequest: null,
+//   });
+
+//   redisClient.on("connect", () => {
+//     console.log("IORedis connected ✅");
+//   });
+
+//   redisClient.on("error", (err) => {
+//     console.error("IORedis error:", err);
+//   });
+
+//   return redisClient;
+// }
 
 export function getRedisClient() {
   if (redisClient) return redisClient;

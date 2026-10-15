@@ -9,7 +9,7 @@ export class MockBoardAdapter extends BaseJobAdapter {
     const rawJobs = [
       {
         title: "Staff Backend Engineer",
-        company: "Stripe Global",
+        company: "Acme Global",
         location: "Remote",
         remoteType: "remote",
         salaryRange: { min: 170000, max: 210000, currency: "USD" },

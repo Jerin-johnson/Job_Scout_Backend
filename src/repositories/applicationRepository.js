@@ -77,6 +77,44 @@ export const applicationRepository = {
     return updated;
   },
 
+  async claimDueReminder(id, dueAt, claimId) {
+    const now = new Date();
+    if (new Date(dueAt) > now) return null;
+    if (isMongoReady()) {
+      return Application.findOneAndUpdate(
+        {
+          _id: id,
+          reminderEnabled: true,
+          nextFollowUpAt: dueAt,
+          $or: [
+            { reminderStatus: "scheduled" },
+            { reminderStatus: "processing", reminderClaimId: claimId },
+          ],
+        },
+        { $set: { reminderStatus: "processing", reminderClaimId: claimId } },
+        { new: true },
+      ).lean();
+    }
+    const app = inMemoryApplications.get(id);
+    if (
+      !app ||
+      !app.reminderEnabled ||
+      !["scheduled", "processing"].includes(app.reminderStatus) ||
+      (app.reminderStatus === "processing" && app.reminderClaimId !== claimId) ||
+      new Date(app.nextFollowUpAt).getTime() !== new Date(dueAt).getTime() ||
+      new Date(dueAt) > now
+    )
+      return null;
+    const claimed = {
+      ...app,
+      reminderStatus: "processing",
+      reminderClaimId: claimId,
+      updatedAt: now,
+    };
+    inMemoryApplications.set(id, claimed);
+    return claimed;
+  },
+
   async addTimelineEntry(id, status, note = "") {
     const entry = { status, changedAt: new Date(), note };
     if (isMongoReady()) {

@@ -10,6 +10,7 @@ applicationRouter.use(authenticate);
 applicationRouter.get("/", applicationController.getApplications);
 applicationRouter.post("/", csrfProtection, applicationController.createApplication);
 applicationRouter.get("/:id", applicationController.getApplicationById);
+applicationRouter.patch("/:id", csrfProtection, applicationController.updateApplication);
 applicationRouter.patch("/:id/status", csrfProtection, applicationController.updateStatus);
 applicationRouter.post(
   "/:id/follow-up/approve",

@@ -37,6 +37,7 @@ erDiagram
         string googleId
         string role
         string plan
+        string planSource
         int planVersion
         int profileVersion
         date lockUntil
@@ -84,6 +85,26 @@ erDiagram
         string followUpDraft
     }
 
+    Subscription {
+        ObjectId userId FK
+        string provider
+        string subscriptionId UK
+        string plan
+        string status
+        date currentPeriodEnd
+    }
+
+    Payment {
+        ObjectId userId FK
+        string providerPaymentId UK
+        string subscriptionId
+        number amountMinor
+        number amountRefundedMinor
+        string currency
+        string status
+        date paidAt
+    }
+
     Memory {
         ObjectId _id PK
         ObjectId userId FK
@@ -111,12 +132,13 @@ Core identity, subscription state, security lockout, and refresh token families.
   passwordHash: String,            // bcrypt (cost 12), nullable for Google OAuth
   googleId: String,                // sparse index
   name: String,
-  role: String,                    // enum: ["user", "admin"]
+  role: String,                    // enum: ["user", "admin", "super_admin"]
   plan: String,                    // enum: ["free", "pro", "premium"]
+  planSource: String,              // enum: ["manual", "admin", "razorpay"]
   planVersion: Number,             // bumped on plan upgrade/downgrade for cache invalidation
   profileVersion: Number,          // bumped on resume/profile update
-  subscriptionId: String,          // Stripe / Razorpay subscription ID
-  subscriptionProvider: String,    // enum: ["stripe", "razorpay", null]
+  subscriptionId: String,          // Razorpay subscription ID
+  subscriptionProvider: String,    // enum: ["razorpay", null]
   subscriptionStatus: String,      // enum: ["active", "past_due", "canceled", "trialing"]
   gracePeriodUntil: Date,          // 7-day grace period for failed payments
   failedLoginAttempts: Number,     // counter for account lockout
