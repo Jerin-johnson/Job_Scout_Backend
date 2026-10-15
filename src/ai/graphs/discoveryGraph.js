@@ -4,6 +4,7 @@ import { cosineSimilarity, embeddingService } from "../../services/embeddingServ
 import { Match } from "../../models/Match.js";
 import { isMongoReady } from "../../config/database.js";
 import { logger } from "../../shared/utils/logger.js";
+import { acceptQuota } from "../../middleware/quotaGate.js";
 
 const inMemoryMatches = [];
 
@@ -16,7 +17,7 @@ export const discoveryGraph = {
    * 4. Explain Top 10 with skill gaps
    * 5. Store in matches collection
    */
-  async runDiscovery(user) {
+  async runDiscovery(user, { idempotencyKey } = {}) {
     const userId = user._id ? user._id.toString() : user.id;
 
     // 1. Fetch user profile
@@ -36,6 +37,8 @@ export const discoveryGraph = {
     if (jobs.length === 0) {
       return { matches: [] };
     }
+
+    await acceptQuota(user, "match_jobs", idempotencyKey || `discovery:${userId}:${Date.now()}`);
 
     // 3. Build candidate profile embedding string
     const skillsList = (profile.skills || []).map((s) => s.name).join(", ");

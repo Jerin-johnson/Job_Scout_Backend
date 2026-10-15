@@ -12,6 +12,7 @@ import { chatStreamEvents } from "../ai/chatStream.js";
 import { logger } from "../shared/utils/logger.js";
 import { classifyProviderError, providerStatusCode } from "../ai/providerErrors.js";
 import { z } from "zod";
+import { acceptRequestQuota } from "../middleware/quotaGate.js";
 
 export const historyTurnSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -92,6 +93,10 @@ export const aiController = {
       const parsed = streamChatRequestSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid chat request. Include a prompt up to 2,000 characters and at most 6 history turns (2,000 characters each).", requestId: req.id } });
       const { prompt, history, modelId = AUTO_CHAT_MODEL_ID } = parsed.data;
+      if (modelId !== AUTO_CHAT_MODEL_ID && !resolveSelectableChatModel(modelId)) {
+        return res.status(400).json({ error: { code: "CHAT_MODEL_UNAVAILABLE", message: "That model is unavailable. Choose Auto or an enabled model.", requestId: req.id || "req_unknown" } });
+      }
+      await acceptRequestQuota(req, "chat");
       const context = await getCandidateContext(req.user);
       const decision = await routeRequest({ prompt, user: req.user, contextVersion: req.user.profileVersion || 1 });
       const selectedModel = modelId === AUTO_CHAT_MODEL_ID

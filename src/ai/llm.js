@@ -122,11 +122,6 @@ export async function invokeLLM({
 }) {
   const start = performance.now();
 
-  // 1. Quota & Budget Pre-Flight Verification
-  if (user) {
-    await quotaService.checkQuota(user, feature);
-  }
-
   // 2. Resolve Model Name from Environment
   const selectedProvider = modelId ? getChatModelProvider(modelId) : null;
   if (modelId && (feature !== "chat" || !selectedProvider)) {
@@ -134,12 +129,17 @@ export async function invokeLLM({
   }
   const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
   const modelName = modelId || provider.modelForTier(tier);
-  getModelRate(provider.id, modelName);
+  const rate = getModelRate(provider.id, modelName);
   const policyError = personalDataPolicyError(provider.id, modelName, feature);
   if (policyError) throw policyError;
 
   // 3. Prepare messages
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
+  const estimatedCostUsd = (
+    (approximateTokens(messages) * rate.inputUsdPerMillion) +
+    (maxTokens * rate.outputUsdPerMillion)
+  ) / 1_000_000;
+  if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd });
 
   // 4. Check if live Anthropic key is available or in mock/offline mode
   const isMockMode = !provider.isConfigured();
@@ -287,17 +287,21 @@ export async function* streamLLM({
   modelId = null,
 }) {
   const startedAt = performance.now();
-  if (user) await quotaService.checkQuota(user, feature);
   const selectedProvider = modelId ? getChatModelProvider(modelId) : null;
   if (modelId && (feature !== "chat" || !selectedProvider)) {
     throw new Error("The selected model is unavailable for this feature.");
   }
   const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
   const modelName = modelId || provider.modelForTier(tier);
-  getModelRate(provider.id, modelName);
+  const rate = getModelRate(provider.id, modelName);
   const policyError = personalDataPolicyError(provider.id, modelName, feature);
   if (policyError) throw policyError;
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
+  const estimatedCostUsd = (
+    (approximateTokens(messages) * rate.inputUsdPerMillion) +
+    (maxTokens * rate.outputUsdPerMillion)
+  ) / 1_000_000;
+  if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd });
   const mockMode = !provider.isConfigured();
   if (mockMode && !env.AI_ALLOW_MOCKS) {
     const error = new Error("The selected AI provider is not configured.");

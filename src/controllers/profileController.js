@@ -4,6 +4,7 @@ import { resumeParserService } from "../services/resumeParserService.js";
 import { profileRepository } from "../repositories/profileRepository.js";
 import { invalidateCandidateContext } from "../ai/candidateContext.js";
 import { z } from "zod";
+import { acceptRequestQuota } from "../middleware/quotaGate.js";
 
 const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),
@@ -77,6 +78,8 @@ export const profileController = {
           },
         });
       }
+
+      await acceptRequestQuota(req, "resume_parse");
 
       // 3. Parse into structured facts and store
       const userId = req.user._id ? req.user._id.toString() : req.user.id;

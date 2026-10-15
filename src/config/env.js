@@ -47,6 +47,7 @@ const envSchema = z.object({
   AI_ALLOW_MOCKS: z.string().transform((value) => value === "true").default("false"),
   AI_BLOCK_UNPAID_PERSONAL_DATA: z.string().transform((value) => value !== "false").default("true"),
   AI_MONTHLY_ALLOWANCE_SHADOW_MODE: z.string().transform((value) => value !== "false").default("true"),
+  AI_MONTHLY_ALLOWANCE_SHADOW_RATIO: z.coerce.number().finite().positive().max(1).default(0.25),
   OPENAI_API_KEY: z.string().optional().default("dummy_openai_key"),
   VOYAGE_API_KEY: z.string().optional().default(""),
 

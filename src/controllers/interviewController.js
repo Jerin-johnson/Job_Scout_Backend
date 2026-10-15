@@ -4,6 +4,7 @@ import { profileRepository } from "../repositories/profileRepository.js";
 import { logger } from "../shared/utils/logger.js";
 import { isMongoReady } from "../config/database.js";
 import { interviewSessionService } from "../services/interview/sessionService.js";
+import { acceptRequestQuota, requestQuotaIdempotencyKey } from "../middleware/quotaGate.js";
 
 const PrepSchema = z
   .object({
@@ -92,6 +93,8 @@ export const interviewController = {
       const userId = getUserId(req.user);
       const profile = await profileRepository.findByUserId(userId);
 
+      await acceptRequestQuota(req, "interview_prep");
+
       const prepResult = await interviewGraph.generatePrep({
         user: req.user,
         jobTitle,
@@ -128,6 +131,8 @@ export const interviewController = {
       }
 
       const { sessionId, questionId, question, candidateAnswer } = parsed.data;
+
+      await acceptRequestQuota(req, "mock_interview");
 
       const result = await interviewGraph.runMockTurn({
         user: req.user,
@@ -211,7 +216,9 @@ export const interviewController = {
             requestId: req.id,
           },
         });
-      const session = await interviewSessionService.create(req.user, parsed.data);
+      const session = await interviewSessionService.create(req.user, parsed.data, {
+        idempotencyKey: requestQuotaIdempotencyKey(req, "mock_interview"),
+      });
       return res.status(201).json({ data: { session } });
     } catch (err) {
       next(err);

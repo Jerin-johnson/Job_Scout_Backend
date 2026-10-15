@@ -3,6 +3,7 @@ import { get, set, CacheKeys, TTL } from "../shared/cache.js";
 import { longTermMemory } from "../ai/memory/longTerm.js";
 import { jobIngestionService } from "../services/jobs/jobIngestionService.js";
 import { z } from "zod";
+import { requestQuotaIdempotencyKey } from "../middleware/quotaGate.js";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
@@ -46,7 +47,9 @@ export const jobController = {
 
       // If no matches exist yet, run initial discovery
       if (!matches || matches.length === 0) {
-        const run = await discoveryGraph.runDiscovery(req.user);
+        const run = await discoveryGraph.runDiscovery(req.user, {
+          idempotencyKey: requestQuotaIdempotencyKey(req, "match_jobs"),
+        });
         matches = run.matches || [];
       }
 
@@ -85,7 +88,9 @@ export const jobController = {
 
   async runDiscovery(req, res, next) {
     try {
-      const result = await discoveryGraph.runDiscovery(req.user);
+      const result = await discoveryGraph.runDiscovery(req.user, {
+        idempotencyKey: requestQuotaIdempotencyKey(req, "match_jobs"),
+      });
       const matches = result.matches.map(serializeMatch);
       res.status(200).json({
         data: {

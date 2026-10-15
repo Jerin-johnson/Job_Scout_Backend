@@ -247,7 +247,7 @@ async function createQuestionPlan({
 }
 
 export const interviewSessionService = {
-  async create(user, input) {
+  async create(user, input, { idempotencyKey } = {}) {
     if (!mongoose.isValidObjectId(input.resumeId))
       fail(400, "INVALID_RESUME", "Choose a valid resume");
     const userId = idOf(user);
@@ -298,6 +298,12 @@ export const interviewSessionService = {
       resumeFileHash: resume.fileHash,
       retentionExpiresAt: retentionExpiry(),
     });
+    await quotaService.incrementQuota(
+      userId,
+      "mock_interview",
+      idempotencyKey || `session:${session._id}`,
+      user.plan,
+    );
     const sessionFeature = session.isFreeTrial ? "mock_interview_trial" : "mock_interview";
     session.questionPlan = await createQuestionPlan({
       user,
@@ -556,6 +562,12 @@ export const interviewSessionService = {
   async finalizeAnswer(user, session, message, question, turnNumber) {
     const id = session._id.toString();
     const userId = idOf(user);
+    await quotaService.incrementQuota(
+      userId,
+      session.isFreeTrial ? "mock_interview_trial" : "mock_interview",
+      `answer:${id}:${message.idempotencyKey}`,
+      user.plan,
+    );
     const evaluation = await this.evaluateAnswer({
       user,
       session,
@@ -711,6 +723,11 @@ export const interviewSessionService = {
       estimateTokens(transcript, 1000),
       { allowExpired: true },
     );
+    if (reportReservation) {
+      const feature = session.isFreeTrial ? "mock_interview_trial" : "mock_interview";
+      await quotaService.checkQuota(user, feature);
+      await quotaService.incrementQuota(userId, feature, `report:${id}`, user.plan);
+    }
     for (let attempt = 0; reportReservation && attempt < 2; attempt += 1) {
       try {
         const result = await invokeLLM({
