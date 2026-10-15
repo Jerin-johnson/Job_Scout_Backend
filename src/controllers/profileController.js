@@ -122,7 +122,18 @@ export const profileController = {
           data: {
             message: "Resume upload was already processed",
             profile,
-            factsSummary: { totalFacts: existingResume.parsedFactsCount },
+            factsSummary: existingResume.factsSummary || {
+              totalFacts: existingResume.parsedFactsCount,
+            },
+            resume: {
+              id: existingResume._id.toString(),
+              originalFilename: existingResume.originalFilename,
+              mimeType: existingResume.mimeType,
+              createdAt: existingResume.createdAt,
+              parsedFactsCount: existingResume.parsedFactsCount,
+              factsSummary: existingResume.factsSummary,
+              status: "ready",
+            },
           },
         });
       }
@@ -158,6 +169,7 @@ export const profileController = {
           message: "Resume successfully parsed and encrypted",
           profile: result.profile,
           factsSummary: result.factsSummary,
+          resume: result.resume,
         },
       });
     } catch (err) {
@@ -172,12 +184,14 @@ export const profileController = {
       return res.status(200).json({
         data: {
           resumes: resumes.map(
-            ({ _id, originalFilename, mimeType, parsedFactsCount, createdAt }) => ({
+            ({ _id, originalFilename, mimeType, parsedFactsCount, factsSummary, createdAt }) => ({
               id: _id.toString(),
               originalFilename,
               mimeType,
               parsedFactsCount,
+              factsSummary,
               createdAt,
+              status: "ready",
             }),
           ),
         },
@@ -212,6 +226,7 @@ export const profileController = {
           message: "Resume successfully parsed and encrypted",
           profile: result.profile,
           factsSummary: result.factsSummary,
+          resume: result.resume,
         },
       });
     } catch (err) {

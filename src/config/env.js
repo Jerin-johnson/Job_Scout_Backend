@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  PORT: z.coerce.number().default(4000),
+  PORT: z.coerce.number().default(4001),
   HOST: z.string().default("0.0.0.0"),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   SUPER_ADMIN_EMAIL: z.string().email().optional().or(z.literal("")),
@@ -63,6 +63,8 @@ const envSchema = z.object({
     .default("true"),
   AI_MONTHLY_ALLOWANCE_SHADOW_RATIO: z.coerce.number().finite().positive().max(1).default(0.25),
   AI_PROVIDER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
+  ORPHAN_RESUME_CLEANUP_AFTER_HOURS: z.coerce.number().int().min(1).max(8760).default(24),
+  ORPHAN_RESUME_CLEANUP_DELETE_ENABLED: z.string().transform((value) => value === "true").default("false"),
   OPENAI_API_KEY: z.string().optional().default("dummy_openai_key"),
   VOYAGE_API_KEY: z.string().optional().default(""),
 

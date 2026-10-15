@@ -56,16 +56,18 @@ export function createGroqModel({ modelName, temperature, maxTokens, schema }) {
   if (schema) model = model.withStructuredOutput(schema, { includeRaw: true });
 
   return {
-    async invoke(messages, { signal } = {}) {
-      const result = await model.invoke(toGroqMessages(messages), { signal });
+    async invoke(messages, options = {}) {
+      const invocationOptions = options?.signal ? { signal: options.signal } : {};
+      const result = await model.invoke(toGroqMessages(messages), invocationOptions);
       if (schema) {
         const raw = result.raw;
         return { ...result.parsed, response_metadata: { usage: usageOf(raw) } };
       }
       return { content: messageText(result.content), response_metadata: { usage: usageOf(result) } };
     },
-    async *stream(messages, { signal } = {}) {
-      const chunks = await model.stream(toGroqMessages(messages), { signal });
+    async *stream(messages, options = {}) {
+      const invocationOptions = options?.signal ? { signal: options.signal } : {};
+      const chunks = await model.stream(toGroqMessages(messages), invocationOptions);
       for await (const chunk of chunks) {
         yield {
           content: messageText(chunk.content),

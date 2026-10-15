@@ -119,8 +119,9 @@ export function createGeminiModel({ modelName, temperature, maxTokens, schema })
   if (schema) model = model.withStructuredOutput(schema, { includeRaw: true });
 
   return {
-    async invoke(messages, { signal } = {}) {
-      const result = await model.invoke(toLangChainMessages(messages), { signal });
+    async invoke(messages, options = {}) {
+      const invocationOptions = options?.signal ? { signal: options.signal } : {};
+      const result = await model.invoke(toLangChainMessages(messages), invocationOptions);
       if (schema) {
         const raw = result.raw;
         return {
@@ -143,8 +144,9 @@ export function createGeminiModel({ modelName, temperature, maxTokens, schema })
         },
       };
     },
-    async *stream(messages, { signal } = {}) {
-      const chunks = await model.stream(toLangChainMessages(messages), { signal });
+    async *stream(messages, options = {}) {
+      const invocationOptions = options?.signal ? { signal: options.signal } : {};
+      const chunks = await model.stream(toLangChainMessages(messages), invocationOptions);
       for await (const chunk of chunks) {
         yield {
           content: typeof chunk.content === "string" ? chunk.content : messageText(chunk.content),

@@ -31,11 +31,31 @@ The backend owns all private credentials. Never put model, storage, payment, ema
 4. Set the frontend's public API URL in `Ai_resume_frontend/.env.local`:
 
    ```dotenv
-   NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
+   NEXT_PUBLIC_API_BASE_URL=http://localhost:4001
    NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
 
 The frontend does **not** need any model provider key. Model calls are made by the backend, so provider keys never reach the browser. `AI_ALLOW_MOCKS=true` permits synthetic responses only in local development and tests; set it to `false` in production. In production, resume, profile, and interview-answer operations reject providers classified as `unpaid_free_tier`. Set a provider's data-policy class to `paid_api` only after verifying the actual provider account and applicable terms.
+
+## Local stack, port, and S3 CORS
+
+The local API uses port **4001**. From `AiJob_search_backend`, run `npm run dev:stack` to start the API and sibling `Ai_resume_frontend` together; stop both with Ctrl+C. The launcher passes `PORT=4001` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4001` without editing either local `.env` file. Or start services separately with matching values.
+
+For browser-to-S3 presigned `PUT` uploads, configure the private bucket CORS rule below. Replace `https://app.example.com` with the exact production frontend origin (scheme and hostname, no path); do not use a wildcard origin. S3 CORS is separate from the API's `WEB_ORIGIN` setting.
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:3000", "https://app.example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+The API uses 5-minute presigned URLs bound to the authenticated user's `resumes/{userId}/` key prefix. Never log or share the signed URL. A report-only orphan scan is available with `npm run resumes:cleanup-report`; it checks objects older than `ORPHAN_RESUME_CLEANUP_AFTER_HOURS` (default 24) against MongoDB and makes no deletions. Deletion is disabled by default and must not be enabled until its report is reviewed.
 
 ## Frontend variables
 
@@ -60,21 +80,11 @@ The frontend does **not** need any model provider key. Model calls are made by t
 | `REDIS_URL`                                                                                                             | Shared cache, quotas, and queues                    | Defaults to local Redis. Use a secured hosted instance in production.                                                                                                                                                                                                              |
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`                                     | Durable original resume and export file storage     | Uses AWS SDK v3. `S3_REGION` must match the bucket's AWS region. Provide both access-key values together, or omit both and use the AWS SDK default credential chain (for example an ECS/EC2 IAM role). Local mock storage requires `AI_ALLOW_MOCKS=true`; it does not save a file. |
 
-For AWS S3, grant the backend identity `s3:PutObject` and `s3:GetObject` on `arn:aws:s3:::<your-bucket>/*` for resume and export objects. Keep the bucket private. The application does not list bucket contents.
+For S3, grant the backend identity `s3:PutObject` and `s3:GetObject` on `arn:aws:s3:::<your-bucket>/*`. The report-only orphan scan also needs `s3:ListBucket` on the bucket, restricted to the `resumes/` prefix. Keep the bucket private.
 
-Direct browser uploads also require this bucket CORS rule, replacing the origin with the exact deployed frontend origin (and including localhost only for development):
+## Local original-file storage proposal
 
-```json
-[
-  {
-    "AllowedOrigins": ["https://your-frontend.example"],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["Content-Type"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3000
-  }
-]
-```
+`AI_ALLOW_MOCKS=true` currently allows local parsing but does not persist the original file. For developer uploads without AWS credentials, I recommend a dependency-free local-disk storage adapter behind the existing storage interface, with a root outside the public web directory and the same ownership checks. The S3-compatible emulator option (such as MinIO) adds infrastructure and local setup. I have not implemented either option pending your choice.
 | `EMBEDDING_PROVIDER` and the selected provider's key/model/dimension (`OPENAI_*` or `VOYAGE_*`)                         | Embeddings                                          | Choose one provider and provide its credential. These keys are separate from the chat/extraction LLM key. Production never falls back to mock vectors.                                                                                                                             |
 | `AI_ALLOW_MOCKS`                                                                                                        | Local development/tests only                        | Set `true` to opt into deterministic mocks and in-memory quota storage locally. Production rejects mock mode; set `false`.                                                                                                                                                         |
 | `REDIS_URL`, `MONGODB_URI`                                                                                              | Production AI quota and usage ledger                | Durable controls require both. Production AI calls fail closed with retryable 503 responses if the quota or ledger store is unavailable.                                                                                                                                           |

@@ -82,7 +82,14 @@ test("completing a previously processed upload is idempotent and scoped to the a
   let queried;
   profileRepository.findResumeByS3KeyAndUserId = async (key, userId) => {
     queried = { key, userId };
-    return { parsedFactsCount: 4 };
+    return {
+      _id: { toString: () => "resume-record-1" },
+      originalFilename: "resume.pdf",
+      mimeType: "application/pdf",
+      createdAt: new Date("2026-10-16T00:00:00.000Z"),
+      parsedFactsCount: 4,
+      factsSummary: { roles: 1, skills: 2, education: 1, totalFacts: 4 },
+    };
   };
   profileRepository.findByUserId = async () => ({ roles: [], skills: [], education: [] });
   storageService.getObjectMetadata = async () => {

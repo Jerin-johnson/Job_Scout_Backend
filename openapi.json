@@ -6,7 +6,7 @@
     "description": "Production-ready backend API for JobScout, an AI-powered job-hunt agent for Discover -> Evaluate -> Prepare -> Manage workflows."
   },
   "servers": [
-    { "url": "http://localhost:4000", "description": "Local development server" },
+    { "url": "http://localhost:4001", "description": "Local development server" },
     { "url": "https://api.jobscout.ai", "description": "Production server" }
   ],
   "components": {

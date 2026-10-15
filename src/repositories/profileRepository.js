@@ -46,9 +46,25 @@ export const profileRepository = {
 
   async createResume(resumeData) {
     if (isMongoReady()) {
-      const resume = new Resume(resumeData);
-      return (await resume.save()).toObject();
+      try {
+        const resume = new Resume(resumeData);
+        return (await resume.save()).toObject();
+      } catch (error) {
+        if (error?.code !== 11000 || !resumeData.s3Key) throw error;
+        const existing = await Resume.findOne({
+          userId: resumeData.userId,
+          s3Key: resumeData.s3Key,
+        }).lean();
+        if (!existing) throw error;
+        return existing;
+      }
     }
+    const existing = inMemoryResumes.find(
+      (resume) =>
+        resume.userId.toString() === resumeData.userId.toString() &&
+        resume.s3Key === resumeData.s3Key,
+    );
+    if (existing) return existing;
     const newResume = {
       _id: new mongoose.Types.ObjectId().toString(),
       ...resumeData,

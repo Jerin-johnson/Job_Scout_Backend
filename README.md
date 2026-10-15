@@ -35,9 +35,15 @@ npm install
 docker compose up -d
 ```
 
+The API is published at `http://localhost:4001`; the frontend runs at `http://localhost:3000`.
+With MongoDB/Redis running and both projects installed, `npm run dev:stack` starts the API and frontend together.
+
 ### 4. Running the Services
 
 ```bash
+# Start the API and frontend together (the frontend lives beside this repo).
+npm run dev:stack
+
 # Start API Server in dev watch mode
 npm run dev
 

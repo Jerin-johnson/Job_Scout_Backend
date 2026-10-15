@@ -123,7 +123,10 @@ export const storageService = {
         "Failed to verify uploaded S3 object",
       );
       if (err?.$metadata?.httpStatusCode === 404 || err?.name === "NotFound") {
-        throw storageError("RESUME_UPLOAD_NOT_FOUND", "The S3 upload is missing or has expired. Upload the file again.");
+        const missing = new Error("The uploaded resume could not be found. Upload it again.");
+        missing.statusCode = 404;
+        missing.code = "RESUME_UPLOAD_NOT_FOUND";
+        throw missing;
       }
       throw storageError("STORAGE_UNAVAILABLE", "Uploaded resume could not be verified in storage.");
     }

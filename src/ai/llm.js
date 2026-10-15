@@ -20,8 +20,10 @@ const breakerOptions = {
 /**
  * Low-level execution function protected by circuit breaker
  */
-async function executeModelCall({ model, messages, signal }) {
-  return model.invoke(messages, { signal });
+export async function executeModelCall({ model, messages, signal }) {
+  // LangChain expects either a real AbortSignal or no signal; null enters its
+  // cancellation path and throws while removing an event listener.
+  return model.invoke(messages, signal ? { signal } : {});
 }
 
 const llmBreaker = new CircuitBreaker(executeModelCall, breakerOptions);
@@ -367,7 +369,7 @@ export async function* streamLLM({
       const model = provider.createModel({ modelName, temperature, maxTokens, schema: null });
       if (typeof model.stream !== "function") {
         const response = await invokeWithTransientRetry(
-          () => model.invoke(messages, { signal }),
+          () => model.invoke(messages, signal ? { signal } : {}),
           { maxRetries: env.AI_PROVIDER_MAX_RETRIES, onRetry: (count) => { retryCount = count; } },
         );
         outputText = typeof response === "string" ? response : messageText(response?.content);
@@ -377,7 +379,7 @@ export async function* streamLLM({
         firstTokenLatencyMs = Math.round(performance.now() - startedAt);
         yield { text: outputText };
       } else {
-        for await (const chunk of model.stream(messages, { signal })) {
+        for await (const chunk of model.stream(messages, signal ? { signal } : {})) {
           if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
           const text = messageText(chunk?.content);
           if (text) {

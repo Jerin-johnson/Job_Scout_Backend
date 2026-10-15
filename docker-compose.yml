@@ -7,10 +7,10 @@ services:
     container_name: jobscout-api
     restart: unless-stopped
     ports:
-      - "${PORT:-4000}:4000"
+      - "${PORT:-4001}:4001"
     environment:
       - NODE_ENV=development
-      - PORT=4000
+      - PORT=4001
       - HOST=0.0.0.0
       - MONGODB_URI=mongodb://mongo:27017/jobscout
       - REDIS_URL=redis://redis:6379
