@@ -33,7 +33,7 @@ test("production rejects mock embeddings even if the mock flag is accidentally e
       await embeddingService.getEmbeddingWithMetadata('private profile text');
       process.exitCode = 2;
     } catch (error) {
-      if (error.code !== 'EMBEDDING_PROVIDER_NOT_CONFIGURED' || error.statusCode !== 503) process.exitCode = 3;
+      if (!['AI_USAGE_STORE_UNAVAILABLE', 'EMBEDDING_PROVIDER_NOT_CONFIGURED'].includes(error.code) || error.statusCode !== 503) process.exitCode = 3;
     }
   `;
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
@@ -58,6 +58,24 @@ test("embedding calls honor the global AI kill switch", () => {
     cwd: process.cwd(),
     encoding: "utf8",
     env: { ...process.env, NODE_ENV: "production", AI_ALLOW_MOCKS: "false", AI_KILL_SWITCH: "true" },
+  });
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+});
+
+test("system embeddings fail closed in production when the shared quota store is unavailable", () => {
+  const script = `
+    const { embeddingService } = await import('./src/services/embeddingService.js');
+    try {
+      await embeddingService.assertAvailable();
+      process.exitCode = 2;
+    } catch (error) {
+      if (error.code !== 'AI_USAGE_STORE_UNAVAILABLE' || error.statusCode !== 503 || error.retryable !== true) process.exitCode = 3;
+    }
+  `;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, NODE_ENV: "production", AI_ALLOW_MOCKS: "false", AI_KILL_SWITCH: "false" },
   });
   assert.equal(child.status, 0, child.stderr || child.stdout);
 });

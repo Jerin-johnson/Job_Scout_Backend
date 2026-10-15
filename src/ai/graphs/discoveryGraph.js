@@ -17,7 +17,7 @@ export const discoveryGraph = {
    * 4. Explain Top 10 with skill gaps
    * 5. Store in matches collection
    */
-  async runDiscovery(user, { idempotencyKey } = {}) {
+  async runDiscovery(user, { idempotencyKey, requestId } = {}) {
     const userId = user._id ? user._id.toString() : user.id;
 
     // 1. Fetch user profile
@@ -32,7 +32,7 @@ export const discoveryGraph = {
     let jobs = await jobIngestionService.getAllJobs();
     if (jobs.length === 0) {
       // Trigger fresh ingestion if empty
-      const ingested = await jobIngestionService.ingestAll({ user });
+      const ingested = await jobIngestionService.ingestAll({ user, requestId });
       jobs = ingested.jobs || [];
     }
 
@@ -45,7 +45,7 @@ export const discoveryGraph = {
     const rolesList = (profile.roles || []).map((r) => r.title).join(", ");
     const profileText = `Roles: ${rolesList}. Skills: ${skillsList}. Preferred: ${(profile.preferences?.targetRoles || []).join(", ")}`;
     const { vector: profileEmbedding, metadata: profileEmbeddingMetadata } =
-      await embeddingService.getEmbeddingWithMetadata(profileText, { user, feature: "match_jobs" });
+      await embeddingService.getEmbeddingWithMetadata(profileText, { user, feature: "match_jobs", requestId });
 
     // 4. Vector Match: Cosine similarity
     const vectorMatches = jobs.map((job) => {

@@ -3,8 +3,6 @@ const TRANSIENT_CODES = new Set([
   "ECONNREFUSED",
   "EAI_AGAIN",
   "ENETUNREACH",
-  "ETIMEDOUT",
-  "UND_ERR_CONNECT_TIMEOUT",
 ]);
 
 function errorText(error) {
@@ -22,9 +20,12 @@ export function isTransientProviderError(error) {
   const status = providerStatusCode(error);
   const code = String(error?.code || error?.cause?.code || "").toUpperCase();
   const text = errorText(error);
-  return (status >= 500 && status !== 429) || TRANSIENT_CODES.has(code) ||
-    text.includes("fetch failed") || text.includes("socket hang up") ||
-    text.includes("network error") || text.includes("timed out");
+  if (error?.name === "AbortError" || error?.name === "TimeoutError" || status === 408 ||
+      ["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "ECONNABORTED"].includes(code)) return false;
+  if (status === 429 || status >= 500) return true;
+  if (text.includes("timed out") || text.includes("timeout")) return false;
+  return TRANSIENT_CODES.has(code) ||
+    text.includes("fetch failed") || text.includes("socket hang up") || text.includes("network error");
 }
 
 export function classifyProviderError(error, providerName = "AI provider") {
@@ -86,12 +87,19 @@ export function classifyProviderError(error, providerName = "AI provider") {
   };
 }
 
-export async function invokeWithTransientRetry(invoke, { delayMs = 250, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
-  try {
-    return await invoke();
-  } catch (error) {
-    if (!isTransientProviderError(error)) throw error;
-    await sleep(delayMs);
-    return invoke();
+export async function invokeWithTransientRetry(
+  invoke,
+  { delayMs = 250, maxRetries = 1, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), onRetry } = {},
+) {
+  let retries = 0;
+  while (true) {
+    try {
+      return await invoke();
+    } catch (error) {
+      if (!isTransientProviderError(error) || retries >= maxRetries) throw error;
+      retries += 1;
+      onRetry?.(retries, error);
+      await sleep(delayMs);
+    }
   }
 }

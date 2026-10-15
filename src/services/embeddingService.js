@@ -2,6 +2,8 @@ import { env } from "../config/env.js";
 import { logger } from "../shared/utils/logger.js";
 import { quotaService } from "./quotaService.js";
 import { getModelRate } from "../ai/modelPricingCatalog.js";
+import { randomUUID } from "node:crypto";
+import { invokeWithTransientRetry } from "../ai/providerErrors.js";
 
 const MOCK_DIMENSION = 1536;
 const SYSTEM_USAGE_ID = "000000000000000000000000";
@@ -75,7 +77,8 @@ export const embeddingService = {
     return { ...config, rate, mock: !configured };
   },
 
-  async getEmbeddingWithMetadata(text, { user, feature = "embedding" } = {}) {
+  async getEmbeddingWithMetadata(text, { user, feature = "embedding", requestId = randomUUID() } = {}) {
+    const startedAt = performance.now();
     const normalizedText = String(text || "").trim();
     if (!normalizedText) {
       const error = new Error("Embedding input must not be empty.");
@@ -97,23 +100,46 @@ export const embeddingService = {
     }
 
     let vector;
+    let retryCount = 0;
     try {
-      if (config.provider === "voyage") {
-        const { VoyageAIClient } = await import("voyageai");
-        const client = new VoyageAIClient({ apiKey: config.apiKey });
-        const response = await client.embed({ input: [normalizedText], model: config.model });
-        vector = response.data?.[0]?.embedding;
-      } else {
+      vector = await invokeWithTransientRetry(async () => {
+        if (config.provider === "voyage") {
+          const { VoyageAIClient } = await import("voyageai");
+          const client = new VoyageAIClient({ apiKey: config.apiKey, maxRetries: 0 });
+          const response = await client.embed({ input: [normalizedText], model: config.model, maxRetries: 0 });
+          return response.data?.[0]?.embedding;
+        }
         const { OpenAIEmbeddings } = await import("@langchain/openai");
         const embeddings = new OpenAIEmbeddings({
           openAIApiKey: config.apiKey,
           modelName: config.model,
           dimensions: config.dimension,
+          maxRetries: 0,
         });
-        vector = await embeddings.embedQuery(normalizedText);
-      }
+        return embeddings.embedQuery(normalizedText);
+      }, {
+        maxRetries: env.AI_PROVIDER_MAX_RETRIES,
+        onRetry: (count) => { retryCount = count; },
+      });
     } catch (error) {
       logger.warn({ provider: config.provider, model: config.model, errorCode: error?.code }, "Embedding provider request failed");
+      await quotaService.recordUsage({
+        userId: user?._id?.toString() || user?.id?.toString() || SYSTEM_USAGE_ID,
+        userPlan: user?.plan,
+        feature,
+        provider: config.provider,
+        model: `${config.provider}/${config.model}`,
+        requestId,
+        attemptId: randomUUID(),
+        status: "failed",
+        outcome: "provider_error",
+        usageIsEstimated: true,
+        inputTokens,
+        outputTokens: 0,
+        costUsd: estimatedCostUsd,
+        latencyMs: Math.round(performance.now() - startedAt),
+        retryCount,
+      });
       throw error;
     }
     if (!Array.isArray(vector) || vector.length === 0 || vector.some((value) => !Number.isFinite(value))) {
@@ -129,12 +155,18 @@ export const embeddingService = {
       userId: user?._id?.toString() || user?.id?.toString() || SYSTEM_USAGE_ID,
       userPlan: user?.plan,
       feature,
+      provider: config.provider,
       model: `${config.provider}/${config.model}`,
+      requestId,
+      attemptId: randomUUID(),
+      status: "success",
+      outcome: "success",
       inputTokens: actualTokens,
       outputTokens: 0,
       costUsd,
       usageIsEstimated: true,
-      latencyMs: 0,
+      latencyMs: Math.round(performance.now() - startedAt),
+      retryCount,
     });
 
     return {

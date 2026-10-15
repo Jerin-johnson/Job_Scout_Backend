@@ -6,6 +6,7 @@ import { UsageEvent } from "../models/UsageEvent.js";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
 import { interviewRepository } from "../repositories/interviewRepository.js";
+import { MODEL_PRICING_VERSION } from "../ai/modelPricingCatalog.js";
 
 // In-memory counters for offline/test mode
 const inMemoryCounters = new Map();
@@ -68,11 +69,14 @@ function getMonthKey(date = new Date()) {
 
 export const quotaService = {
   async assertAIEnabled() {
-    if (!env.AI_KILL_SWITCH) return true;
-    const err = new Error("AI services are temporarily unavailable. Please try again later.");
-    err.statusCode = 503;
-    err.code = "AI_KILL_SWITCH_ACTIVE";
-    throw err;
+    if (env.AI_KILL_SWITCH) {
+      const err = new Error("AI services are temporarily unavailable. Please try again later.");
+      err.statusCode = 503;
+      err.code = "AI_KILL_SWITCH_ACTIVE";
+      throw err;
+    }
+    requireQuotaStore();
+    return true;
   },
 
   async reserveInterviewSession(
@@ -125,8 +129,6 @@ export const quotaService = {
   async checkQuota(user, feature, { estimatedCostUsd = 0 } = {}) {
     // 1. Check Global AI Kill Switch
     await this.assertAIEnabled();
-
-    requireQuotaStore();
 
     const plan = user.plan || PLANS.FREE;
     const planConfig = PLAN_CONFIG[plan] || PLAN_CONFIG[PLANS.FREE];
@@ -307,16 +309,71 @@ export const quotaService = {
   async recordUsage({
     userId,
     userPlan = PLANS.FREE,
+    planVersion = "unversioned",
     feature,
+    provider = "unknown",
     model,
+    requestId = null,
+    attemptId = null,
+    status = "success",
+    outcome = "success",
+    usageIsEstimated = false,
     inputTokens = 0,
     outputTokens = 0,
     cacheReadTokens = 0,
+    cachedInputTokens = cacheReadTokens,
     cacheWriteTokens = 0,
     costUsd = 0.0,
     latencyMs = 0,
+    retryCount = 0,
+    pricingVersion = MODEL_PRICING_VERSION,
   }) {
     const day = getDayKey();
+
+    // Persist the ledger before returning a successful provider result. In production,
+    // ledger failure is surfaced to the caller instead of silently dropping spend data.
+    if (isMongoReady()) {
+      try {
+        await UsageEvent.create({
+          userId,
+          plan: userPlan,
+          planVersion,
+          feature,
+          provider,
+          model,
+          requestId,
+          attemptId,
+          status,
+          outcome,
+          usageIsEstimated,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cachedInputTokens,
+          cacheWriteTokens,
+          costUsd,
+          latencyMs,
+          retryCount,
+          pricingVersion,
+        });
+      } catch (cause) {
+        logger.error({ errorCode: cause?.code || "USAGE_LEDGER_WRITE_FAILED" }, "Could not persist AI usage ledger row");
+        if (env.NODE_ENV === "production") {
+          const error = new Error("AI usage ledger is temporarily unavailable.");
+          error.statusCode = 503;
+          error.code = "AI_USAGE_LEDGER_UNAVAILABLE";
+          error.retryable = true;
+          throw error;
+        }
+        throw cause;
+      }
+    } else if (env.NODE_ENV === "production") {
+      const error = new Error("AI usage ledger is temporarily unavailable.");
+      error.statusCode = 503;
+      error.code = "AI_USAGE_LEDGER_UNAVAILABLE";
+      error.retryable = true;
+      throw error;
+    }
 
     // 1. Increment Redis spend counters for instant budget checking
     const userSpendKey = `spend:user:${userId}:${day}`;
@@ -332,12 +389,11 @@ export const quotaService = {
       const monthSpendKey = `spend:user:${userId}:month:${getMonthKey()}`;
       const totalMonthSpend = await this.incrByFloat(monthSpendKey, costUsd, 35 * 86400);
 
-      const alertThreshold = planRevenue * 0.25;
+      const alertThreshold = planRevenue * env.AI_MONTHLY_ALLOWANCE_SHADOW_RATIO;
       if (totalMonthSpend > alertThreshold) {
-        logger.warn(
-          { userId, userPlan, totalMonthSpend, planRevenue, threshold: alertThreshold },
-          "ALERT: User LLM cost exceeded 25% of subscription revenue!",
-        );
+        if (env.AI_MONTHLY_ALLOWANCE_SHADOW_MODE) {
+          logger.info({ userId, userPlan, totalMonthSpend, planRevenue, threshold: alertThreshold, wouldBlock: true, mode: "shadow" }, "AI monthly allowance shadow evaluation");
+        }
         if (env.SENTRY_DSN) {
           Sentry.captureMessage(
             `User ${userId} LLM cost ($${totalMonthSpend.toFixed(2)}) > 25% of ${userPlan} revenue ($${planRevenue})`,
@@ -347,22 +403,6 @@ export const quotaService = {
       }
     }
 
-    // 3. Write through to Mongo usageEvents collection asynchronously
-    if (isMongoReady()) {
-      UsageEvent.create({
-        userId,
-        feature,
-        model,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheWriteTokens,
-        costUsd,
-        latencyMs,
-      }).catch((err) => {
-        logger.error({ err: err.message }, "Failed to write usageEvent to MongoDB");
-      });
-    }
   },
 
   async getCounter(key) {

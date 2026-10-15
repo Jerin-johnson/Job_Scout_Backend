@@ -18,7 +18,7 @@ export const jobIngestionService = {
   /**
    * Run full ingestion: fetch -> dedupe -> embedOnce -> bulkWrite
    */
-  async ingestAll({ user } = {}) {
+  async ingestAll({ user, requestId } = {}) {
     const adapters = this.getAdapters();
     const allJobs = [];
 
@@ -66,7 +66,7 @@ export const jobIngestionService = {
 
           if (!cached) {
             const textToEmbed = `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.substring(0, 500)}`;
-            cached = await embeddingService.getEmbeddingWithMetadata(textToEmbed, { user, feature: "match_jobs" });
+            cached = await embeddingService.getEmbeddingWithMetadata(textToEmbed, { user, feature: "match_jobs", requestId });
             await set(embKey, cached, TTL.EMBEDDING);
             newEmbeddingsCount++;
           }

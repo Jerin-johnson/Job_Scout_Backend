@@ -49,6 +49,7 @@ export const jobController = {
       if (!matches || matches.length === 0) {
         const run = await discoveryGraph.runDiscovery(req.user, {
           idempotencyKey: requestQuotaIdempotencyKey(req, "match_jobs"),
+          requestId: req.id,
         });
         matches = run.matches || [];
       }
@@ -90,6 +91,7 @@ export const jobController = {
     try {
       const result = await discoveryGraph.runDiscovery(req.user, {
         idempotencyKey: requestQuotaIdempotencyKey(req, "match_jobs"),
+        requestId: req.id,
       });
       const matches = result.matches.map(serializeMatch);
       res.status(200).json({

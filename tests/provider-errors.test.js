@@ -29,7 +29,7 @@ test("provider failures classify service outages and Groq capacity without leaki
   assert.equal(classifyProviderError({ status: 400 }, "groq").code, "AI_PROVIDER_INVALID_REQUEST");
 });
 
-test("transient provider invoke retries once, while non-transient errors do not retry", async () => {
+test("transient provider invoke retries within the ceiling, while validation and timeout errors do not retry", async () => {
   let calls = 0;
   const result = await invokeWithTransientRetry(async () => {
     calls += 1;
@@ -47,4 +47,28 @@ test("transient provider invoke retries once, while non-transient errors do not 
     throw error;
   }, { sleep: async () => {} }));
   assert.equal(calls, 1);
+
+  for (const timeout of [
+    Object.assign(new Error("request timed out"), { code: "ETIMEDOUT" }),
+    Object.assign(new Error("connect timeout"), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+    Object.assign(new Error("request timeout"), { status: 408 }),
+  ]) {
+    assert.equal(isTransientProviderError(timeout), false);
+    calls = 0;
+    await assert.rejects(() => invokeWithTransientRetry(async () => {
+      calls += 1;
+      throw timeout;
+    }, { maxRetries: 2, sleep: async () => {} }));
+    assert.equal(calls, 1);
+  }
+  assert.equal(isTransientProviderError(Object.assign(new Error("Gateway Timeout"), { status: 504 })), true);
+
+  calls = 0;
+  await assert.rejects(() => invokeWithTransientRetry(async () => {
+    calls += 1;
+    const error = new Error("temporary provider issue");
+    error.status = 503;
+    throw error;
+  }, { maxRetries: 2, sleep: async () => {} }));
+  assert.equal(calls, 3);
 });

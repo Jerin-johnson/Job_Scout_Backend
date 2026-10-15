@@ -80,7 +80,7 @@ export const aiController = {
   async route(req, res, next) {
     try {
       const { prompt } = chatRequestSchema.parse(req.body);
-      const decision = await routeRequest({ prompt, user: req.user, contextVersion: req.user.profileVersion || 1 });
+      const decision = await routeRequest({ prompt, user: req.user, contextVersion: req.user.profileVersion || 1, requestId: req.id });
       res.status(200).json({ data: { decision } });
     } catch (err) {
       next(err);
@@ -98,7 +98,7 @@ export const aiController = {
       }
       await acceptRequestQuota(req, "chat");
       const context = await getCandidateContext(req.user);
-      const decision = await routeRequest({ prompt, user: req.user, contextVersion: req.user.profileVersion || 1 });
+      const decision = await routeRequest({ prompt, user: req.user, contextVersion: req.user.profileVersion || 1, requestId: req.id });
       const selectedModel = modelId === AUTO_CHAT_MODEL_ID
         ? resolveChatModelForTier(decision?.tier === 2 ? "strong" : "small")
         : resolveSelectableChatModel(modelId);
@@ -125,7 +125,7 @@ export const aiController = {
       res.on("close", () => {
         if (!res.writableEnded) abortController?.abort();
       });
-      const chunks = streamLLM({ user: req.user, tier: decision?.tier === 2 ? "strong" : "small", feature: "chat", prompt: promptMessages, modelId: selectedModel.id, signal: requestSignal });
+      const chunks = streamLLM({ user: req.user, tier: decision?.tier === 2 ? "strong" : "small", feature: "chat", prompt: promptMessages, modelId: selectedModel.id, signal: requestSignal, requestId: req.id });
       for await (const item of chatStreamEvents({ decision, modelId: selectedModel.id, chunks, cacheHit: context.cacheHit })) {
         if (item.event === "done") {
           logger.info({ latencyMs: item.data.latencyMs, firstTokenLatencyMs: item.data.firstTokenLatencyMs, model: item.data.model, inputTokens: item.data.usage?.inputTokens, outputTokens: item.data.usage?.outputTokens, route: item.data.route, cacheHit: item.data.cacheHit, status: "success" }, "Chat turn completed");
