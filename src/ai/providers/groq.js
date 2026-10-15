@@ -1,13 +1,9 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { env } from "../../config/env.js";
+import { getModelRate } from "../modelPricingCatalog.js";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
-const GROQ_PRICING_PER_MILLION = {
-  "openai/gpt-oss-20b": { input: 0.075, output: 0.3 },
-  "openai/gpt-oss-120b": { input: 0.15, output: 0.6 },
-};
-
 function messageText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return String(content ?? "");
@@ -83,10 +79,12 @@ export function createGroqModel({ modelName, temperature, maxTokens, schema }) {
   };
 }
 
-export function estimateGroqCost(modelName, { inputTokens = 0, outputTokens = 0 } = {}) {
-  const rates = GROQ_PRICING_PER_MILLION[modelName];
-  if (!rates) return 0;
-  return ((inputTokens * rates.input) + (outputTokens * rates.output)) / 1_000_000;
+export function estimateGroqCost(modelName, { inputTokens = 0, outputTokens = 0, cachedInputTokens = 0 } = {}) {
+  const rates = getModelRate("groq", modelName);
+  const regularInput = Math.max(0, inputTokens - cachedInputTokens);
+  const cachedRate = rates.cachedInputUsdPerMillion ?? rates.inputUsdPerMillion;
+  return ((regularInput * rates.inputUsdPerMillion) + cachedInputTokens * cachedRate +
+    outputTokens * rates.outputUsdPerMillion) / 1_000_000;
 }
 
 export const groqProvider = {

@@ -8,8 +8,10 @@ import { setupGracefulShutdown, registerShutdownHandler } from "./config/shutdow
 import { userRepository } from "./repositories/userRepository.js";
 import { ROLES } from "./shared/constants/plans.js";
 import { interviewRepository } from "./repositories/interviewRepository.js";
+import { assertValidAIConfiguration } from "./config/aiStartupValidation.js";
 
 async function startServer() {
+  assertValidAIConfiguration();
   initSentry();
 
   // Connect to databases

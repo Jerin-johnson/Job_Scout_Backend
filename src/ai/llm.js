@@ -6,6 +6,8 @@ import { quotaService } from "../services/quotaService.js";
 import { logger } from "../shared/utils/logger.js";
 import { PLANS } from "../shared/constants/plans.js";
 import { invokeWithTransientRetry } from "./providerErrors.js";
+import { getModelRate } from "./modelPricingCatalog.js";
+import { personalDataPolicyError } from "../config/aiStartupValidation.js";
 
 // Circuit breaker options
 const breakerOptions = {
@@ -132,12 +134,21 @@ export async function invokeLLM({
   }
   const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
   const modelName = modelId || provider.modelForTier(tier);
+  getModelRate(provider.id, modelName);
+  const policyError = personalDataPolicyError(provider.id, modelName, feature);
+  if (policyError) throw policyError;
 
   // 3. Prepare messages
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
 
   // 4. Check if live Anthropic key is available or in mock/offline mode
   const isMockMode = !provider.isConfigured();
+  if (isMockMode && !env.AI_ALLOW_MOCKS) {
+    const error = new Error("The selected AI provider is not configured.");
+    error.statusCode = 503;
+    error.code = "AI_PROVIDER_NOT_CONFIGURED";
+    throw error;
+  }
 
   if (isMockMode) {
     const latencyMs = Math.round(performance.now() - start);
@@ -283,8 +294,17 @@ export async function* streamLLM({
   }
   const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
   const modelName = modelId || provider.modelForTier(tier);
+  getModelRate(provider.id, modelName);
+  const policyError = personalDataPolicyError(provider.id, modelName, feature);
+  if (policyError) throw policyError;
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
   const mockMode = !provider.isConfigured();
+  if (mockMode && !env.AI_ALLOW_MOCKS) {
+    const error = new Error("The selected AI provider is not configured.");
+    error.statusCode = 503;
+    error.code = "AI_PROVIDER_NOT_CONFIGURED";
+    throw error;
+  }
   let inputTokens = 0;
   let outputTokens = 0;
   let outputText = "";

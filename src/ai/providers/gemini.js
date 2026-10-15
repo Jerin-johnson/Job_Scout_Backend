@@ -1,21 +1,15 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { env } from "../../config/env.js";
-
-const GEMINI_PRICING_PER_MILLION = {
-  "gemini-3.1-flash-lite": { input: 0.25, output: 1.5 },
-  "gemini-3.5-flash-lite": { input: 0.3, output: 2.5 },
-  "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
-  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
-};
+import { getModelRate } from "../modelPricingCatalog.js";
 
 export function getGeminiPricing(modelName, now = new Date()) {
-  if (modelName === "gemini-3.6-flash" || modelName === "gemini-3.8-flash") {
-    return now < new Date("2027-01-01T00:00:00.000Z")
-      ? { input: 0.75, output: 3.75 }
-      : { input: 1.5, output: 7.5 };
+  try {
+    const rates = getModelRate("gemini", modelName, now);
+    return { input: rates.inputUsdPerMillion, output: rates.outputUsdPerMillion };
+  } catch {
+    return null;
   }
-  return GEMINI_PRICING_PER_MILLION[modelName];
 }
 
 const CHAT_MODELS = [
@@ -162,11 +156,12 @@ export function createGeminiModel({ modelName, temperature, maxTokens, schema })
 }
 
 export function estimateGeminiCost(modelName, usage = {}) {
-  const rates = getGeminiPricing(modelName);
-  if (!rates) return 0;
-  return (
-    ((usage.inputTokens || 0) * rates.input + (usage.outputTokens || 0) * rates.output) / 1_000_000
-  );
+  const rates = getModelRate("gemini", modelName, usage.at || new Date());
+  const cached = usage.cachedInputTokens ?? usage.cacheReadTokens ?? 0;
+  const regularInput = Math.max(0, (usage.inputTokens || 0) - cached);
+  const cachedRate = rates.cachedInputUsdPerMillion ?? rates.inputUsdPerMillion;
+  return (regularInput * rates.inputUsdPerMillion + cached * cachedRate +
+    (usage.outputTokens || 0) * rates.outputUsdPerMillion) / 1_000_000;
 }
 
 export const geminiProvider = {

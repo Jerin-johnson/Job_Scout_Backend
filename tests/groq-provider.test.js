@@ -14,7 +14,7 @@ test("Groq adapter exposes a configured server-side provider and current free-pl
 
 test("Groq usage is normalized to conservative documented per-token cost", () => {
   assert.equal(estimateGroqCost("openai/gpt-oss-20b", { inputTokens: 1000, outputTokens: 1000 }), 0.000375);
-  assert.equal(estimateGroqCost("unknown/model", { inputTokens: 1000, outputTokens: 1000 }), 0);
+  assert.throws(() => estimateGroqCost("unknown/model", { inputTokens: 1000, outputTokens: 1000 }), /unknown model/i);
 });
 
 test("Groq LangChain adapter maps normalized messages and returns a stream-capable facade", () => {

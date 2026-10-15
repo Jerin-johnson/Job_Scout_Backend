@@ -9,6 +9,7 @@ import { emailDigestService } from "./services/emailDigestService.js";
 import { Worker } from "bullmq";
 import { applicationRepository } from "./repositories/applicationRepository.js";
 import { userRepository } from "./repositories/userRepository.js";
+import { assertValidAIConfiguration } from "./config/aiStartupValidation.js";
 
 const activeWorkers = [];
 
@@ -94,6 +95,7 @@ async function initializeQueues() {
 }
 
 async function startWorker() {
+  assertValidAIConfiguration();
   initSentry();
   logger.info("Initializing JobScout background worker service...");
 

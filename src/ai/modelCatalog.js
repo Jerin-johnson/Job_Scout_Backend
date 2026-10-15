@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { getLLMProvider, listLLMProviders } from "./providers/index.js";
+import { effectiveDataPolicy } from "../config/aiStartupValidation.js";
 
 export const AUTO_CHAT_MODEL_ID = "auto";
 
@@ -20,7 +21,9 @@ export function listSelectableChatModels() {
         description,
         access,
         tier,
-      })),
+        dataPolicyClass: effectiveDataPolicy(provider.id),
+      }))
+      .filter((model) => env.NODE_ENV !== "production" || !env.AI_BLOCK_UNPAID_PERSONAL_DATA || model.dataPolicyClass === "paid_api"),
   );
 }
 
@@ -34,6 +37,7 @@ export function listChatModelOptions() {
       name: "Auto (recommended)",
       description: "JobScout selects a configured free-tier model for your question",
       access: "free_tier",
+      dataPolicyClass: "provider_tier_configured",
     },
     ...available,
   ];
