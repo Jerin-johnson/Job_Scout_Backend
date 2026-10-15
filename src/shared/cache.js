@@ -66,7 +66,8 @@ export const CacheKeys = {
   interviewSession: (userId, interviewId) => `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
   exactQuery: (sha256) => `${CACHE_NAMESPACE}exact:${sha256}`,
   jobDescription: (hash) => `${CACHE_NAMESPACE}jd:${hash}`,
-  embedding: (hash) => `${CACHE_NAMESPACE}emb:${hash}`,
+  embedding: (hash, provider = "legacy", model = "unknown", dimension = "unknown") =>
+    `${CACHE_NAMESPACE}emb:${provider}:${model}:${dimension}:${hash}`,
   company: (slug) => `${CACHE_NAMESPACE}co:${slug}`,
   resumeParse: (fileHash) => `${CACHE_NAMESPACE}rp:${fileHash}`,
   board: (userId, ver) => `${CACHE_NAMESPACE}board:${userId}:v${ver}`,

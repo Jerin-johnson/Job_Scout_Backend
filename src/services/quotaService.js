@@ -67,6 +67,14 @@ function getMonthKey(date = new Date()) {
 }
 
 export const quotaService = {
+  async assertAIEnabled() {
+    if (!env.AI_KILL_SWITCH) return true;
+    const err = new Error("AI services are temporarily unavailable. Please try again later.");
+    err.statusCode = 503;
+    err.code = "AI_KILL_SWITCH_ACTIVE";
+    throw err;
+  },
+
   async reserveInterviewSession(
     user,
     {
@@ -116,12 +124,7 @@ export const quotaService = {
    */
   async checkQuota(user, feature, { estimatedCostUsd = 0 } = {}) {
     // 1. Check Global AI Kill Switch
-    if (env.AI_KILL_SWITCH) {
-      const err = new Error("AI services are temporarily unavailable. Please try again later.");
-      err.statusCode = 503;
-      err.code = "AI_KILL_SWITCH_ACTIVE";
-      throw err;
-    }
+    await this.assertAIEnabled();
 
     requireQuotaStore();
 

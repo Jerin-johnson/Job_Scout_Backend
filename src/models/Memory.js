@@ -27,6 +27,12 @@ const MemorySchema = new mongoose.Schema(
       type: [Number],
       default: [],
     },
+    // Legacy vectors remain valid stored data but have unknown provenance.
+    embeddingMetadata: {
+      provider: { type: String, default: undefined },
+      model: { type: String, default: undefined },
+      dimension: { type: Number, default: undefined },
+    },
     importance: {
       type: Number,
       min: 1,

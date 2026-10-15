@@ -57,6 +57,12 @@ const JobSchema = new mongoose.Schema(
       type: [Number],
       default: [],
     },
+    // Missing metadata on pre-existing vectors means legacy/unknown; never infer it.
+    embeddingMetadata: {
+      provider: { type: String, default: undefined },
+      model: { type: String, default: undefined },
+      dimension: { type: Number, default: undefined },
+    },
     postedAt: {
       type: Date,
       default: Date.now,

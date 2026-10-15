@@ -18,7 +18,7 @@ export const jobIngestionService = {
   /**
    * Run full ingestion: fetch -> dedupe -> embedOnce -> bulkWrite
    */
-  async ingestAll() {
+  async ingestAll({ user } = {}) {
     const adapters = this.getAdapters();
     const allJobs = [];
 
@@ -32,6 +32,8 @@ export const jobIngestionService = {
     }
 
     if (allJobs.length === 0) return { ingested: 0, embedded: 0 };
+
+    const embeddingConfig = await embeddingService.assertAvailable({ user, feature: "match_jobs" });
 
     // 1. Deduplicate in-flight jobs by contentHash
     const uniqueMap = new Map();
@@ -54,17 +56,23 @@ export const jobIngestionService = {
       async (_, worker) => {
         for (let index = worker; index < uniqueJobs.length; index += 5) {
           const job = uniqueJobs[index];
-          const embKey = CacheKeys.embedding(job.contentHash);
-          let embedding = await get(embKey);
+          const embKey = CacheKeys.embedding(
+            job.contentHash,
+            embeddingConfig.provider,
+            embeddingConfig.model,
+            embeddingConfig.dimension,
+          );
+          let cached = await get(embKey);
 
-          if (!embedding) {
+          if (!cached) {
             const textToEmbed = `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.substring(0, 500)}`;
-            embedding = await embeddingService.getEmbedding(textToEmbed);
-            await set(embKey, embedding, TTL.EMBEDDING);
+            cached = await embeddingService.getEmbeddingWithMetadata(textToEmbed, { user, feature: "match_jobs" });
+            await set(embKey, cached, TTL.EMBEDDING);
             newEmbeddingsCount++;
           }
 
-          job.embedding = embedding;
+          job.embedding = cached.vector;
+          job.embeddingMetadata = cached.metadata;
         }
       },
     );

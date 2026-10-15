@@ -26,11 +26,13 @@ export const discoveryGraph = {
       throw new Error("Candidate profile is required before running discovery matching");
     }
 
+    await acceptQuota(user, "match_jobs", idempotencyKey || `discovery:${userId}:${Date.now()}`);
+
     // 2. Fetch all ingested jobs
     let jobs = await jobIngestionService.getAllJobs();
     if (jobs.length === 0) {
       // Trigger fresh ingestion if empty
-      const ingested = await jobIngestionService.ingestAll();
+      const ingested = await jobIngestionService.ingestAll({ user });
       jobs = ingested.jobs || [];
     }
 
@@ -38,18 +40,20 @@ export const discoveryGraph = {
       return { matches: [] };
     }
 
-    await acceptQuota(user, "match_jobs", idempotencyKey || `discovery:${userId}:${Date.now()}`);
-
     // 3. Build candidate profile embedding string
     const skillsList = (profile.skills || []).map((s) => s.name).join(", ");
     const rolesList = (profile.roles || []).map((r) => r.title).join(", ");
     const profileText = `Roles: ${rolesList}. Skills: ${skillsList}. Preferred: ${(profile.preferences?.targetRoles || []).join(", ")}`;
-    const profileEmbedding = await embeddingService.getEmbedding(profileText);
+    const { vector: profileEmbedding, metadata: profileEmbeddingMetadata } =
+      await embeddingService.getEmbeddingWithMetadata(profileText, { user, feature: "match_jobs" });
 
     // 4. Vector Match: Cosine similarity
     const vectorMatches = jobs.map((job) => {
       const sim =
-        job.embedding && job.embedding.length > 0
+        job.embedding && job.embedding.length > 0 &&
+          job.embeddingMetadata?.provider === profileEmbeddingMetadata.provider &&
+          job.embeddingMetadata?.model === profileEmbeddingMetadata.model &&
+          job.embeddingMetadata?.dimension === profileEmbeddingMetadata.dimension
           ? cosineSimilarity(profileEmbedding, job.embedding)
           : 0.5;
       return { job, similarity: sim };

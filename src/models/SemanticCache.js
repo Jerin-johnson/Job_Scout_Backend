@@ -20,6 +20,12 @@ const SemanticCacheSchema = new mongoose.Schema(
       type: [Number],
       default: [],
     },
+    // Absent on older cache rows; treat these vectors as legacy/unknown.
+    embeddingMetadata: {
+      provider: { type: String, default: undefined },
+      model: { type: String, default: undefined },
+      dimension: { type: Number, default: undefined },
+    },
     isGeneric: {
       type: Boolean,
       default: true,
