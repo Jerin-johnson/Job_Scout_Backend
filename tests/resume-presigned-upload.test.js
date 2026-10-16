@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { profileController } from "../src/controllers/profileController.js";
 import { profileRepository } from "../src/repositories/profileRepository.js";
+import { userRepository } from "../src/repositories/userRepository.js";
 import { storageService } from "../src/services/storageService.js";
 
 function mockResponse() {
@@ -21,6 +22,8 @@ function mockResponse() {
 
 test("presign creates a short-lived user-scoped key and signs only the validated content type", async () => {
   const original = storageService.createPresignedUpload;
+  const originalFindUser = userRepository.findById;
+  userRepository.findById = async () => ({ resumeAiConsent: { version: "resume-ai-processing-v1", acceptedAt: new Date() } });
   let signedInput;
   storageService.createPresignedUpload = async (input) => {
     signedInput = input;
@@ -50,6 +53,7 @@ test("presign creates a short-lived user-scoped key and signs only the validated
     assert.equal(res.body.data.uploadId.length, 36);
   } finally {
     storageService.createPresignedUpload = original;
+    userRepository.findById = originalFindUser;
   }
 });
 
@@ -76,6 +80,8 @@ test("presign rejects oversized files before requesting an S3 URL", async () => 
 });
 
 test("completing a previously processed upload is idempotent and scoped to the authenticated user", async () => {
+  const findUserOriginal = userRepository.findById;
+  userRepository.findById = async () => ({ resumeAiConsent: { version: "resume-ai-processing-v1", acceptedAt: new Date() } });
   const findExistingOriginal = profileRepository.findResumeByS3KeyAndUserId;
   const findProfileOriginal = profileRepository.findByUserId;
   const metadataOriginal = storageService.getObjectMetadata;
@@ -113,6 +119,7 @@ test("completing a previously processed upload is idempotent and scoped to the a
     });
     assert.equal(res.body.data.message, "Resume upload was already processed");
   } finally {
+    userRepository.findById = findUserOriginal;
     profileRepository.findResumeByS3KeyAndUserId = findExistingOriginal;
     profileRepository.findByUserId = findProfileOriginal;
     storageService.getObjectMetadata = metadataOriginal;

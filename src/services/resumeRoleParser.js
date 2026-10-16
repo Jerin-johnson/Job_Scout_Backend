@@ -139,15 +139,29 @@ function isCompanyLikeLine(line) {
 export function parseExperienceRoles(rawText) {
   const lines = findExperienceLines(rawText);
   if (!lines.length) return [];
+  const dateIndices = lines.map((line, index) => parseDateRange(line) ? index : -1).filter((index) => index >= 0);
+  const firstDate = dateIndices[0] ?? -1;
+  const firstBefore = firstDate >= 0 ? lines.slice(Math.max(0, firstDate - 4), firstDate) : [];
+  const firstNextDate = dateIndices[1] ?? lines.length;
+  const firstAfter = firstDate >= 0 ? lines.slice(firstDate + 1, Math.min(firstNextDate, firstDate + 5)) : [];
+  // PDF text extraction may put a date column before role details. Detect that
+  // layout once per experience section and associate each date with one block.
+  const datesPrecedeDetails = firstDate >= 0 &&
+    !(firstBefore.some(isRoleLine) && firstBefore.some(isEmployerLine)) &&
+    firstAfter.some(isRoleLine) && firstAfter.some(isEmployerLine);
   const roles = [];
   const seen = new Set();
 
   for (let index = 0; index < lines.length; index += 1) {
     const dates = parseDateRange(lines[index]);
     if (!dates) continue;
-    const before = lines.slice(Math.max(0, index - 4), index).filter(Boolean).reverse();
-    const after = lines.slice(index + 1, index + 4).filter(Boolean);
-    const nearby = [...before, ...after];
+    const datePosition = dateIndices.indexOf(index);
+    const previousDate = dateIndices[datePosition - 1] ?? -1;
+    const nextDate = dateIndices[datePosition + 1] ?? lines.length;
+    const lowerBound = datesPrecedeDetails ? index + 1 : Math.max(previousDate + 1, index - 4, 0);
+    const upperBound = datesPrecedeDetails ? Math.min(nextDate, index + 5) : index;
+    const segment = lines.slice(lowerBound, upperBound).filter(Boolean);
+    const nearby = datesPrecedeDetails ? segment : [...segment].reverse();
 
     let parsed = null;
     for (const line of nearby) {
@@ -157,12 +171,12 @@ export function parseExperienceRoles(rawText) {
 
     if (!parsed) {
       const title = nearby.find(isRoleLine);
-      const titleLineIndex = title ? lines.indexOf(title, Math.max(0, index - 4)) : -1;
+      const titleLineIndex = title ? lines.indexOf(title, lowerBound) : -1;
       const candidates = nearby.filter((line) => line !== title && !DATE_RANGE.test(line));
       const company = candidates.find(isEmployerLine) ||
         candidates.filter(isCompanyLikeLine).sort((left, right) => {
-          const leftIndex = lines.indexOf(left, Math.max(0, index - 4));
-          const rightIndex = lines.indexOf(right, Math.max(0, index - 4));
+          const leftIndex = lines.indexOf(left, lowerBound);
+          const rightIndex = lines.indexOf(right, lowerBound);
           return Math.abs(leftIndex - titleLineIndex) - Math.abs(rightIndex - titleLineIndex);
         })[0];
       if (title && company) parsed = { title, company };
@@ -190,6 +204,7 @@ export function parseExperienceRoles(rawText) {
   for (let index = 0; index < lines.length; index += 1) {
     const title = lines[index];
     if (!isRoleLine(title)) continue;
+    if (roles.some((role) => normalizeHeading(role.title) === normalizeHeading(title))) continue;
     const adjacent = lines.slice(Math.max(0, index - 2), Math.min(lines.length, index + 3))
       .filter((line) => line && line !== title && !DATE_RANGE.test(line) && !SINGLE_DATE.test(line) && !isRoleLine(line));
     const company = adjacent.find(isEmployerLine) || adjacent.filter(isCompanyLikeLine)[0];

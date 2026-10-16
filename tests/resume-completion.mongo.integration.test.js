@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { Profile } from "../src/models/Profile.js";
 import { Resume } from "../src/models/Resume.js";
+import { User } from "../src/models/User.js";
 import { profileController } from "../src/controllers/profileController.js";
 import { storageService } from "../src/services/storageService.js";
 import { textExtractionService } from "../src/services/textExtractionService.js";
@@ -30,6 +31,10 @@ test("resume completion retry is idempotent and another user's upload ID returns
   await Promise.all([Resume.syncIndexes(), Profile.syncIndexes()]);
   const userA = new mongoose.Types.ObjectId();
   const userB = new mongoose.Types.ObjectId();
+  await User.create([
+    { _id: userA, email: "resume-a@example.test", resumeAiConsent: { acceptedAt: new Date(), version: "resume-ai-processing-v1" } },
+    { _id: userB, email: "resume-b@example.test", resumeAiConsent: { acceptedAt: new Date(), version: "resume-ai-processing-v1" } },
+  ]);
   await profileRepository.upsertProfile(userB, {
     roles: [{ factId: "role-grounded-before", title: "Staff Nurse", company: "North Hospital", achievements: [] }],
     skills: [],
