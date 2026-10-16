@@ -8,7 +8,7 @@ const ROLE_CATALOG = [
   { canonical: "Staff Nurse", aliases: ["staff nurse", "registered nurse", "nurse", "nursing", "gnm", "icu nurse"] },
   { canonical: "Accountant", aliases: ["accountant", "accounting", "bookkeeper"] },
   { canonical: "Teacher", aliases: ["teacher", "teaching", "educator", "tutor"] },
-  { canonical: "Data Analyst", aliases: ["data analyst", "business analyst", "analytics"] },
+  { canonical: "Data Analyst", aliases: ["data analyst", "analytics analyst", "reporting analyst"] },
   ...ROLE_SUGGESTIONS.map(({ label, aliases }) => ({ canonical: label, aliases })),
 ];
 

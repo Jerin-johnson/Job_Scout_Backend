@@ -26,6 +26,8 @@
     "eval:match-versions": "node scripts/evaluate-match-versions.js",
     "jobs:features:report": "node scripts/backfill-job-features.js",
     "jobs:features:apply": "node scripts/backfill-job-features.js --apply",
+    "jobs:occupation:report": "node scripts/backfill-job-occupations.js",
+    "jobs:occupation:apply": "node scripts/backfill-job-occupations.js --apply",
     "resumes:cleanup-report": "node scripts/cleanup-orphan-resumes.js",
     "resumes:roles:report": "node scripts/resume-role-report.js",
     "career-profile:migration:report": "node scripts/career-profile-migration-report.js",

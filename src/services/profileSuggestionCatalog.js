@@ -1,18 +1,38 @@
 export const ROLE_SUGGESTIONS = Object.freeze([
-  { code: "software-engineer", label: "Software Engineer", aliases: ["software engineer", "software developer", "backend engineer", "frontend engineer", "full stack developer", "web developer", "programmer"] },
-  { code: "staff-nurse", label: "Staff Nurse", aliases: ["staff nurse", "registered nurse", "rn", "nurse", "nursing"] },
-  { code: "gnm-nurse", label: "GNM Nurse", aliases: ["gnm", "general nursing and midwifery"] },
-  { code: "icu-nurse", label: "ICU Nurse", aliases: ["icu nurse", "critical care nurse", "ward nurse"] },
-  { code: "teacher", label: "Teacher", aliases: ["teacher", "school teacher", "educator", "tutor", "lecturer"] },
-  { code: "accountant", label: "Accountant", aliases: ["accountant", "accounts executive", "bookkeeper", "auditor"] },
-  { code: "sales-executive", label: "Sales Executive", aliases: ["sales executive", "sales representative", "account executive", "business development executive"] },
-  { code: "delivery-associate", label: "Delivery Associate", aliases: ["delivery", "delivery associate", "courier", "delivery driver"] },
-  { code: "data-analyst", label: "Data Analyst", aliases: ["data analyst", "business analyst"] },
-  { code: "customer-support", label: "Customer Support", aliases: ["customer support", "customer service", "support representative"] },
-  { code: "nursing-assistant", label: "Nursing Assistant", aliases: ["nursing assistant", "healthcare assistant", "patient care assistant"] },
-  { code: "pharmacist", label: "Pharmacist", aliases: ["pharmacist", "clinical pharmacist"] },
-  { code: "physiotherapist", label: "Physiotherapist", aliases: ["physiotherapist", "physical therapist"] },
-  { code: "lab-technologist", label: "Lab Technologist", aliases: ["lab technologist", "medical laboratory technician", "lab technician"] },
+  { code: "software-engineer", family: "software", label: "Software Engineer", aliases: ["software engineer", "software developer", "software engineering", "software deployment engineer", "backend engineer", "backend developer", "front end engineer", "frontend engineer", "full stack developer", "web developer", "programmer", "application developer", "systems engineer", "postgres engineer", "c++ engineer", "product engineer", "technical lead engineering", "chief technology officer", "field cto"] },
+  { code: "devops-engineer", family: "software", label: "DevOps Engineer", aliases: ["devops engineer", "site reliability engineer", "sre", "platform engineer", "cloud engineer", "solutions architect", "partner solutions architect"] },
+  { code: "data-analyst", family: "data", label: "Data Analyst", aliases: ["data analyst", "analytics analyst", "reporting analyst"] },
+  { code: "business-analyst", family: "business", label: "Business Analyst", aliases: ["business analyst", "business systems analyst", "requirements analyst"] },
+  { code: "data-engineer", family: "data", label: "Data Engineer", aliases: ["data engineer", "staff data engineer", "data scientist", "data science", "analytics engineer"] },
+  { code: "product-designer", family: "design", label: "Product Designer", aliases: ["product designer", "product design director", "architectural designer", "ux designer", "ui designer", "user experience designer", "graphic designer"] },
+  { code: "product-manager", family: "product", label: "Product Manager", aliases: ["product manager", "product owner"] },
+  { code: "project-manager", family: "operations", label: "Project Manager", aliases: ["project manager", "program manager", "delivery manager", "project scheduler"] },
+  { code: "marketing-executive", family: "marketing", label: "Marketing Executive", aliases: ["marketing executive", "digital marketer", "digital marketing", "marketing technology", "marketing manager", "marketing analyst", "marketing lead", "content lead", "content marketer", "performance marketing", "seo specialist"] },
+  { code: "hr-recruiter", family: "human-resources", label: "HR / Recruiter", aliases: ["hr executive", "human resources executive", "recruiter", "talent acquisition specialist", "hr manager", "regional hr manager", "people operations", "hr technology"] },
+  { code: "staff-nurse", family: "nursing", label: "Staff Nurse", aliases: ["staff nurse", "registered nurse", "rn", "nurse", "nursing"] },
+  { code: "gnm-nurse", family: "nursing", label: "GNM Nurse", aliases: ["gnm", "general nursing and midwifery", "general nurse midwife"] },
+  { code: "icu-nurse", family: "nursing", label: "ICU Nurse", aliases: ["icu nurse", "critical care nurse", "intensive care nurse", "ward nurse"] },
+  { code: "nursing-officer", family: "nursing", label: "Nursing Officer", aliases: ["nursing officer", "nurse officer", "clinical nurse"] },
+  { code: "nursing-assistant", family: "nursing", label: "Nursing Assistant", aliases: ["nursing assistant", "healthcare assistant", "patient care assistant", "caregiver"] },
+  { code: "teacher", family: "education", label: "Teacher", aliases: ["teacher", "school teacher", "educator", "tutor", "lecturer", "instructor", "faculty"] },
+  { code: "accountant", family: "accounting-finance", label: "Accountant", aliases: ["accountant", "accounting", "accounts executive", "bookkeeper", "auditor", "payroll accountant"] },
+  { code: "sales-executive", family: "sales", label: "Sales Executive", aliases: ["sales executive", "sales representative", "account executive", "business development", "business development executive", "business development manager", "business development director", "sales manager", "sales engineer", "inside sales", "sales associate"] },
+  { code: "delivery-executive", family: "delivery-logistics", label: "Delivery Executive", aliases: ["delivery", "delivery executive", "delivery associate", "courier", "delivery driver", "rider", "last mile delivery"] },
+  { code: "customer-support", family: "customer-support", label: "Customer Support", aliases: ["customer support", "customer service", "customer success", "customer success manager", "client success", "client success manager", "support representative", "customer care executive", "call center agent", "contact centre agent"] },
+  { code: "electrician", family: "electrical-trades", label: "Electrician", aliases: ["electrician", "electrical technician", "maintenance electrician", "wireman"] },
+  { code: "cook-chef", family: "food-hospitality", label: "Cook / Chef", aliases: ["cook", "chef", "line cook", "commis chef", "head chef", "kitchen assistant"] },
+  { code: "pharmacist", family: "healthcare", label: "Pharmacist", aliases: ["pharmacist", "clinical pharmacist", "pharmacy technician"] },
+  { code: "physiotherapist", family: "healthcare", label: "Physiotherapist", aliases: ["physiotherapist", "physical therapist", "physio"] },
+  { code: "lab-technologist", family: "healthcare", label: "Lab Technologist", aliases: ["lab technologist", "medical laboratory technician", "lab technician", "medical lab scientist"] },
+  { code: "civil-engineer", family: "engineering", label: "Civil Engineer", aliases: ["civil engineer", "site engineer", "structural engineer", "construction engineer"] },
+  { code: "operations-associate", family: "operations", label: "Operations Associate", aliases: ["operations associate", "operations executive", "business operations analyst", "operations engineer", "revenue operations", "sales operations", "flight operations"] },
+  { code: "warehouse-associate", family: "delivery-logistics", label: "Warehouse Associate", aliases: ["warehouse associate", "warehouse worker", "picker packer", "inventory associate"] },
+  { code: "driver", family: "transport", label: "Driver", aliases: ["driver", "chauffeur", "commercial driver", "truck driver"] },
+  { code: "housekeeping", family: "facilities", label: "Housekeeping Associate", aliases: ["housekeeping", "housekeeper", "cleaner", "janitor"] },
+  { code: "receptionist", family: "administration", label: "Receptionist", aliases: ["receptionist", "front desk executive", "front office assistant"] },
+  { code: "administrative-assistant", family: "administration", label: "Administrative Assistant", aliases: ["administrative assistant", "admin assistant", "office assistant", "office administrator"] },
+  { code: "security-guard", family: "security", label: "Security Guard", aliases: ["security guard", "security officer", "security supervisor"] },
+  { code: "construction-worker", family: "construction-trades", label: "Construction Worker", aliases: ["construction worker", "mason", "carpenter", "plumber", "welder"] },
 ]);
 
 export const PLACE_CATALOG_VERSION = "in-place-aliases-v2";
@@ -25,6 +45,7 @@ export const ISO_SUBDIVISION_CODES = Object.freeze(new Set([
 export const PLACE_SPECIAL_OPTIONS = Object.freeze([
   { code: "remote", label: "Remote", type: "option" },
   { code: "anywhere-in-india", label: "Anywhere in India", type: "option", countryCode: "IN" },
+  { code: "anywhere-in-world", label: "Anywhere in the world", type: "option" },
 ]);
 export const COUNTRY_ALIASES = Object.freeze([
   { code: "AE", label: "United Arab Emirates", aliases: ["UAE"] },
@@ -132,7 +153,20 @@ export function normalizeSuggestionQuery(value = "") {
 
 export function suggestRoles(query) {
   const q = normalizeSuggestionQuery(query);
-  return ROLE_SUGGESTIONS.filter((role) => [role.label, ...role.aliases].some((item) => normalizeSuggestionQuery(item).includes(q))).slice(0, 12);
+  const direct = ROLE_SUGGESTIONS.filter((role) => [role.label, ...role.aliases].some((item) => normalizeSuggestionQuery(item).includes(q)));
+  if (direct.length || q.length < 5) return direct.slice(0, 12);
+  const distance = (left, right) => {
+    let row = Array.from({ length: right.length + 1 }, (_, index) => index);
+    for (let i = 1; i <= left.length; i += 1) {
+      const next = [i];
+      for (let j = 1; j <= right.length; j += 1) next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1));
+      row = next;
+    }
+    return row[right.length];
+  };
+  return ROLE_SUGGESTIONS.map((role) => ({ role, distance: Math.min(...[role.label, ...role.aliases].map((item) => distance(q, normalizeSuggestionQuery(item)))) }))
+    .filter((item) => item.distance <= Math.max(1, Math.floor(q.length * 0.18)))
+    .sort((a, b) => a.distance - b.distance).slice(0, 8).map(({ role }) => role);
 }
 
 export function suggestPlaces(query) {

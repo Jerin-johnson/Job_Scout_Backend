@@ -10,6 +10,7 @@ import { logger } from "../../shared/utils/logger.js";
 import { SOURCE_POLICIES, isSourcePolicyComplete } from "./sourcePolicies.js";
 import { extractJobFeatures, canonicalSkill } from "./matching.js";
 import { normalizeRoleForMatching } from "./roleNormalization.js";
+import { classifyJobOccupation } from "./occupationClassification.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
@@ -60,6 +61,7 @@ function cleanNormalizedJob(job, source) {
     occupationCodes: Array.isArray(job.occupationCodes)
       ? job.occupationCodes.slice(0, 20).map(String)
       : [],
+    sourceCategory: String(job.sourceCategory || job.category || "").slice(0, 160),
   };
   const contentHash = (source.adapter || null)?.generateContentHash?.(normalized);
   normalized.contentHash = contentHash || job.contentHash;
@@ -73,7 +75,7 @@ function cleanNormalizedJob(job, source) {
   });
   const now = new Date();
   normalized.features = extractJobFeatures(normalized);
-  normalized.featuresVersion = normalized.features.version;
+  Object.assign(normalized, classifyJobOccupation(normalized));
   const postedAt =
     normalized.postedAt instanceof Date && !Number.isNaN(normalized.postedAt.getTime())
       ? normalized.postedAt

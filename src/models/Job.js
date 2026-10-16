@@ -44,6 +44,11 @@ const JobSchema = new mongoose.Schema(
       workAuthorization: [{ type: String }],
     },
     occupationCodes: [{ type: String, index: true }],
+    sourceCategory: { type: String, default: "", maxlength: 160 },
+    occupation: { type: String, default: "unclassified", index: true },
+    occupationConfidence: { type: Number, default: 0, min: 0, max: 1 },
+    occupationFeaturesVersion: { type: Number, default: 0, index: true },
+    normalizedTitle: { type: String, default: "", index: true },
     // Deterministic rules-only features; absent legacy values are computed at read time.
     features: { type: mongoose.Schema.Types.Mixed, default: undefined },
     featuresVersion: { type: Number, default: 0, index: true },
@@ -148,6 +153,7 @@ JobSchema.index(
   { name: "job_candidate_occupation" },
 );
 JobSchema.index({ sourceBoard: 1, status: 1, expiresAt: 1 }, { name: "job_source_coverage" });
+JobSchema.index({ occupation: 1, status: 1, expiresAt: 1 }, { name: "job_candidate_occupation_family" });
 JobSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 JobSchema.index({ "features.skills": 1, status: 1, expiresAt: 1 }, { name: "job_features_skills_active" });
 JobSchema.index({ "features.titleTokens": 1, status: 1, expiresAt: 1 }, { name: "job_features_title_active" });
