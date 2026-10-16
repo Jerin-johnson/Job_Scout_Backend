@@ -860,30 +860,26 @@ export const jobIngestionService = {
         ...(profile?.preferences?.targetRoles || []),
         ...(profile?.roles || []).map((role) => role.title),
       ];
-      const lexicalTerms = [...new Set([
-        ...(profile?.skills || []).map((skill) => canonicalSkill(skill.name)),
-        ...roleTerms.flatMap((role) => String(normalizeRoleForMatching(role)).toLowerCase().split(/[^\p{L}\p{N}.+#]+/u)),
-      ].filter((term) => term && term.length > 1))].slice(0, 64);
+      const lexicalTerms = [
+        ...new Set(
+          [
+            ...(profile?.skills || []).map((skill) => canonicalSkill(skill.name)),
+            ...roleTerms.flatMap((role) =>
+              String(normalizeRoleForMatching(role))
+                .toLowerCase()
+                .split(/[^\p{L}\p{N}.+#]+/u),
+            ),
+          ].filter((term) => term && term.length > 1),
+        ),
+      ].slice(0, 64);
       const safeSelect =
         "title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation occupationCodes embedding embeddingMetadata contentHash features featuresVersion";
-      const lexicalClauses = lexicalTerms.length ? [{
-        $or: [
-          { "features.skills": { $in: lexicalTerms } },
-          { "features.titleTokens": { $in: lexicalTerms } },
-          { tags: { $in: lexicalTerms } },
-          { requirements: { $in: lexicalTerms } },
-        ],
-      }] : [];
       const base = { ...filter };
       const existingAnd = Array.isArray(base.$and) ? base.$and : [];
       delete base.$and;
       const existingOr = base.$or;
       delete base.$or;
-      const commonAnd = [
-        ...existingAnd,
-        ...(existingOr ? [{ $or: existingOr }] : []),
-      ];
-      const lexicalQuery = { ...base, ...(commonAnd.length || lexicalClauses.length ? { $and: [...commonAnd, ...lexicalClauses] } : {}) };
+      const commonAnd = [...existingAnd, ...(existingOr ? [{ $or: existingOr }] : [])];
       const recentQuery = { ...base, ...(commonAnd.length ? { $and: commonAnd } : {}) };
       const activeCatalogQuery = {
         status: "active",
@@ -894,37 +890,88 @@ export const jobIngestionService = {
         Job.countDocuments(activeCatalogQuery),
         Job.countDocuments(recentQuery),
       ]);
-      const lexical = lexicalTerms.length
-        ? await Job.aggregate([
-            { $match: lexicalQuery },
-            {
-              $addFields: {
-                _lexicalRelevance: {
-                  $add: [
-                    { $multiply: [{ $size: { $setIntersection: [{ $ifNull: ["$features.titleTokens", []] }, lexicalTerms] } }, 4] },
-                    { $multiply: [{ $size: { $setIntersection: [{ $ifNull: ["$features.skills", []] }, lexicalTerms] } }, 2] },
-                    { $size: { $setIntersection: [{ $ifNull: ["$tags", []] }, lexicalTerms] } },
-                    { $size: { $setIntersection: [{ $ifNull: ["$requirements", []] }, lexicalTerms] } },
-                  ],
-                },
-              },
-            },
-            { $sort: { _lexicalRelevance: -1, postedDateKnown: -1, postedAt: -1, _id: 1 } },
-            { $limit: safeLimit },
-            {
-              $project: {
-                ...Object.fromEntries(safeSelect.split(/\s+/).map((field) => [field, 1])),
-              },
-            },
-          ]).exec()
-        : [];
+      // Fetch a bounded superset via the separate multikey indexes. The old
+      // aggregation scored and sorted every lexical match before applying the
+      // candidate cap, which became a catalog-wide scan for broad skill lists.
+      const normalizedRoleTerms = [
+        ...new Set(
+          [...(preferences.targetRoles || []), ...(profile?.roles || []).map((role) => role.title)]
+            .flatMap((role) =>
+              String(normalizeRoleForMatching(role))
+                .toLowerCase()
+                .split(/[^\p{L}\p{N}.+#]+/u),
+            )
+            .filter((term) => term.length > 1),
+        ),
+      ].slice(0, 32);
+      const occupationTerms = (preferences.occupationCodes || []).slice(0, 20);
+      const skillTerms = [
+        ...new Set(
+          (profile?.skills || []).map((skill) => canonicalSkill(skill.name)).filter(Boolean),
+        ),
+      ].slice(0, 64);
+      const lexicalFetchLimit = safeLimit;
+      const lexicalQueries = [];
+      if (normalizedRoleTerms.length || occupationTerms.length) {
+        const roleOr = [];
+        if (normalizedRoleTerms.length)
+          roleOr.push({ "features.titleTokens": { $in: normalizedRoleTerms } });
+        if (occupationTerms.length) roleOr.push({ occupationCodes: { $in: occupationTerms } });
+        lexicalQueries.push(
+          Job.find({
+            ...base,
+            $and: [...commonAnd, { $or: roleOr }],
+          })
+            .limit(lexicalFetchLimit)
+            .select(safeSelect)
+            .lean(),
+        );
+      }
+      if (skillTerms.length) {
+        lexicalQueries.push(
+          Job.find({
+            ...base,
+            ...(commonAnd.length ? { $and: commonAnd } : {}),
+            "features.skills": { $in: skillTerms },
+          })
+            .limit(lexicalFetchLimit)
+            .select(safeSelect)
+            .lean(),
+        );
+      }
+      const lexicalBatches = await Promise.all(lexicalQueries);
+      const lexicalPool = new Map(lexicalBatches.flat().map((job) => [String(job._id), job]));
+      const relevance = (job) => {
+        const titleTokens = new Set(job.features?.titleTokens || []);
+        const skills = new Set(job.features?.skills || []);
+        const tags = new Set(job.tags || []);
+        const requirements = new Set(job.requirements || []);
+        return (
+          normalizedRoleTerms.filter((term) => titleTokens.has(term)).length * 4 +
+          skillTerms.filter((term) => skills.has(term)).length * 2 +
+          lexicalTerms.filter((term) => tags.has(term) || requirements.has(term)).length
+        );
+      };
+      const lexical = [...lexicalPool.values()]
+        .map((job) => ({ job, score: relevance(job) }))
+        .sort(
+          (a, b) =>
+            b.score - a.score ||
+            Number(b.job.postedDateKnown) - Number(a.job.postedDateKnown) ||
+            new Date(b.job.postedAt || 0) - new Date(a.job.postedAt || 0) ||
+            String(a.job._id).localeCompare(String(b.job._id)),
+        )
+        .slice(0, safeLimit)
+        .map(({ job }) => job);
       const remaining = Math.max(0, safeLimit - lexical.length);
       const recent = remaining
         ? await Job.find({
             ...recentQuery,
-            ...(lexical.length ? { _id: { ...(recentQuery._id || {}), $nin: lexical.map((job) => job._id) } } : {}),
+            ...(lexical.length
+              ? { _id: { ...(recentQuery._id || {}), $nin: lexical.map((job) => job._id) } }
+              : {}),
           })
-            .sort({ postedDateKnown: -1, postedAt: -1, _id: 1 })
+            .sort({ postedAt: -1, _id: 1 })
             .limit(remaining)
             .select(safeSelect)
             .lean()
@@ -934,7 +981,12 @@ export const jobIngestionService = {
       const result = [...combined.values()].slice(0, safeLimit);
       Object.defineProperty(result, "retrievalStats", {
         enumerable: false,
-        value: { activeCatalogCount, eligibleCount, candidateCap: safeLimit, lexicalCandidateCount: lexical.length },
+        value: {
+          activeCatalogCount,
+          eligibleCount,
+          candidateCap: safeLimit,
+          lexicalCandidateCount: lexical.length,
+        },
       });
       return result;
     }
@@ -959,7 +1011,12 @@ export const jobIngestionService = {
     const result = available.slice(0, safeLimit);
     Object.defineProperty(result, "retrievalStats", {
       enumerable: false,
-      value: { activeCatalogCount: available.length, eligibleCount: available.length, candidateCap: safeLimit, lexicalCandidateCount: 0 },
+      value: {
+        activeCatalogCount: available.length,
+        eligibleCount: available.length,
+        candidateCap: safeLimit,
+        lexicalCandidateCount: 0,
+      },
     });
     return result;
   },
@@ -1050,7 +1107,11 @@ export const jobIngestionService = {
         if (remoteType && job.remoteType !== remoteType) return false;
         return true;
       })
-      .sort((a, b) => Number(Boolean(b.postedDateKnown)) - Number(Boolean(a.postedDateKnown)) || new Date(b.postedAt || 0) - new Date(a.postedAt || 0));
+      .sort(
+        (a, b) =>
+          Number(Boolean(b.postedDateKnown)) - Number(Boolean(a.postedDateKnown)) ||
+          new Date(b.postedAt || 0) - new Date(a.postedAt || 0),
+      );
     return {
       jobs: jobs.slice(skip, skip + limit).map(({ embedding: _embedding, ...job }) => ({
         ...job,

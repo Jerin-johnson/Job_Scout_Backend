@@ -1,10 +1,10 @@
 # Jobs discovery and matching — verified report
 
-Verified against backend commit `a519e3673d2e02c2ab556d71296db57167544713` on 2026-10-16. The development MongoDB inspection was read-only; no profile text, identifiers, or job descriptions are included.
+Measured on 2026-10-16 against backend commit `d089af6` plus the uncommitted Part A retrieval changes in this review. The development MongoDB inspection emitted aggregate counts and query plans only; no profile text, identifiers, or job descriptions are included.
 
 ## Real profile diagnostics
 
-The sampled dev profile contains 43 skills, 0 role facts, 1 education fact, 1 target-role preference, 1 preferred-location string, and 0 preferred country codes. Fields read by matching are `skills[].name`, `roles[].title`, `roles[].years/startDate/endDate/isCurrent`, `preferences.targetRoles[]`, `preferences.preferredLocations[]`, `preferences.preferredCountryCodes[]`, `preferences.remotePreference`, and `preferences.minimumSalaryUsd`.
+The sampled dev profile contains 43 skills, 0 role facts, 1 education fact, 1 target-role preference, 1 preferred-location string, and 0 preferred country codes. Fields read by matching are `skills[].name`, `roles[].title`, optional legacy `roles[].years`, `roles[].startDate/endDate/isCurrent`, `preferences.targetRoles[]`, `preferences.preferredLocations[]`, `preferences.preferredCountryCodes[]`, `preferences.remotePreference`, and `preferences.minimumSalaryUsd`. `years` is read defensively but is not declared in the current Profile role schema; matching can derive it from role dates.
 
 The enabled active catalog contains 848 unexpired jobs: Jobicy 744, Remote OK 99, Remotive 5. The occupation heuristic classified 800 as other/uncategorized, 17 as data analyst, 12 as accountant, 12 as backend, 5 as frontend, and 2 as teacher. Nursing did not appear in this catalog sample. The class counts sum to 848.
 
@@ -38,11 +38,67 @@ No candidate clears the Fair threshold of 50. The evidence points to catalog/pro
 |    9 | Staff DevOps Engineer                                                | Jobicy    |    44 | .50 / 0 / .55 / .70 / .60 / .35                             |
 |   10 | Math Content Teacher - Mandarin Speaking Required                    | Jobicy    |    41 | 0 / .85 / .55 / .70 / .60 / .35                             |
 
-## Why 852 became 400
+## Indexed candidate retrieval
 
-852 was an earlier catalog observation that included 4 mock-public-board records. That mock source is not in the enabled source list now, so the current enabled active catalog is 848 (744 + 99 + 5). The retrieval cap is 400 scored candidates, applied after active/expiry/source and profile eligibility constraints; it is not the count remaining after status/date filtering. Of those 400, 20 ranked lexically and 380 filled remaining slots by recency. The query used IXSCAN and FETCH in the development explain plan: 849 keys examined, 848 documents examined, 20 lexical matches returned before the recency fallback. The aggregation computes a small relevance expression and sorts the matched rows; at this catalog size Mongo examined nearly all active documents. Re-run explain as catalog size grows.
+The current catalog is 848 active and unexpired listings (744 Jobicy, 99 Remote OK, 5 Remotive); the earlier 852 count included four mock-board records. The query first applies active status, expiry, approved/enabled source, and any structured work-mode/country/salary constraints. It then runs two bounded multikey lookups:
 
-The Mongo integration fixture has 421 jobs: one older strongly relevant frontend job plus 420 newer partial-match jobs. Retrieval returns at most 400 and retains the older relevant job ahead of the irrelevant newer records.
+```text
+role query:  features.titleTokens IN normalized role tokens OR occupationCodes IN profile occupation codes
+skill query: features.skills IN canonical profile skills
+each lexical branch: limit 400, no per-branch sort; merge/dedupe and relevance-sort in memory, then cap at 400
+fallback: remaining candidates from job_candidate_recent_feed ordered by postedAt descending and _id ascending
+```
+
+The old aggregation examined 848 documents and 849 keys to return 20 lexical rows before the 380-row fallback. Its `IXSCAN` still had to fetch and score nearly the whole 848-job catalog. After the change, the real catalog explain reported:
+
+| Query branch             | Winning plan                                                       | Returned | Documents examined | Keys examined |
+| ------------------------ | ------------------------------------------------------------------ | -------: | -----------------: | ------------: |
+| Role/title/occupation    | `LIMIT → PROJECTION_SIMPLE → FETCH → IXSCAN (job_candidate_title_recent)` |        1 |                  1 |             3 |
+| Skills                   | `LIMIT → PROJECTION_SIMPLE → FETCH → IXSCAN (job_candidate_skills_recent)` |       19 |                 22 |            72 |
+| Recent fallback          | `LIMIT → PROJECTION_SIMPLE → FETCH → SORT_MERGE → 3 IXSCAN (job_candidate_recent_feed)` |      380 |                380 |           387 |
+| **Branch totals**        | Three separate explain executions                                 |  **400** |            **403** |       **462** |
+
+The earlier version of this report incorrectly said the fallback examined zero documents and summed only the lexical branches. That was wrong: fallback projects full job fields that are not covered by `job_candidate_recent_feed`, so MongoDB fetches 380 documents. The 400 final rows are produced by 20 relevance-ranked lexical rows plus 380 recency rows; the explain counters are per independent query and sum to 403 documents examined and 462 keys examined. This is 1.01 examined documents per returned candidate, within the 3x target. The three fallback index scans returned 375, 6 and 1 rows, examined 378, 7 and 2 keys, then `SORT_MERGE` combined them before the FETCH and projection. No query values or job IDs are included here because query terms derive from a user's profile.
+
+Winning plan and execution-stage outline for each branch (MongoDB 8 `executionStats`, profile values omitted):
+
+The redacted full MongoDB explain trees, including winning/rejected plans and execution stages, are in [JOB_MATCHING_EXPLAIN.json](./JOB_MATCHING_EXPLAIN.json). Profile-derived literals, job IDs, filters, and index bounds are removed; execution counters and plan structure are retained.
+
+```text
+role/title/occupation
+winningPlan: LIMIT → PROJECTION_SIMPLE → FETCH → IXSCAN(job_candidate_title_recent)
+executionStats: nReturned=1, totalDocsExamined=1, totalKeysExamined=3, executionTimeMillis=3
+executionStages: LIMIT(1) → PROJECTION_SIMPLE(1) → FETCH(docsExamined=1) → IXSCAN(nReturned=1, keysExamined=3)
+
+skills
+winningPlan: LIMIT → PROJECTION_SIMPLE → FETCH → IXSCAN(job_candidate_skills_recent)
+executionStats: nReturned=19, totalDocsExamined=22, totalKeysExamined=72, executionTimeMillis=6
+executionStages: LIMIT(19) → PROJECTION_SIMPLE(19) → FETCH(docsExamined=22) → IXSCAN(nReturned=22, keysExamined=72)
+
+recent fallback
+winningPlan: LIMIT → PROJECTION_SIMPLE → FETCH → SORT_MERGE → 3 × IXSCAN(job_candidate_recent_feed)
+executionStats: nReturned=380, totalDocsExamined=380, totalKeysExamined=387, executionTimeMillis=38
+executionStages: LIMIT(380) → PROJECTION_SIMPLE(380) → FETCH(docsExamined=380)
+  → SORT_MERGE(postedAt DESC, _id ASC)
+    → IXSCAN(nReturned=375, keysExamined=378)
+    → IXSCAN(nReturned=6, keysExamined=7)
+    → IXSCAN(nReturned=1, keysExamined=2)
+```
+
+A warm end-to-end `getCandidateJobs` call took 604 ms locally, including catalog counts and candidate retrieval. Timings are one local sample, not a production latency guarantee.
+
+The synthetic 100k-job fixture used 90k broad skill matches and 1k title matches:
+
+| Plan                              |                               Result rows |   Documents examined | Keys examined |
+| --------------------------------- | ----------------------------------------: | -------------------: | ------------: |
+| Old score/sort pipeline           | 400 after sort (91k matched before limit) |              100,000 |       200,000 |
+| New bounded skill + title lookups |                         400 candidate cap | 800 (400 per branch) |           800 |
+
+Both new branches used their named multikey indexes. A warm in-memory retrieval sample took 587 ms. The benchmark confirms bounded documents examined at 100k for this broad-match fixture; it does not model every possible term distribution or database hardware.
+
+Added indexes are declared in `src/models/Job.js` and included in the existing index/migration scripts: skills, title tokens, occupation codes, and eligible country codes, each separated because MongoDB cannot compound multiple array fields in one index. Existing recent/location indexes remain for status, source, country and posted-date fallback paths. No catalog documents or embeddings were changed by the index work.
+
+The Mongo integration fixture has 421 jobs: one older strongly relevant frontend job plus 420 newer partial-match jobs. Retrieval returns at most 400 and retains the older relevant job ahead of the irrelevant newer records because the precise title lookup is scored in the bounded union before recency fallback.
 
 ## Score behavior and product feedback
 
@@ -65,7 +121,7 @@ List and search queries exclude `embedding` and `rawPayload`; detail/recommendat
 
 ## Source repair status
 
-Remotive is enabled/approved, with a 6-hour interval and daily request quota of 4. Its last successful run was `2026-10-16T09:31:01Z`; next eligible time by the source run interval is `2026-10-16T15:31:00.620Z`. The worker registers approved enabled sources as BullMQ repeat jobs (`every: intervalMs`), but this code does not guarantee a same-second invocation at the eligibility timestamp: the next repeat tick depends on when the worker registered the schedule, and requires Redis plus a running worker. Scheduler runtime state was not verified here. A fixture normalization test passed. The live catalog still has 5 Remotive active records (5 total); the referenced 9 missing job identities were not supplied, so restoration cannot be verified and no premature live ingestion was forced.
+Remotive is enabled/approved, with a 6-hour interval and daily request quota of 4. Its registry showed `lastRunAt=2026-10-16T09:31:00.620Z`, `lastSuccessAt=2026-10-16T09:31:01.073Z`, and cumulative metrics of 14 fetched/created, 0 updated/duplicate/error. At the read time, 5 Remotive records remained active and present. The source run guard therefore next permits an attempt at `2026-10-16T15:31:00.620Z` (21:01 IST). `src/worker.js` registers `ingest:remotive` with BullMQ `repeat.every=21600000` and job ID `scheduled-remotive` after Redis is ready; a repeat tick is not guaranteed to fire at the exact eligibility second, and the registered Redis schedule was not inspected. The adapter fixture test passes. The nine expected identities were not provided; the difference between cumulative-created count and current records does not identify which records are missing or why. No live ingestion was triggered before the eligible time, and restoration of those nine identities remains unverified.
 
 ## Repository strategy (proposal only)
 

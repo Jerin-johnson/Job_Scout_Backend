@@ -151,5 +151,23 @@ JobSchema.index({ sourceBoard: 1, status: 1, expiresAt: 1 }, { name: "job_source
 JobSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 JobSchema.index({ "features.skills": 1, status: 1, expiresAt: 1 }, { name: "job_features_skills_active" });
 JobSchema.index({ "features.titleTokens": 1, status: 1, expiresAt: 1 }, { name: "job_features_title_active" });
+// Bounded discovery queries use status + one multikey field. Separate indexes
+// are required because MongoDB cannot compound-index multiple array fields.
+JobSchema.index(
+  { status: 1, "features.skills": 1, postedAt: -1 },
+  { name: "job_candidate_skills_recent" },
+);
+JobSchema.index(
+  { status: 1, "features.titleTokens": 1, postedAt: -1 },
+  { name: "job_candidate_title_recent" },
+);
+JobSchema.index(
+  { status: 1, occupationCodes: 1, postedAt: -1 },
+  { name: "job_candidate_occupation_recent" },
+);
+JobSchema.index(
+  { status: 1, "structuredLocation.eligibleCountryCodes": 1, postedAt: -1 },
+  { name: "job_candidate_eligible_country_recent" },
+);
 
 export const Job = mongoose.models.Job || mongoose.model("Job", JobSchema);

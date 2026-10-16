@@ -119,7 +119,7 @@ export async function migrateJobCatalog({ jobModel = Job, batchSize = 500 } = {}
     batch.push({ job, fields });
     if (batch.length >= batchSize) await flush();
   }
-  const report = { ...inspection, indexesToCreate: [migrationIndex, "job_candidate_location_mode", "job_candidate_active_recent", "job_candidate_recent_feed", "job_candidate_occupation", "job_source_coverage"] };
+  const report = { ...inspection, indexesToCreate: [migrationIndex, "job_candidate_location_mode", "job_candidate_active_recent", "job_candidate_recent_feed", "job_candidate_occupation", "job_source_coverage", "job_candidate_skills_recent", "job_candidate_title_recent", "job_candidate_occupation_recent", "job_candidate_eligible_country_recent"] };
   await flush();
   await ensureCatalogIndex(jobModel, { identityKey: 1 }, { unique: true, sparse: true, name: migrationIndex });
   await ensureCatalogIndex(jobModel, { status: 1, "structuredLocation.countryCode": 1, remoteType: 1, expiresAt: 1, postedAt: -1 }, { name: "job_candidate_location_mode" });
@@ -127,6 +127,10 @@ export async function migrateJobCatalog({ jobModel = Job, batchSize = 500 } = {}
   await ensureCatalogIndex(jobModel, { status: 1, sourceBoard: 1, postedAt: -1, _id: 1, expiresAt: 1 }, { name: "job_candidate_recent_feed" });
   await ensureCatalogIndex(jobModel, { status: 1, expiresAt: 1, occupationCodes: 1, postedAt: -1 }, { name: "job_candidate_occupation" });
   await ensureCatalogIndex(jobModel, { sourceBoard: 1, status: 1, expiresAt: 1 }, { name: "job_source_coverage" });
+  await ensureCatalogIndex(jobModel, { status: 1, "features.skills": 1, postedAt: -1 }, { name: "job_candidate_skills_recent" });
+  await ensureCatalogIndex(jobModel, { status: 1, "features.titleTokens": 1, postedAt: -1 }, { name: "job_candidate_title_recent" });
+  await ensureCatalogIndex(jobModel, { status: 1, occupationCodes: 1, postedAt: -1 }, { name: "job_candidate_occupation_recent" });
+  await ensureCatalogIndex(jobModel, { status: 1, "structuredLocation.eligibleCountryCodes": 1, postedAt: -1 }, { name: "job_candidate_eligible_country_recent" });
   return report;
 }
 
@@ -166,7 +170,7 @@ async function main() {
     return;
   }
   if (mode !== "--apply") {
-    const report = { ...(await inspectJobCatalog()), indexesToCreate: [migrationIndex, "job_candidate_location_mode", "job_candidate_active_recent", "job_candidate_recent_feed", "job_candidate_occupation", "job_source_coverage"] };
+    const report = { ...(await inspectJobCatalog()), indexesToCreate: [migrationIndex, "job_candidate_location_mode", "job_candidate_active_recent", "job_candidate_recent_feed", "job_candidate_occupation", "job_source_coverage", "job_candidate_skills_recent", "job_candidate_title_recent", "job_candidate_occupation_recent", "job_candidate_eligible_country_recent"] };
     console.info(JSON.stringify(report, null, 2));
     return;
   }

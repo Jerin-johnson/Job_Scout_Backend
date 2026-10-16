@@ -36,6 +36,31 @@ after(async () => {
   await mongo?.stop();
 });
 
+test("candidate lookup indexes cover skills, title, occupation, country, status and posted date", async () => {
+  const indexes = await Job.collection.indexes();
+  const byName = new Map(indexes.map((index) => [index.name, index.key]));
+  assert.deepEqual(byName.get("job_candidate_skills_recent"), {
+    status: 1,
+    "features.skills": 1,
+    postedAt: -1,
+  });
+  assert.deepEqual(byName.get("job_candidate_title_recent"), {
+    status: 1,
+    "features.titleTokens": 1,
+    postedAt: -1,
+  });
+  assert.deepEqual(byName.get("job_candidate_occupation_recent"), {
+    status: 1,
+    occupationCodes: 1,
+    postedAt: -1,
+  });
+  assert.deepEqual(byName.get("job_candidate_eligible_country_recent"), {
+    status: 1,
+    "structuredLocation.eligibleCountryCodes": 1,
+    postedAt: -1,
+  });
+});
+
 test("lexical retrieval retains a relevant older role ahead of 420 newer partial matches", async () => {
   const now = Date.now();
   const noisyJobs = Array.from({ length: 420 }, (_, index) => ({
@@ -64,7 +89,11 @@ test("lexical retrieval retains a relevant older role ahead of 420 newer partial
     rawDescription: "Frontend engineering work with React and TypeScript.",
     tags: ["JavaScript", "React", "TypeScript"],
     requirements: ["JavaScript", "React", "TypeScript"],
-    features: { version: 1, titleTokens: ["frontend", "engineer"], skills: ["javascript", "react", "typescript"] },
+    features: {
+      version: 1,
+      titleTokens: ["frontend", "engineer"],
+      skills: ["javascript", "react", "typescript"],
+    },
     status: "active",
     expiresAt: new Date(now + 86400000),
     postedAt: new Date(now - 10 * 86400000),
@@ -93,6 +122,11 @@ test("lexical retrieval retains a relevant older role ahead of 420 newer partial
     expiresAt: { $gt: new Date() },
     sourceBoard: "retrieval-test",
     "features.skills": { $in: ["react", "javascript", "typescript"] },
-  }).explain("executionStats");
-  assert.match(JSON.stringify(explain.queryPlanner.winningPlan), /IXSCAN/);
+  })
+    .limit(400)
+    .hint("job_candidate_skills_recent")
+    .select("_id")
+    .explain("executionStats");
+  assert.match(JSON.stringify(explain.queryPlanner.winningPlan), /job_candidate_skills_recent/);
+  assert.ok(explain.executionStats.totalDocsExamined <= explain.executionStats.nReturned * 3);
 });
