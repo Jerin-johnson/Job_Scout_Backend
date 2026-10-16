@@ -12,6 +12,8 @@ const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),
   minimumSalaryUsd: z.number().min(0).default(0),
   preferredLocations: z.array(z.string()).default([]),
+  preferredCountryCodes: z.array(z.string().regex(/^[A-Za-z]{2}$/)).max(30).default([]),
+  occupationCodes: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   remotePreference: z.enum(["remote", "hybrid", "onsite", "any"]).default("any"),
 });
 

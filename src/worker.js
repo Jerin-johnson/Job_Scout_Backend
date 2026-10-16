@@ -6,28 +6,71 @@ import { getRedisClient, isRedisReady } from "./config/redis.js";
 import { setupGracefulShutdown } from "./config/shutdown.js";
 import { jobIngestionService } from "./services/jobs/jobIngestionService.js";
 import { emailDigestService } from "./services/emailDigestService.js";
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { applicationRepository } from "./repositories/applicationRepository.js";
 import { userRepository } from "./repositories/userRepository.js";
 import { assertValidAIConfiguration } from "./config/aiStartupValidation.js";
 
 const activeWorkers = [];
+let ingestionQueue = null;
+
+export async function scheduleJobIngestion(queue, sources) {
+  const scheduled = [];
+  for (const source of sources) {
+    if (!source.enabled || !source.approved || !source.quota?.intervalMs) continue;
+    await queue.add(
+      `ingest:${source.key}`,
+      { sourceKey: source.key },
+      {
+        jobId: `scheduled-${source.key}`,
+        repeat: { every: source.quota.intervalMs },
+        removeOnComplete: 100,
+        removeOnFail: 100,
+      },
+    );
+    scheduled.push(source.key);
+  }
+  return scheduled;
+}
+
+async function waitForRedis(redis, timeoutMs = 5000) {
+  if (isRedisReady()) return true;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const finish = (ready) => {
+      clearTimeout(timer);
+      redis.off("ready", onReady);
+      redis.off("end", onEnd);
+      resolve(ready);
+    };
+    const onReady = () => finish(true);
+    const onEnd = () => finish(false);
+    redis.once("ready", onReady);
+    redis.once("end", onEnd);
+  });
+}
 
 async function initializeQueues() {
-  if (!isRedisReady()) {
-    logger.info("Redis is offline/mock; BullMQ workers initialized in standby mode");
+  const redis = getRedisClient();
+  if (!(await waitForRedis(redis))) {
+    logger.info("Redis is offline; BullMQ workers and scheduled ingestion remain unavailable");
     return;
   }
 
-  const redis = getRedisClient();
+  await jobIngestionService.ensureSources();
+  ingestionQueue = new Queue("job-ingestion", { connection: redis });
+  const sourceSchedules = await scheduleJobIngestion(ingestionQueue, await jobIngestionService.sourceBudgets());
+  logger.info({ sources: sourceSchedules }, "Scheduled approved job source ingestion");
 
   // 1. Ingestion Worker
   const ingestionWorker = new Worker(
     "job-ingestion",
     async (job) => {
       logger.info({ jobId: job.id }, "Processing job-ingestion queue item");
-      const result = await jobIngestionService.ingestAll();
-      return { ingested: result.ingested };
+      const result = job.data?.sourceKey
+        ? await jobIngestionService.ingestSource(job.data.sourceKey)
+        : await jobIngestionService.ingestAll();
+      return { ingested: result.created ?? result.ingested, source: job.data?.sourceKey || "all" };
     },
     {
       connection: redis,
@@ -110,6 +153,7 @@ async function startWorker() {
     for (const w of activeWorkers) {
       await w.close();
     }
+    if (ingestionQueue) await ingestionQueue.close();
     logger.info("All BullMQ workers shut down gracefully");
   });
 }

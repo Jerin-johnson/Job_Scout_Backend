@@ -611,9 +611,30 @@ export const adminController = {
         data: {
           ingested: result.ingested,
           embedded: result.embedded,
-          sources: [...new Set((result.jobs || []).map((job) => job.sourceBoard))],
+          sources: result.sources || [],
+          results: result.results || [],
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listJobSources(req, res, next) {
+    try {
+      const sources = await jobIngestionService.sourceBudgets();
+      res.status(200).json({ data: { sources } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async updateJobSource(req, res, next) {
+    try {
+      const enabled = z.object({ enabled: z.boolean() }).parse(req.body).enabled;
+      const sources = await jobIngestionService.setSourceEnabled(req.params.key, enabled);
+      await audit(req, enabled ? "admin.jobs.source.enable" : "admin.jobs.source.disable", { source: req.params.key });
+      res.status(200).json({ data: { sources } });
     } catch (err) {
       next(err);
     }

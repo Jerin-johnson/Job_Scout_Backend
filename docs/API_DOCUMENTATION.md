@@ -550,9 +550,9 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 #### `GET /api/v1/jobs/catalog`
 
-- **Purpose**: Searches all non-expired jobs currently indexed by enabled adapters (not the whole public internet).
-- **Query**: Optional `q`, `location`, `source`, `remoteType` (`remote|hybrid|onsite`), `page` (default 1), `limit` (default 20, max 50).
-- **Response**: `{ "data": { "jobs": [], "total": 0, "page": 1, "limit": 20, "pages": 0 } }`. Each result includes `jobId`, role/company, source board, and original listing URL where available.
+- **Purpose**: Searches active, non-expired listings indexed from approved, enabled feeds (currently Remote OK, Remotive, and Jobicy). The catalog is not the whole internet.
+- **Query**: Optional `q`, `location`, `countryCode` (two-letter code), `source`, `remoteType` (`remote|hybrid|onsite`), `page` (default 1), `limit` (default 20, max 50).
+- **Response**: `{ "data": { "jobs": [], "total": 0, "page": 1, "limit": 20, "pages": 0, "sources": [] } }`. Each result includes `jobId`, role/company, source board, source attribution, posted date, and original listing URL where available.
 
 #### `POST /api/v1/jobs/:id/feedback`
 
@@ -885,6 +885,7 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 - `GET /api/v1/admin/users?q=&page=&limit=` returns active accounts with name, email, role, plan, and creation date. Requires admin role and MongoDB.
 - `GET /api/v1/admin/jobs?q=&source=&page=&limit=` returns indexed job inventory.
+- `GET /api/v1/admin/jobs/sources` lists source approval, daily budget/use, health, and metrics. `PATCH /api/v1/admin/jobs/sources/:key` accepts `{ "enabled": true|false }` and only toggles a source that passed the verified policy gate.
 - `GET /api/v1/admin/audit?page=&limit=` returns recent admin audit events with the acting account name/email.
 - `POST /api/v1/admin/jobs/ingest` runs enabled adapters and returns fetched/embedded counts and source names. Requires admin role and CSRF protection.
 - `PATCH /api/v1/admin/users/:id` updates a user's plan or role. Super-admin only; active Razorpay subscriptions cannot be overwritten locally.

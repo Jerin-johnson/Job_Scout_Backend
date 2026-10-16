@@ -1,184 +1,632 @@
-import { MockBoardAdapter } from "./adapters/mockBoardAdapter.js";
-import { RemoteOkAdapter } from "./adapters/remoteOkAdapter.js";
 import { Job } from "../../models/Job.js";
+import { JobSource } from "../../models/JobSource.js";
+import { Profile } from "../../models/Profile.js";
+import { env } from "../../config/env.js";
 import { isMongoReady } from "../../config/database.js";
 import { embeddingService } from "../embeddingService.js";
 import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
+import { SOURCE_POLICIES, isSourcePolicyComplete } from "./sourcePolicies.js";
 
+const MAX_DESCRIPTION_CHARS = 24000;
+const MAX_CANDIDATES = 400;
+const BATCH_SIZE = 32;
 const inMemoryJobs = new Map();
+let demandCache = { expiresAt: 0, terms: [] };
+const adapterFactories = Object.create(null);
+const sourceSeedPromises = new Map();
+
+export function registerJobAdapterFactory(key, factory) {
+  if (!/^[a-z0-9_-]+$/.test(key) || typeof factory !== "function") throw new TypeError("A valid adapter key and factory are required.");
+  if (adapterFactories[key]) throw new Error(`Job source adapter already registered: ${key}`);
+  adapterFactories[key] = factory;
+  return () => { delete adapterFactories[key]; };
+}
+
+const dayStart = (date = new Date()) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const safeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function cleanNormalizedJob(job, source) {
+  const normalized = {
+    ...job,
+    sourceBoard: source.key,
+    sourceJobId: String(job.sourceJobId || "").slice(0, 200),
+    canonicalUrl: String(job.canonicalUrl || job.sourceUrl || "").slice(0, 2000),
+    sourceUrl: String(job.sourceUrl || job.canonicalUrl || "").slice(0, 2000),
+    rawDescription: String(job.rawDescription || "").slice(0, MAX_DESCRIPTION_CHARS),
+    requirements: Array.isArray(job.requirements) ? job.requirements.slice(0, 60).map(String) : [],
+    tags: Array.isArray(job.tags) ? job.tags.slice(0, 60).map(String) : [],
+    structuredLocation: {
+      countryCode: String(job.structuredLocation?.countryCode || "").toUpperCase().slice(0, 2),
+      region: String(job.structuredLocation?.region || "").slice(0, 120),
+      city: String(job.structuredLocation?.city || "").slice(0, 120),
+      remoteScope: job.structuredLocation?.remoteScope || "unknown",
+      eligibleCountryCodes: (job.structuredLocation?.eligibleCountryCodes || []).map((code) => String(code).toUpperCase().slice(0, 2)).filter(Boolean).slice(0, 100),
+      workAuthorization: (job.structuredLocation?.workAuthorization || []).map(String).slice(0, 20),
+    },
+    occupationCodes: Array.isArray(job.occupationCodes) ? job.occupationCodes.slice(0, 20).map(String) : [],
+  };
+  const contentHash = (source.adapter || null)?.generateContentHash?.(normalized);
+  normalized.contentHash = contentHash || job.contentHash;
+  normalized.identityKey = source.adapter.generateIdentity({
+    source: source.key,
+    sourceJobId: normalized.sourceJobId,
+    canonicalUrl: normalized.canonicalUrl,
+    title: normalized.title,
+    company: normalized.company,
+    location: normalized.location,
+  });
+  const now = new Date();
+  const postedAt = normalized.postedAt instanceof Date && !Number.isNaN(normalized.postedAt.getTime()) ? normalized.postedAt : null;
+  const sourceExpiresAt = job.sourceExpiresAt instanceof Date && !Number.isNaN(job.sourceExpiresAt.getTime()) ? job.sourceExpiresAt : null;
+  const policyExpiry = new Date((postedAt?.getTime() || now.getTime()) + source.retentionDays * 86400000);
+  normalized.postedAt = postedAt;
+  normalized.firstSeenAt = now;
+  normalized.lastSeenAt = now;
+  normalized.contentUpdatedAt = now;
+  normalized.status = "active";
+  normalized.sourceExpiresAt = sourceExpiresAt;
+  normalized.expiresAt = sourceExpiresAt && sourceExpiresAt < policyExpiry ? sourceExpiresAt : policyExpiry;
+  if (normalized.compensation?.currency === "USD" && normalized.compensation?.payPeriod === "year") {
+    normalized.compensation.normalizedCurrency = "USD";
+    normalized.compensation.normalizedAnnualMin = normalized.compensation.min ?? null;
+    normalized.compensation.normalizedAnnualMax = normalized.compensation.max ?? null;
+    normalized.compensation.normalizedAt = now;
+  }
+  normalized.provenance = [{
+    source: source.key,
+    sourceJobId: normalized.sourceJobId,
+    canonicalUrl: normalized.canonicalUrl,
+    attributionText: source.attributionText,
+    attributionUrl: source.attributionUrl,
+    seenAt: now,
+  }];
+  return normalized;
+}
+
+function setContentHash(job, adapter) {
+  job.contentHash = adapter.generateContentHash(job);
+  job.recordHash = adapter.generateRecordHash(job);
+}
+
+async function ensureSourceRecords() {
+  if (!isMongoReady()) return;
+  const databaseKey = JobSource.db.name || "default";
+  if (sourceSeedPromises.has(databaseKey)) return sourceSeedPromises.get(databaseKey);
+  const seedPromise = (async () => {
+    for (const policy of SOURCE_POLICIES) {
+      if (!isSourcePolicyComplete(policy)) throw new Error(`Incomplete source policy: ${policy.key}`);
+      await JobSource.updateOne({ key: policy.key }, { $setOnInsert: policy }, { upsert: true });
+    }
+  })();
+  sourceSeedPromises.set(databaseKey, seedPromise);
+  try {
+    await seedPromise;
+  } catch (error) {
+    sourceSeedPromises.delete(databaseKey);
+    throw error;
+  }
+}
+
+async function listSourceRecords({ enabledOnly = false } = {}) {
+  if (isMongoReady()) {
+    await ensureSourceRecords();
+    const query = enabledOnly ? { enabled: true, approved: true } : {};
+    const records = await JobSource.find(query).lean();
+    return enabledOnly ? records.filter(isSourcePolicyComplete) : records;
+  }
+  return SOURCE_POLICIES.filter((source) => !enabledOnly || (source.enabled && source.approved));
+}
+
+export async function reserveSourceRequest(sourceKey, maxPerDay) {
+  if (!isMongoReady()) return true;
+  const windowStart = dayStart();
+  const oldWindow = { $lt: [{ $ifNull: ["$quotaWindowStart", new Date(0)] }, windowStart] };
+  const usedExpr = {
+    $cond: [
+      oldWindow,
+      1,
+      { $add: [{ $ifNull: ["$quotaUsed", 0] }, 1] },
+    ],
+  };
+  const windowExpr = { $cond: [oldWindow, windowStart, "$quotaWindowStart"] };
+  const reserved = await JobSource.findOneAndUpdate(
+    { key: sourceKey, enabled: true, approved: true, $expr: { $lte: [usedExpr, maxPerDay] } },
+    [{ $set: { quotaWindowStart: windowExpr, quotaUsed: usedExpr, lastRequestAt: new Date() } }],
+    { new: true, projection: { quotaUsed: 1 } },
+  ).lean();
+  return Boolean(reserved);
+}
+
+function quotaExceeded(sourceKey) {
+  const error = new Error(`Daily request budget reached for ${sourceKey}`);
+  error.code = "SOURCE_QUOTA_EXHAUSTED";
+  return error;
+}
+
+function countCoverage(jobs) {
+  const countryCounts = {};
+  const occupationCounts = {};
+  for (const job of jobs) {
+    const country = job.structuredLocation?.countryCode || "unknown";
+    const family = job.occupationCodes?.[0] || "unmapped";
+    countryCounts[country] = (countryCounts[country] || 0) + 1;
+    occupationCounts[family] = (occupationCounts[family] || 0) + 1;
+  }
+  return { countryCounts, occupationCounts };
+}
+
+async function getAggregatedDemandTerms() {
+  if (!isMongoReady()) return [];
+  if (demandCache.expiresAt > Date.now()) return demandCache.terms;
+  const cachedTerms = await get(CacheKeys.jobDemand());
+  if (Array.isArray(cachedTerms)) {
+    demandCache = { expiresAt: Date.now() + 6 * 60 * 60 * 1000, terms: cachedTerms };
+    return cachedTerms;
+  }
+  let aggregated;
+  try {
+    aggregated = await Profile.aggregate([
+    {
+      $project: {
+        terms: {
+          $concatArrays: [
+            { $map: { input: { $slice: [{ $ifNull: ["$preferences.targetRoles", []] }, 5] }, as: "value", in: { kind: "role", value: "$$value" } } },
+            { $map: { input: { $slice: [{ $ifNull: ["$preferences.preferredLocations", []] }, 5] }, as: "value", in: { kind: "location", value: "$$value" } } },
+            { $map: { input: { $slice: [{ $ifNull: ["$preferences.preferredCountryCodes", []] }, 5] }, as: "value", in: { kind: "location", value: "$$value" } } },
+          ],
+        },
+      },
+    },
+    { $unwind: "$terms" },
+    { $project: { kind: "$terms.kind", value: { $toLower: { $trim: { input: { $convert: { input: "$terms.value", to: "string", onError: "", onNull: "" } } } } } } },
+    { $match: { value: { $regex: "^[a-z0-9][a-z0-9 +.#-]{2,48}$" } } },
+    { $group: { _id: { kind: "$kind", value: "$value" }, count: { $sum: 1 } } },
+    { $match: { count: { $gte: 3 } } },
+    { $sort: { count: -1, "_id.kind": 1, "_id.value": 1 } },
+    { $limit: 40 },
+    ]).option({ maxTimeMS: 1000 });
+  } catch (error) {
+    logger.warn({ errorCode: error.code || "DEMAND_AGGREGATION_FAILED" }, "Could not refresh aggregated job demand; using broad catalog ingestion");
+    return [];
+  }
+  const roles = aggregated.filter((item) => item._id.kind === "role").slice(0, 12);
+  const locations = aggregated.filter((item) => item._id.kind === "location").slice(0, 8);
+  const terms = [];
+  for (const role of roles) {
+    terms.push(role._id.value);
+    for (const location of locations.slice(0, 2)) terms.push(`${role._id.value} ${location._id.value}`.slice(0, 50));
+  }
+  if (!roles.length) terms.push(...locations.map((location) => location._id.value));
+  demandCache = { expiresAt: Date.now() + 6 * 60 * 60 * 1000, terms: [...new Set(terms)].slice(0, 32) };
+  await set(CacheKeys.jobDemand(), demandCache.terms, 21600);
+  return demandCache.terms;
+}
 
 export const jobIngestionService = {
-  getAdapters() {
-    const adapters = [new RemoteOkAdapter()];
-    if (process.env.NODE_ENV !== "production") adapters.unshift(new MockBoardAdapter());
-    return adapters;
+  async ensureSources() {
+    await ensureSourceRecords();
+    return listSourceRecords();
   },
 
-  /**
-   * Run full ingestion: fetch -> dedupe -> embedOnce -> bulkWrite
-   */
-  async ingestAll({ user, requestId } = {}) {
-    const adapters = this.getAdapters();
-    const allJobs = [];
+  async getDemandTerms() {
+    return getAggregatedDemandTerms();
+  },
 
-    for (const adapter of adapters) {
-      try {
-        const jobs = await adapter.fetchJobs();
-        allJobs.push(...jobs);
-      } catch (err) {
-        logger.error({ err: err.message, adapter: adapter.name }, "Adapter failed");
-      }
-    }
-
-    if (allJobs.length === 0) return { ingested: 0, embedded: 0 };
-
-    const embeddingConfig = await embeddingService.assertAvailable({ user, feature: "match_jobs" });
-
-    // 1. Deduplicate in-flight jobs by contentHash
-    const uniqueMap = new Map();
-    for (const job of allJobs) {
-      if (!uniqueMap.has(job.contentHash)) {
-        uniqueMap.set(job.contentHash, job);
-      }
-    }
-    const uniqueJobs = Array.from(uniqueMap.values());
-    const defaultExpiry = new Date(Date.now() + 60 * 86400 * 1000);
-    for (const job of uniqueJobs) {
-      if (!job.expiresAt) job.expiresAt = defaultExpiry;
-    }
-
-    // 2. Embed once per job (check 90-day shared Redis embedding cache)
-    let newEmbeddingsCount = 0;
-
-    const embeddingWorkers = Array.from(
-      { length: Math.min(5, uniqueJobs.length) },
-      async (_, worker) => {
-        for (let index = worker; index < uniqueJobs.length; index += 5) {
-          const job = uniqueJobs[index];
-          const embKey = CacheKeys.embedding(
-            job.contentHash,
-            embeddingConfig.provider,
-            embeddingConfig.model,
-            embeddingConfig.dimension,
-          );
-          let cached = await get(embKey);
-
-          if (!cached) {
-            const textToEmbed = `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.substring(0, 500)}`;
-            cached = await embeddingService.getEmbeddingWithMetadata(textToEmbed, { user, feature: "match_jobs", requestId });
-            await set(embKey, cached, TTL.EMBEDDING);
-            newEmbeddingsCount++;
-          }
-
-          job.embedding = cached.vector;
-          job.embeddingMetadata = cached.metadata;
-        }
-      },
-    );
-    await Promise.all(embeddingWorkers);
-
-    // 3. Persist to MongoDB using bulkWrite
-    if (isMongoReady()) {
-      const bulkOps = uniqueJobs.map((job) => ({
-        updateOne: {
-          filter: { contentHash: job.contentHash },
-          update: { $set: job },
-          upsert: true,
-        },
-      }));
-
-      await Job.bulkWrite(bulkOps);
+  async getAdapter(source) {
+    let adapter;
+    const testOrExtensionFactory = adapterFactories[source.key];
+    if (testOrExtensionFactory) {
+      adapter = testOrExtensionFactory(source);
+    } else if (/^[A-Za-z0-9_-]+Adapter\.js$/.test(source.adapterModule || "")) {
+      const adapterModule = await import(new URL(`./adapters/${source.adapterModule}`, import.meta.url));
+      const Adapter = adapterModule.default;
+      if (typeof Adapter !== "function") return null;
+      adapter = new Adapter(source.quota);
     } else {
-      for (const job of uniqueJobs) {
-        inMemoryJobs.set(job.contentHash, {
-          _id: `job_${job.contentHash.substring(0, 10)}`,
-          expiresAt: job.expiresAt || new Date(Date.now() + 60 * 86400 * 1000),
-          ...job,
+      return null;
+    }
+    adapter.consumeQuota = async () => {
+      if (!(await reserveSourceRequest(source.key, source.quota.requestsPerDay))) throw quotaExceeded(source.key);
+    };
+    return adapter;
+  },
+
+  async getAdapters() {
+    const sources = await listSourceRecords({ enabledOnly: true });
+    return (await Promise.all(sources.map((source) => this.getAdapter(source)))).filter(Boolean);
+  },
+
+  async ingestAll(options = {}) {
+    const sources = await listSourceRecords({ enabledOnly: true });
+    const results = [];
+    for (const source of sources) {
+      try {
+        results.push(await this.ingestSource(source.key, options));
+      } catch (error) {
+        logger.warn({ source: source.key, errorCode: error.code || "SOURCE_INGESTION_FAILED" }, "Job source ingestion failed");
+        results.push({ source: source.key, errors: 1, errorCode: error.code || "SOURCE_INGESTION_FAILED" });
+      }
+    }
+    return {
+      ingested: results.reduce((sum, result) => sum + (result.created || 0), 0),
+      embedded: results.reduce((sum, result) => sum + (result.embedded || 0), 0),
+      sources: results.map((result) => result.source),
+      results,
+    };
+  },
+
+  async ingestSource(sourceKey, { user, requestId } = {}) {
+    if (!isMongoReady() && env.NODE_ENV === "production") {
+      const error = new Error("The job source registry is unavailable.");
+      error.statusCode = 503;
+      error.code = "SOURCE_REGISTRY_UNAVAILABLE";
+      throw error;
+    }
+    const source = isMongoReady()
+      ? await JobSource.findOne({ key: sourceKey, enabled: true, approved: true }).lean()
+      : SOURCE_POLICIES.find((item) => item.key === sourceKey && item.enabled && item.approved);
+    if (!source || !isSourcePolicyComplete(source)) return { source: sourceKey, skipped: true, reason: "disabled_or_unapproved" };
+    if (source.circuit?.openUntil && new Date(source.circuit.openUntil) > new Date()) {
+      return { source: sourceKey, skipped: true, reason: "circuit_open" };
+    }
+    const adapter = await this.getAdapter(source);
+    if (!adapter) return { source: sourceKey, skipped: true, reason: "adapter_not_registered" };
+    source.adapter = adapter;
+    const started = Date.now();
+    let created = 0;
+    let updated = 0;
+    let duplicates = 0;
+    let fetched = 0;
+    let embedded = 0;
+    let cursor = source.cursor || null;
+    let etag = source.etag || null;
+    let lastModified = source.lastModified || null;
+    const fullSyncDue = !cursor && (!source.lastFullSyncAt || Date.now() - new Date(source.lastFullSyncAt).getTime() >= 86400000);
+    const demandTerms = adapter.capabilities.demandSearch && !fullSyncDue ? await getAggregatedDemandTerms() : [];
+    const demandIndex = demandTerms.length ? (Number(source.demandCursor || 0) % demandTerms.length) : 0;
+    const demandTerm = cursor ? (source.demandTerm || null) : (demandTerms[demandIndex] || null);
+    const conditionalQuery = demandTerm || "__all__";
+    if (source.conditionalQuery !== conditionalQuery) {
+      etag = null;
+      lastModified = null;
+    }
+    const seenThisRun = new Set();
+    const coverageRows = [];
+    let statusCheckRequests = 0;
+    let fullSyncCompleted = false;
+
+    try {
+      if (isMongoReady()) {
+        const now = new Date();
+        const claimed = await JobSource.findOneAndUpdate(
+          {
+            key: sourceKey,
+            enabled: true,
+            approved: true,
+            $or: [
+              { runState: { $ne: "running" } },
+              { runLeaseExpiresAt: { $lte: now } },
+              { runLeaseExpiresAt: null },
+            ],
+            $and: [{ $or: [{ lastRunAt: null }, { lastRunAt: { $lte: new Date(now.getTime() - source.quota.intervalMs) } }] }],
+          },
+          { $set: { runState: "running", lastRunAt: now, runLeaseExpiresAt: new Date(now.getTime() + 10 * 60000) } },
+          { new: true },
+        ).lean();
+        if (!claimed) return { source: sourceKey, skipped: true, reason: "interval_or_run_lock" };
+      }
+      if (adapter.capabilities.statusCheck && isMongoReady() && (!source.lastLinkCheckAt || Date.now() - new Date(source.lastLinkCheckAt).getTime() >= 86400000)) {
+        const sample = await Job.find({ sourceBoard: sourceKey, status: "active" })
+          .sort({ sourceCheckedAt: 1, lastSeenAt: 1 })
+          .limit(100)
+          .select("sourceJobId")
+          .lean();
+        if (!sample.length) {
+          await JobSource.updateOne({ key: sourceKey }, { $set: { lastLinkCheckAt: new Date() } });
+        } else {
+          try {
+            const statuses = await adapter.checkStatuses(sample.map((job) => job.sourceJobId).filter((id) => /^\d+$/.test(String(id))));
+            statusCheckRequests = 1;
+            const checkedAt = new Date();
+            const updates = statuses.filter((item) => /^\d+$/.test(String(item.id)) && ["active", "closed", "unknown"].includes(item.status)).map((item) => ({
+              updateOne: {
+                filter: { sourceBoard: sourceKey, sourceJobId: String(item.id) },
+                update: item.status === "closed"
+                  ? { $set: { status: "closed", sourceExpiresAt: checkedAt, expiresAt: checkedAt, sourceCheckedAt: checkedAt } }
+                  : { $set: { sourceCheckedAt: checkedAt } },
+              },
+            }));
+            if (updates.length) await Job.bulkWrite(updates, { ordered: false });
+            await JobSource.updateOne({ key: sourceKey }, { $set: { lastLinkCheckAt: checkedAt } });
+          } catch (error) {
+            if (error.code === "SOURCE_QUOTA_EXHAUSTED") statusCheckRequests = 1;
+            else logger.warn({ source: sourceKey, errorCode: error.code || `HTTP_${error.status || "NETWORK"}` }, "Job source status check failed");
+          }
+        }
+      }
+      const pageBudget = Math.max(0, source.quota.requestsPerDay - statusCheckRequests);
+      for (let pageNo = 0; pageNo < pageBudget; pageNo += 1) {
+        const page = await adapter.fetchPage({ cursor, etag, lastModified, demandTerm });
+        if (page.etag) etag = page.etag;
+        if (page.lastModified) lastModified = page.lastModified;
+        if (page.notModified) {
+          fullSyncCompleted = !demandTerm;
+          if (isMongoReady()) await JobSource.updateOne({ key: sourceKey }, { $set: {
+            cursor: null,
+            lastFullSyncAt: fullSyncCompleted ? new Date() : source.lastFullSyncAt,
+            lastSuccessAt: new Date(),
+            demandTerm: null,
+            demandCursor: demandTerms.length && demandTerm ? (demandIndex + 1) % demandTerms.length : source.demandCursor || 0,
+          } });
+          break;
+        }
+        const normalized = page.jobs.map((job) => cleanNormalizedJob(job, source));
+        coverageRows.push(...normalized.map(({ structuredLocation, occupationCodes }) => ({ structuredLocation, occupationCodes })));
+        for (const job of normalized) {
+          setContentHash(job, adapter);
+          if (seenThisRun.has(job.identityKey)) { duplicates += 1; continue; }
+          seenThisRun.add(job.identityKey);
+        }
+        const jobs = normalized.filter((job) => job.identityKey && seenThisRun.has(job.identityKey));
+        fetched += normalized.length;
+        const uniqueJobs = [...new Map(jobs.map((job) => [job.identityKey, job])).values()];
+        const existingDocs = isMongoReady() && uniqueJobs.length
+          ? await Job.find({ identityKey: { $in: uniqueJobs.map((job) => job.identityKey) } }).select("identityKey contentHash recordHash firstSeenAt embedding embeddingMetadata").lean()
+          : [];
+        const existingByIdentity = new Map(existingDocs.map((job) => [job.identityKey, job]));
+        const changed = [];
+        for (const job of uniqueJobs) {
+          const existing = existingByIdentity.get(job.identityKey);
+          if (existing?.recordHash === job.recordHash) {
+            job.lastSeenAt = new Date();
+            duplicates += 1;
+            if (isMongoReady()) await Job.updateOne({ identityKey: job.identityKey }, { $set: { lastSeenAt: job.lastSeenAt, status: "active" } });
+            else inMemoryJobs.set(job.identityKey, { ...inMemoryJobs.get(job.identityKey), lastSeenAt: job.lastSeenAt, status: "active" });
+            continue;
+          }
+          if (existing) updated += 1;
+          else created += 1;
+          if (existing) job.firstSeenAt = existing.firstSeenAt || job.firstSeenAt;
+          if (existing?.contentHash === job.contentHash && existing.embedding?.length) {
+            job.embedding = existing.embedding;
+            job.embeddingMetadata = existing.embeddingMetadata;
+          }
+          job.provenance[0].seenAt = new Date();
+          changed.push(job);
+        }
+
+        if (changed.length) {
+          const config = embeddingService.getConfig();
+          const vectorsByIndex = new Map();
+          const missing = [];
+          for (let index = 0; index < changed.length; index += 1) {
+            const job = changed[index];
+            if (job.embedding?.length) {
+              vectorsByIndex.set(index, { vector: job.embedding, metadata: job.embeddingMetadata || { provider: "legacy", model: "unknown", dimension: job.embedding.length } });
+              continue;
+            }
+            const key = CacheKeys.embedding(job.contentHash, config.provider, config.model, config.dimension);
+            const cached = await get(key);
+            if (cached?.vector && cached?.metadata) vectorsByIndex.set(index, cached);
+            else missing.push({ index, key, job });
+          }
+          for (let offset = 0; offset < missing.length; offset += BATCH_SIZE) {
+            const batch = missing.slice(offset, offset + BATCH_SIZE);
+            const vectors = await embeddingService.getEmbeddingsWithMetadata(
+              batch.map(({ job }) => `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.slice(0, 500)}`),
+              { user, feature: "match_jobs", requestId },
+            );
+            embedded += vectors.length;
+            await Promise.all(vectors.map((value, batchIndex) => set(batch[batchIndex].key, value, TTL.EMBEDDING)));
+            batch.forEach((entry, batchIndex) => vectorsByIndex.set(entry.index, vectors[batchIndex]));
+          }
+          changed.forEach((job, index) => {
+            const vector = vectorsByIndex.get(index);
+            job.embedding = vector.vector;
+            job.embeddingMetadata = vector.metadata;
+          });
+          if (isMongoReady()) {
+            await Job.bulkWrite(changed.map((job) => ({ updateOne: { filter: { identityKey: job.identityKey }, update: { $set: job }, upsert: true } })), { ordered: false });
+          } else {
+            for (const job of changed) inMemoryJobs.set(job.identityKey, { _id: `job_${job.identityKey.slice(0, 10)}`, ...job });
+          }
+        }
+        cursor = page.cursor || null;
+        if (isMongoReady()) await JobSource.updateOne({ key: sourceKey }, { $set: {
+          cursor,
+          demandTerm: cursor ? demandTerm : null,
+          demandCursor: demandTerms.length && !cursor ? (demandIndex + 1) % demandTerms.length : source.demandCursor || 0,
+          conditionalQuery,
+          etag,
+          lastModified,
+          ...(!cursor && !demandTerm ? { lastFullSyncAt: new Date() } : {}),
+        } });
+        if (page.done || !cursor) fullSyncCompleted = !demandTerm;
+        if (page.done || !cursor) break;
+        // Internal pacing; Jobicy recommends no more than hourly sync passes.
+        await sleep(1000);
+      }
+      const latencyMs = Date.now() - started;
+      const coverage = countCoverage(coverageRows);
+      if (isMongoReady()) {
+        if (fullSyncCompleted) {
+          const staleBefore = new Date(Date.now() - source.staleAfterDays * 86400000);
+          await Job.updateMany({ sourceBoard: sourceKey, status: "active", lastSeenAt: { $lt: staleBefore } }, { $set: { status: "stale" } });
+          const activeFilter = { sourceBoard: sourceKey, status: "active", expiresAt: { $gt: new Date() } };
+          const [countries, occupations] = await Promise.all([
+            Job.aggregate([{ $match: activeFilter }, { $group: { _id: { $ifNull: ["$structuredLocation.countryCode", "unknown"] }, count: { $sum: 1 } } }, { $limit: 250 }]),
+            Job.aggregate([{ $match: activeFilter }, { $unwind: { path: "$occupationCodes", preserveNullAndEmptyArrays: true } }, { $group: { _id: { $ifNull: ["$occupationCodes", "unmapped"] }, count: { $sum: 1 } } }, { $limit: 250 }]),
+          ]);
+          coverage.countryCounts = Object.fromEntries(countries.map(({ _id, count }) => [_id || "unknown", count]));
+          coverage.occupationCounts = Object.fromEntries(occupations.map(({ _id, count }) => [_id || "unmapped", count]));
+        }
+        const metricsSet = { runState: "healthy", lastSuccessAt: new Date(), runLeaseExpiresAt: null, "circuit.failures": 0, "circuit.openUntil": null, lastErrorCode: "", "metrics.latencyMs": latencyMs };
+        if (fullSyncCompleted) {
+          metricsSet["metrics.countryCounts"] = coverage.countryCounts;
+          metricsSet["metrics.occupationCounts"] = coverage.occupationCounts;
+        }
+        await JobSource.updateOne({ key: sourceKey }, {
+          $set: metricsSet,
+          $inc: { "metrics.fetched": fetched, "metrics.created": created, "metrics.updated": updated, "metrics.duplicates": duplicates },
         });
       }
+      return { source: sourceKey, fetched, created, updated, duplicates, errors: 0, embedded, statusChecks: statusCheckRequests, latencyMs, quotaUsed: isMongoReady() ? (await JobSource.findOne({ key: sourceKey }).select("quotaUsed").lean())?.quotaUsed : fetched };
+    } catch (error) {
+      const latencyMs = Date.now() - started;
+      if (sourceKey === "jobicy" && cursor && error.status === 400 && isMongoReady()) {
+        await JobSource.updateOne({ key: sourceKey }, { $set: { cursor: null, demandTerm: null, lastFullSyncAt: null } });
+      }
+      if (error.code === "SOURCE_QUOTA_EXHAUSTED") {
+        if (isMongoReady()) await JobSource.updateOne({ key: sourceKey }, { $set: { runState: "healthy", runLeaseExpiresAt: null, "metrics.latencyMs": latencyMs } });
+        return { source: sourceKey, fetched, created, updated, duplicates, errors: 0, embedded, partial: true, reason: "daily_quota_reached", latencyMs };
+      }
+      if (isMongoReady()) {
+        await JobSource.updateOne({ key: sourceKey }, { $inc: { "circuit.failures": 1, "metrics.errors": 1 }, $set: { runState: "degraded", runLeaseExpiresAt: null, lastErrorCode: error.code || `HTTP_${error.status || "NETWORK"}`, "metrics.latencyMs": latencyMs } });
+        const state = await JobSource.findOne({ key: sourceKey }).select("circuit.failures").lean();
+        if ((state?.circuit?.failures || 0) >= 5) await JobSource.updateOne({ key: sourceKey }, { $set: { "circuit.openUntil": new Date(Date.now() + 5 * 60000) } });
+      }
+      throw error;
     }
-
-    logger.info(
-      { total: uniqueJobs.length, newEmbeddings: newEmbeddingsCount },
-      "Job ingestion pipeline completed",
-    );
-
-    return {
-      ingested: uniqueJobs.length,
-      embedded: newEmbeddingsCount,
-      jobs: uniqueJobs,
-    };
   },
 
   async getAllJobs() {
-    if (isMongoReady()) {
-      return Job.find({ expiresAt: { $gt: new Date() } })
-        .sort({ postedAt: -1 })
-        .lean();
-    }
-    return Array.from(inMemoryJobs.values()).filter((job) => new Date(job.expiresAt) > new Date());
+    const now = new Date();
+    const sources = await listSourceRecords({ enabledOnly: true });
+    const enabledKeys = sources.map((source) => source.key);
+    if (!enabledKeys.length) return [];
+    if (isMongoReady()) return Job.find({ sourceBoard: { $in: enabledKeys }, status: { $ne: "closed" }, expiresAt: { $gt: now } }).sort({ postedAt: -1 }).limit(MAX_CANDIDATES).select("-embedding").lean();
+    return Array.from(inMemoryJobs.values()).filter((job) => enabledKeys.includes(job.sourceBoard) && job.status !== "closed" && new Date(job.expiresAt) > now).slice(0, MAX_CANDIDATES);
   },
 
-  async searchJobs({ q = "", location = "", source = "", remoteType = "", page = 1, limit = 20 }) {
-    const safeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (isMongoReady()) {
-      const filter = {};
-      if (q) {
-        const expression = new RegExp(safeRegex(q), "i");
-        filter.$or = [
-          { title: expression },
-          { company: expression },
-          { tags: expression },
-          { requirements: expression },
-        ];
-      }
-      if (location) filter.location = new RegExp(safeRegex(location), "i");
-      if (source) filter.sourceBoard = new RegExp(`^${safeRegex(source)}$`, "i");
-      if (["remote", "hybrid", "onsite"].includes(remoteType)) filter.remoteType = remoteType;
-      const [jobs, total] = await Promise.all([
-        Job.find({ ...filter, expiresAt: { $gt: new Date() } })
-          .sort({ postedAt: -1 })
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .select("-embedding")
-          .lean(),
-        Job.countDocuments({ ...filter, expiresAt: { $gt: new Date() } }),
-      ]);
-      return {
-        jobs: jobs.map((job) => ({ ...job, jobId: String(job._id) })),
-        total,
-        page,
-        limit,
-        pages: Math.ceil(total / limit),
-      };
+  async getCandidateJobs({ profile, limit = MAX_CANDIDATES } = {}) {
+    const safeLimit = Math.min(MAX_CANDIDATES, Math.max(1, Number(limit) || MAX_CANDIDATES));
+    const preferences = profile?.preferences || {};
+    const filter = { status: "active", expiresAt: { $gt: new Date() } };
+    const sources = await listSourceRecords({ enabledOnly: true });
+    const enabledKeys = sources.map((source) => source.key);
+    if (!enabledKeys.length) return [];
+    filter.sourceBoard = { $in: enabledKeys };
+    if (["remote", "hybrid", "onsite"].includes(preferences.remotePreference)) filter.remoteType = preferences.remotePreference;
+    const countryCodes = (preferences.preferredCountryCodes || []).map((code) => String(code).toUpperCase()).filter((code) => /^[A-Z]{2}$/.test(code));
+    if (countryCodes.length) {
+      filter.$or = [
+        { "structuredLocation.countryCode": { $in: countryCodes } },
+        { "structuredLocation.eligibleCountryCodes": { $in: countryCodes } },
+        { "structuredLocation.remoteScope": "worldwide" },
+        { "structuredLocation.remoteScope": "unknown" },
+      ];
     }
-    const terms = q.toLowerCase();
-    const now = new Date();
-    const filtered = Array.from(inMemoryJobs.values())
-      .filter(
-        (job) =>
-          new Date(job.expiresAt) > now &&
-          (!terms ||
-            [job.title, job.company, ...(job.tags || []), ...(job.requirements || [])]
-              .join(" ")
-              .toLowerCase()
-              .includes(terms)) &&
-          (!location || (job.location || "").toLowerCase().includes(location.toLowerCase())) &&
-          (!source || job.sourceBoard?.toLowerCase() === source.toLowerCase()) &&
-          (!remoteType || job.remoteType === remoteType),
-      )
-      .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
-    const start = (page - 1) * limit;
-    return {
-      jobs: filtered.slice(start, start + limit).map(({ embedding: _embedding, ...job }) => ({
-        ...job,
-        jobId: String(job._id || job.contentHash),
-      })),
-      total: filtered.length,
-      page,
-      limit,
-      pages: Math.ceil(filtered.length / limit),
-    };
+    const occupationCodes = (preferences.occupationCodes || []).slice(0, 20);
+    if (occupationCodes.length) filter.occupationCodes = { $in: occupationCodes };
+    const minimumSalary = Number(preferences.minimumSalaryUsd) || 0;
+    if (minimumSalary > 0) {
+      filter.$and = [{ $or: [
+        { "compensation.normalizedCurrency": "USD", "compensation.normalizedAnnualMax": { $gte: minimumSalary } },
+        { "compensation.normalizedCurrency": { $exists: true, $ne: "USD" } },
+        { "compensation.normalizedAnnualMax": null },
+        { "compensation.normalizedAnnualMax": { $exists: false }, "salaryRange.max": { $gte: minimumSalary } },
+        { "compensation.normalizedAnnualMax": { $exists: false }, $or: [{ "salaryRange.max": { $lte: 0 } }, { "salaryRange.max": { $exists: false } }] },
+      ] }];
+    }
+    const location = (preferences.preferredLocations || []).filter(Boolean).slice(0, 5);
+    if (location.length && !countryCodes.length) filter.location = { $in: location.map((value) => new RegExp(safeRegex(value), "i")) };
+    if (isMongoReady()) {
+      return Job.find(filter).sort({ postedAt: -1, _id: 1 }).limit(safeLimit).select("title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation occupationCodes embedding embeddingMetadata contentHash").lean();
+    }
+    return Array.from(inMemoryJobs.values()).filter((job) => {
+      if (new Date(job.expiresAt) <= new Date() || job.status === "closed") return false;
+      if (!enabledKeys.includes(job.sourceBoard)) return false;
+      if (filter.remoteType && job.remoteType !== filter.remoteType) return false;
+      if (countryCodes.length && job.structuredLocation?.countryCode && !countryCodes.includes(job.structuredLocation.countryCode) && !job.structuredLocation.eligibleCountryCodes?.some((code) => countryCodes.includes(code)) && job.structuredLocation.remoteScope !== "worldwide") return false;
+      return true;
+    }).sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt)).slice(0, safeLimit);
+  },
+
+  async searchJobs({ q = "", location = "", countryCode = "", source = "", remoteType = "", page = 1, limit = 20 }) {
+    const sources = await listSourceRecords({ enabledOnly: true });
+    const enabledKeys = sources.map((item) => item.key);
+    if (!enabledKeys.length) return { jobs: [], total: 0, page, limit, pages: 0, sources: [] };
+    const filter = { sourceBoard: { $in: enabledKeys }, status: "active", expiresAt: { $gt: new Date() } };
+    if (q) {
+      const expression = new RegExp(safeRegex(q), "i");
+      filter.$or = [{ title: expression }, { company: expression }, { tags: expression }, { requirements: expression }];
+    }
+    if (location) filter.location = new RegExp(safeRegex(location), "i");
+    if (/^[A-Za-z]{2}$/.test(countryCode)) filter["structuredLocation.countryCode"] = countryCode.toUpperCase();
+    if (source) {
+      const requestedSource = String(source).toLowerCase();
+      if (!enabledKeys.includes(requestedSource)) return { jobs: [], total: 0, page, limit, pages: 0, sources: await this.publicSources() };
+      filter.sourceBoard = requestedSource;
+    }
+    if (["remote", "hybrid", "onsite"].includes(remoteType)) filter.remoteType = remoteType;
+    const skip = (page - 1) * limit;
+    if (isMongoReady()) {
+      const [jobs, total] = await Promise.all([
+        Job.find(filter).sort({ postedAt: -1, _id: 1 }).skip(skip).limit(limit).select("-embedding").lean(),
+        Job.countDocuments(filter),
+      ]);
+      return { jobs: jobs.map((job) => ({ ...job, jobId: String(job._id) })), total, page, limit, pages: Math.ceil(total / limit), sources: await this.publicSources() };
+    }
+    const jobs = Array.from(inMemoryJobs.values()).filter((job) => {
+      if (new Date(job.expiresAt) <= new Date() || job.status === "closed") return false;
+      if (!enabledKeys.includes(job.sourceBoard)) return false;
+      if (q && ![job.title, job.company, ...(job.tags || []), ...(job.requirements || [])].join(" ").toLowerCase().includes(q.toLowerCase())) return false;
+      if (location && !(job.location || "").toLowerCase().includes(location.toLowerCase())) return false;
+      if (countryCode && job.structuredLocation?.countryCode !== countryCode.toUpperCase()) return false;
+      if (source && job.sourceBoard?.toLowerCase() !== source.toLowerCase()) return false;
+      if (remoteType && job.remoteType !== remoteType) return false;
+      return true;
+    }).sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
+    return { jobs: jobs.slice(skip, skip + limit).map(({ embedding: _embedding, ...job }) => ({ ...job, jobId: String(job._id || job.identityKey) })), total: jobs.length, page, limit, pages: Math.ceil(jobs.length / limit), sources: await this.publicSources() };
+  },
+
+  async sourceBudgets() {
+    return (await listSourceRecords()).map((source) => ({
+      key: source.key,
+      displayName: source.displayName,
+      enabled: Boolean(source.enabled && source.approved && isSourcePolicyComplete(source)),
+      approved: Boolean(source.approved),
+      quota: source.quota,
+      quotaUsed: new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : (source.quotaUsed || 0),
+      quotaRemaining: Math.max(0, source.quota.requestsPerDay - (new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : (source.quotaUsed || 0))),
+      quotaResetsAt: new Date(dayStart().getTime() + 86400000),
+      runState: source.runState || "idle",
+      lastSuccessAt: source.lastSuccessAt || null,
+      lastErrorCode: source.lastErrorCode || "",
+      metrics: source.metrics || {},
+      attributionText: source.attributionText,
+      attributionUrl: source.attributionUrl,
+      termsVerifiedAt: source.termsVerifiedAt,
+    }));
+  },
+
+  async publicSources() {
+    const sources = await listSourceRecords({ enabledOnly: true });
+    return sources.map((source) => ({
+      key: source.key,
+      displayName: source.displayName,
+      attributionText: source.attributionText,
+      attributionUrl: source.attributionUrl,
+    }));
+  },
+
+  async setSourceEnabled(sourceKey, enabled) {
+    if (!isMongoReady()) {
+      const error = new Error("Job source controls require MongoDB.");
+      error.statusCode = 503;
+      error.code = "SOURCE_REGISTRY_UNAVAILABLE";
+      throw error;
+    }
+    const source = await JobSource.findOne({ key: sourceKey }).lean();
+    if (!source || !source.approved || !isSourcePolicyComplete(source)) {
+      const error = new Error("This source has not passed the approved source policy gate.");
+      error.statusCode = 404;
+      error.code = "SOURCE_NOT_APPROVED";
+      throw error;
+    }
+    await JobSource.updateOne({ key: sourceKey }, { $set: { enabled: Boolean(enabled), runState: enabled ? "idle" : "disabled" } });
+    return this.sourceBudgets();
   },
 };

@@ -79,16 +79,15 @@ flowchart LR
 
 All stateful graph executions utilize `@langchain/langgraph-checkpoint-mongodb`, enabling jobs to pause for human approval, recover from server restarts, and stream progress events over SSE.
 
-### Graph A: Scheduled Job Discovery
+### Graph A: Catalog Ingestion and Discovery
 
-1. **Fetch**: Query public job APIs (Adzuna, RemoteOK, Greenhouse, Lever, Ashby) with rate limiters.
-2. **Deduplicate**: Compute SHA256 of normalized title, company, and location. Skip already ingested jobs.
-3. **Embed Once**: Compute vector embedding via Voyage/OpenAI once per unique job; index in Atlas Vector Search (shared across all users).
-4. **Vector Match**: Cosine similarity against candidate profile embeddings.
-5. **Rule Filter**: Strict filtering on location, salary expectations, and remote preferences.
-6. **Rerank**: Small model (Haiku) reranks top 30 truncated job descriptions.
-7. **Explain Top 10**: Generate match rationales and skill gap analyses.
-8. **Store & Digest**: Precompute dashboard matches and queue daily email digest.
+1. **Scheduled fetch**: BullMQ worker runs enabled, approved source registry entries; current feeds are Remote OK, Remotive, and Jobicy. User discovery requests never fetch listings.
+2. **Normalize and deduplicate**: Identity is `(source, sourceJobId)`, then source canonical URL, then normalized company/title/location. Embedding similarity is not used for dedupe.
+3. **Embed only changed text**: New/changed job text is embedded in batches; unchanged content reuses its vector, and cache keys include provider/model/dimension.
+4. **Bounded retrieval**: Mongo applies active/expiry and available structured location/work-mode/salary/occupation filters, then caps candidates before deterministic vector and skill scoring.
+5. **Store and serve**: Match records are persisted in MongoDB. Discovery is deterministic and LLM-free in its hot path.
+
+See [`JOB_CATALOG_INGESTION.md`](./JOB_CATALOG_INGESTION.md) for source terms, daily quotas, migration/rollback, costs, storage sizing, and known limits.
 
 ### Graph B: Resume Tailoring with Mandatory Truthfulness
 

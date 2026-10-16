@@ -13,6 +13,8 @@ adminRouter.use(requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]));
 adminRouter.get("/metrics", adminController.getMetrics);
 adminRouter.get("/users", adminController.listUsers);
 adminRouter.get("/jobs", adminController.listJobs);
+adminRouter.get("/jobs/sources", adminController.listJobSources);
+adminRouter.patch("/jobs/sources/:key", csrfProtection, adminController.updateJobSource);
 adminRouter.get("/audit", adminController.listAudit);
 adminRouter.post("/jobs/ingest", csrfProtection, heavyAiLimiter, adminController.ingestJobs);
 adminRouter.patch(

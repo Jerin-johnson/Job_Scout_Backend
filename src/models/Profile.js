@@ -46,6 +46,8 @@ const ProfileSchema = new mongoose.Schema(
       targetRoles: [{ type: String }],
       minimumSalaryUsd: { type: Number, default: 0 },
       preferredLocations: [{ type: String }],
+      preferredCountryCodes: [{ type: String, uppercase: true }],
+      occupationCodes: [{ type: String }],
       remotePreference: {
         type: String,
         enum: ["remote", "hybrid", "onsite", "any"],

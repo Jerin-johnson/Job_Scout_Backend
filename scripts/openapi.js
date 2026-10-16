@@ -210,11 +210,13 @@ async function generateOpenApi() {
       "/api/v1/jobs/catalog": {
         get: {
           summary: "Search the paginated catalog of indexed jobs",
+          description: "Search only active jobs indexed from approved, enabled sources; this catalog is not the whole internet. Results include source and posted date.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: "q", in: "query", schema: { type: "string" } },
             { name: "location", in: "query", schema: { type: "string" } },
+            { name: "countryCode", in: "query", schema: { type: "string", pattern: "^[A-Za-z]{2}$" } },
             { name: "source", in: "query", schema: { type: "string" } },
             {
               name: "remoteType",
@@ -720,6 +722,31 @@ async function generateOpenApi() {
           responses: {
             200: { description: "Paginated job inventory" },
             403: { description: "Admin role required" },
+          },
+        },
+      },
+      "/api/v1/admin/jobs/sources": {
+        get: {
+          summary: "List job source policies, budgets, and ingestion health (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Source approval state, daily quota use, metrics, and health" },
+            403: { description: "Admin role required" },
+          },
+        },
+      },
+      "/api/v1/admin/jobs/sources/{key}": {
+        patch: {
+          summary: "Enable or disable an already approved source (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "key", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["enabled"], properties: { enabled: { type: "boolean" } } } } } },
+          responses: {
+            200: { description: "Updated source switch and current source budgets" },
+            403: { description: "Admin role required" },
+            404: { description: "Source is unknown or has not passed the policy gate" },
           },
         },
       },

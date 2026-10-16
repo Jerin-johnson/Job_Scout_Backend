@@ -77,6 +77,7 @@ export const jobController = {
       const filters = {
         q: String(req.query.q || "").trim(),
         location: String(req.query.location || "").trim(),
+        countryCode: String(req.query.countryCode || "").trim(),
         source: String(req.query.source || "").trim(),
         remoteType: String(req.query.remoteType || "").trim(),
       };

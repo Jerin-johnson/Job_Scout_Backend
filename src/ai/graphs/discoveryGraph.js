@@ -5,6 +5,8 @@ import { Match } from "../../models/Match.js";
 import { isMongoReady } from "../../config/database.js";
 import { logger } from "../../shared/utils/logger.js";
 import { acceptQuota } from "../../middleware/quotaGate.js";
+import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
+import { computeSha256 } from "../../shared/utils/crypto.js";
 
 const inMemoryMatches = [];
 
@@ -28,13 +30,8 @@ export const discoveryGraph = {
 
     await acceptQuota(user, "match_jobs", idempotencyKey || `discovery:${userId}:${Date.now()}`);
 
-    // 2. Fetch all ingested jobs
-    let jobs = await jobIngestionService.getAllJobs();
-    if (jobs.length === 0) {
-      // Trigger fresh ingestion if empty
-      const ingested = await jobIngestionService.ingestAll({ user, requestId });
-      jobs = ingested.jobs || [];
-    }
+    // Discovery is read-only with respect to the catalog. Scheduled workers own ingestion.
+    const jobs = await jobIngestionService.getCandidateJobs({ profile, limit: 300 });
 
     if (jobs.length === 0) {
       return { matches: [] };
@@ -44,8 +41,15 @@ export const discoveryGraph = {
     const skillsList = (profile.skills || []).map((s) => s.name).join(", ");
     const rolesList = (profile.roles || []).map((r) => r.title).join(", ");
     const profileText = `Roles: ${rolesList}. Skills: ${skillsList}. Preferred: ${(profile.preferences?.targetRoles || []).join(", ")}`;
-    const { vector: profileEmbedding, metadata: profileEmbeddingMetadata } =
-      await embeddingService.getEmbeddingWithMetadata(profileText, { user, feature: "match_jobs", requestId });
+    const profileHash = computeSha256(profileText);
+    const config = embeddingService.getConfig();
+    const profileCacheKey = CacheKeys.embedding(profileHash, config.provider, config.model, config.dimension);
+    let profileEmbeddingResult = await get(profileCacheKey);
+    if (!profileEmbeddingResult?.vector || !profileEmbeddingResult?.metadata) {
+      profileEmbeddingResult = await embeddingService.getEmbeddingWithMetadata(profileText, { user, feature: "match_jobs", requestId });
+      await set(profileCacheKey, profileEmbeddingResult, TTL.VERSION);
+    }
+    const { vector: profileEmbedding, metadata: profileEmbeddingMetadata } = profileEmbeddingResult;
 
     // 4. Vector Match: Cosine similarity
     const vectorMatches = jobs.map((job) => {
@@ -113,7 +117,9 @@ export const discoveryGraph = {
         userId,
         jobId: job._id ? job._id.toString() : job.contentHash,
         score: calculatedScore,
-        rationale: `Strong alignment with ${matching.join(", ") || "core architecture requirements"}.`,
+        rationale: matching.length
+          ? `Relevant requirements include ${matching.join(", ")}.`
+          : "Ranked by role and profile similarity; compare the listed requirements before applying.",
         matchingSkills: matching,
         missingSkills: missing,
         jobDetails: {

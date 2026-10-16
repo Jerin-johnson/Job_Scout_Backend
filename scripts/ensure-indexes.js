@@ -5,6 +5,8 @@ import { InterviewMessage } from "../src/models/InterviewMessage.js";
 import { InterviewReport } from "../src/models/InterviewReport.js";
 import { User } from "../src/models/User.js";
 import { Application } from "../src/models/Application.js";
+import { Job } from "../src/models/Job.js";
+import { JobSource } from "../src/models/JobSource.js";
 
 async function ensureIndexes() {
   logger.info("Starting index synchronization on MongoDB Atlas...");
@@ -60,6 +62,8 @@ async function ensureIndexes() {
     InterviewMessage.createIndexes(),
     InterviewReport.createIndexes(),
     Application.createIndexes(),
+    Job.createIndexes(),
+    JobSource.createIndexes(),
   ]);
 
   logger.info("All collection indexes synchronized successfully.");

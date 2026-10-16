@@ -69,6 +69,7 @@ export const CacheKeys = {
   embedding: (hash, provider = "legacy", model = "unknown", dimension = "unknown") =>
     `${CACHE_NAMESPACE}emb:${provider}:${model}:${dimension}:${hash}`,
   company: (slug) => `${CACHE_NAMESPACE}co:${slug}`,
+  jobDemand: () => `${CACHE_NAMESPACE}job-demand:v1`,
   resumeParse: (fileHash) => `${CACHE_NAMESPACE}rp:${fileHash}`,
   board: (userId, ver) => `${CACHE_NAMESPACE}board:${userId}:v${ver}`,
   lock: (key) => `${CACHE_NAMESPACE}lock:${key}`,
