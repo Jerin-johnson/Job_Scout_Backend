@@ -49,6 +49,18 @@ The frontend is static/server rendered where appropriate and makes authenticated
 
 These are scale options, not current deployed capacity commitments. Use observed latency, queue age, Mongo explain plans, Redis utilization and provider spend before increasing resources.
 
+### Marginal catalog cost scenarios
+
+Production monthly invoices cannot be calculated from this repository because the MongoDB/Redis/worker hosting tiers, region, replica counts, ingestion cadence and provider billing account are not specified. The following bounded estimate isolates embedding API spend and catalog document volume; it is not a total infrastructure bill. It uses the configured `text-embedding-3-small` rate of $0.02 per million input tokens and a measured 6,174-byte average raw description (~1,544 tokens at an illustrative four characters/token). It assumes every job is new or changed in the month; because the worker caches/embeds only changed jobs, 10% monthly change costs one tenth.
+
+| Catalog jobs | Logical BSON size at 28,807 bytes/job | One full new/changed pass of embeddings | At 10% monthly change |
+|---:|---:|---:|---:|
+| 10,000 | ~0.29 GB | ~$0.31/month | ~$0.03/month |
+| 100,000 | ~2.88 GB | ~$3.09/month | ~$0.31/month |
+| 1,000,000 | ~28.81 GB | ~$30.88/month | ~$3.09/month |
+
+The token estimate uses raw-description bytes only; title, company and requirements add a small amount, while provider tokenization may differ. The measured document size includes the existing 1,536-dimension vector and raw description. BSON volume excludes indexes, MongoDB compression, replication, backups and storage tier minimums. Source API costs are zero for the currently configured public feeds within their allowed quotas, but quota limits and terms still apply. API/worker compute, MongoDB, Redis, S3, backups, logs, and bandwidth are **Unverified** and excluded; use the actual provider bill before capacity or budget decisions. Cost controls are content-hash skip, batching, changed-only embeddings, bounded candidate retrieval, and no per-job LLM scoring.
+
 ### Current architecture: one API and one worker process
 
 - Keep API and worker as distinct processes, even if they share an image, so expensive ingestion cannot block request handling.
