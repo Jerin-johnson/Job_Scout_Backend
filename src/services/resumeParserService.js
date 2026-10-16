@@ -10,7 +10,7 @@ import { userRepository } from "../repositories/userRepository.js";
 import { enqueueMatchRefreshForUser } from "./matchRefreshService.js";
 import { storageService } from "./storageService.js";
 import { logger } from "../shared/utils/logger.js";
-import { parseExperienceRoles } from "./resumeRoleParser.js";
+import { getExperienceSectionMetrics, parseExperienceRoles } from "./resumeRoleParser.js";
 
 export const extractedFactsSchema = z.object({
   // Strict structured output requires every object property. Represent unknown
@@ -115,7 +115,7 @@ export function groundFacts(extracted, sourceText, deterministicRoles = parseExp
     skills: extracted.skills.filter((skill) => !isGrounded(skill.name, sourceText)).length,
     education: extracted.education.filter((item) => !isGrounded(item.degree, sourceText)).length,
   };
-  return { facts: { roles, skills, education }, rejected };
+  return { facts: { roles, skills, education }, rejected, stageCounts: { modelRoles: extracted.roles.length, groundedModelRoles: modelRoles.length, deterministicRoles: deterministicRoles.length, combinedRoles: roles.length } };
 }
 
 function factCount(facts) {
@@ -207,7 +207,7 @@ export const resumeParserService = {
     }
     const grounded = groundFacts(extracted, rawText, deterministicRoles);
     let facts = grounded.facts;
-    logger.info({ cacheHit, rejected: grounded.rejected, ...(usage ? { provider: usage.provider, model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd, usageIsEstimated: usage.usageIsEstimated } : {}) }, "Resume facts grounded");
+    logger.info({ cacheHit, textCharacters: rawText.length, sections: getExperienceSectionMetrics(rawText), ...grounded.stageCounts, rejected: grounded.rejected, ...(usage ? { provider: usage.provider, model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd, usageIsEstimated: usage.usageIsEstimated } : {}) }, "Resume extraction stage counts");
     if (factCount(facts) === 0) {
         const err = new Error(
           "We could not find verifiable work, skills, or education details in this file. Use a text-based PDF or DOCX and try again.",
@@ -249,6 +249,7 @@ export const resumeParserService = {
     });
 
     const profile = await profileRepository.upsertProfile(userId, facts);
+    logger.info({ savedRoleCount: Array.isArray(profile.roles) ? profile.roles.length : facts.roles.length, savedSkillCount: Array.isArray(profile.skills) ? profile.skills.length : facts.skills.length, savedEducationCount: Array.isArray(profile.education) ? profile.education.length : facts.education.length }, "Resume facts saved");
     const updatedUser = await userRepository.bumpProfileVersion(userId);
     if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
 
