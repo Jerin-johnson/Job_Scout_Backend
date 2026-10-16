@@ -99,6 +99,8 @@ Before this change, the local dev profile-shaped query returned 400 candidate do
 
 The old branch explains examined 403 documents / 462 keys across the separate role, skill and fallback operations. After the cap, the same profile-shaped path examined 123 documents / 179 keys in total: role and skill branches remained at 1 and 22 docs examined, while the recent fallback examined 100 documents / 104 keys. At the 100-row fallback limit, the bounded recent query examined one document per returned fallback candidate. All measurements were read-only against the local development catalog; no profile terms or job identifiers were emitted.
 
+A warmed local rerun of `getCandidateJobs` (30 sequential calls, 120 results each) measured p50 18.1 ms and p95 26.2 ms. Serializing the 120 candidate objects yielded 912,903 bytes. With explicit GC before and after the loop, process heap grew from 32.39 MiB to 36.66 MiB (4.28 MiB retained over 30 calls); this is process-level retained heap, not an isolated per-request allocation or production memory target. The earlier before-cap candidate serialization was 15,866,759 bytes for 400 rows; the reduced payload is about 94.2%. There is no comparable pre-change 30-run p95 or GC-normalized heap baseline in the available measurements.
+
 Winning plan and execution-stage outline for each branch (MongoDB 8 `executionStats`, profile values omitted):
 
 The redacted full MongoDB explain trees, including winning/rejected plans and execution stages, are in [JOB_MATCHING_EXPLAIN.json](./JOB_MATCHING_EXPLAIN.json). Profile-derived literals, job IDs, filters, and index bounds are removed; execution counters and plan structure are retained.
