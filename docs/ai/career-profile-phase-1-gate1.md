@@ -203,6 +203,7 @@ The proposed schema is additive. Rollback disables the career-profile API/UI fea
 
 ## Gate 2 quality gates
 
-- Keep `lexical-v2` as the default and put `lexical-v3` behind a version flag. Compare both against all existing fixtures and the new profile-shaped fixtures; ship v3 only if no existing fixture regresses and the new fixtures improve. Report the fixture-level table; do not retune weights.
+- **Current-code finding:** `src/services/jobs/matching.js` sets `MATCH_SCORE_VERSION` to `lexical-v3` unconditionally. The `lexical-v2` implementation is recoverable at commit `88bec63`; the v3 change set adds role normalization, adjusts unknown experience handling, and raises the Fair threshold. Therefore Gate 2 must restore a side-by-side v2/v3 evaluator and a default-v2 version flag before it can satisfy the approved ship criterion. Do not treat the current default as already approved.
+- Compare both versions against all existing fixtures and the new profile-shaped fixtures; ship v3 only if no existing fixture regresses and the new fixtures improve. Report the fixture-level table; do not retune weights.
 - Update AI inventory, matching engine, evaluation, failure modes, data inventory, and ADRs with implementation details. Run `npm run docs:check` and full tests.
 - Do not implement eligibility, a gazetteer, INR display before confirmation, provider personalization, or new dependencies/data/infrastructure in this phase.
