@@ -1,0 +1,11 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): request precheck, provider use, awaited event; monthly shadow only
+%% Target design (not built yet): atomic reservation and reconciliation
+flowchart TD
+  R[AI request] --> K[Kill switch + Redis availability]
+  K --> D[Daily user/global + feature limits]
+  D --> M[Monthly allowance shadow log]
+  M --> P[Provider call]
+  P --> L[UsageEvent success/partial/failure]
+  M -. target .-> A[Atomic reservation]
+  L -. target .-> S[Settle actual usage and reconcile]

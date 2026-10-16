@@ -46,12 +46,17 @@ const ProfileSchema = new mongoose.Schema(
       targetRoles: [{ type: String }],
       minimumSalaryUsd: { type: Number, default: 0 },
       preferredLocations: [{ type: String }],
+      preferredCountryCodes: [{ type: String, uppercase: true }],
+      occupationCodes: [{ type: String }],
       remotePreference: {
         type: String,
         enum: ["remote", "hybrid", "onsite", "any"],
         default: "any",
       },
     },
+    // Additive v1 profile surface. Validation and size bounds live in the
+    // profile controller; optional and intentionally has no prefilled values.
+    careerProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     version: {
       type: Number,
       default: 1,

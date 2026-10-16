@@ -3,7 +3,7 @@ import pinoHttp from "pino-http";
 import { nanoid } from "nanoid";
 import { env } from "../../config/env.js";
 
-const redactPaths = [
+export const redactPaths = [
   "req.headers.authorization",
   "req.headers.cookie",
   "req.headers['x-api-key']",
@@ -15,6 +15,13 @@ const redactPaths = [
   "body.rawText",
   "body.email",
   "body.creditCard",
+  "req.body.answer",
+  "req.body.candidateAnswer",
+  "req.body.prompt",
+  "req.body.jobDescription",
+  "req.body.resumeText",
+  "req.body.rawText",
+  "req.body.content",
 ];
 
 export const logger = pino({
@@ -38,8 +45,7 @@ export const httpLogger = pinoHttp({
     return "info";
   },
   customSuccessMessage: (req, res) => `${req.method} ${req.url} completed with ${res.statusCode}`,
-  customErrorMessage: (req, res, err) =>
-    `${req.method} ${req.url} failed with error: ${err.message}`,
+  customErrorMessage: (req, res) => `${req.method} ${req.url} failed with status ${res.statusCode}`,
   redact: {
     paths: redactPaths,
     censor: "[REDACTED]",

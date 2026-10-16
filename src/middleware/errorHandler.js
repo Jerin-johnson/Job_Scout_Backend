@@ -5,13 +5,22 @@ import { env } from "../config/env.js";
 
 export function errorHandler(err, req, res, _next) {
   const requestId = req.id || req.headers["x-request-id"] || "req_unknown";
+  const isInterviewRequest = req.originalUrl?.startsWith("/api/v1/interview/sessions");
 
   // Capture unexpected 5xx errors to Sentry
   if (!err.statusCode || err.statusCode >= 500) {
     if (env.SENTRY_DSN) {
-      Sentry.captureException(err, { extra: { requestId } });
+      if (isInterviewRequest)
+        Sentry.captureMessage("Interview request failed", { extra: { requestId, code: err.code } });
+      else Sentry.captureException(err, { extra: { requestId } });
     }
-    logger.error({ err, requestId, url: req.url, method: req.method }, "Unhandled server error");
+    if (isInterviewRequest)
+      logger.error(
+        { code: err.code, statusCode: err.statusCode, requestId, url: req.url, method: req.method },
+        "Interview request failed",
+      );
+    else
+      logger.error({ err, requestId, url: req.url, method: req.method }, "Unhandled server error");
   }
 
   // Handle Zod Validation Errors

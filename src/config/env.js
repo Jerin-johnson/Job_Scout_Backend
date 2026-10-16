@@ -3,7 +3,8 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  PORT: z.coerce.number().default(4000),
+  JOB_MATCH_SCORE_VERSION: z.enum(["lexical-v2", "lexical-v3"]).default("lexical-v2"),
+  PORT: z.coerce.number().default(4001),
   HOST: z.string().default("0.0.0.0"),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   SUPER_ADMIN_EMAIL: z.string().email().optional().or(z.literal("")),
@@ -30,19 +31,58 @@ const envSchema = z.object({
 
   // AI Models & Gateways
   ANTHROPIC_API_KEY: z.string().default("dummy_anthropic_key_for_dev"),
-  LLM_PROVIDER: z.enum(["anthropic", "gemini"]).default("gemini"),
+  LLM_PROVIDER: z.enum(["anthropic", "gemini", "groq"]).default("groq"),
+  ANTHROPIC_MODEL_SMALL: z.string().default("claude-3.0-100k"),
+  ANTHROPIC_MODEL_STRONG: z.string().default("claude-3.0-100k"),
+  ANTHROPIC_DATA_POLICY_CLASS: z.enum(["unpaid_free_tier", "paid_api"]).default("unpaid_free_tier"),
   GEMINI_API_KEY: z.string().optional().default(""),
-  GEMINI_MODEL_SMALL: z.string().default("gemini-3.1-flash-lite"),
-  GEMINI_MODEL_STRONG: z.string().default("gemini-3.1-flash-lite"),
-  MODEL_SMALL: z.string().default("claude-3-5-haiku-20241022"),
-  MODEL_STRONG: z.string().default("claude-3-5-sonnet-20241022"),
+  GEMINI_MODEL_SMALL: z.string().default("gemini-3.5-flash-lite"),
+  GEMINI_MODEL_STRONG: z.string().default("gemini-3.5-flash-lite"),
+  GEMINI_DATA_POLICY_CLASS: z.enum(["unpaid_free_tier", "paid_api"]).default("unpaid_free_tier"),
+  GROQ_API_KEY: z.string().optional().default(""),
+  GROQ_MODEL_SMALL: z.string().default("openai/gpt-oss-20b"),
+  GROQ_MODEL_STRONG: z.string().default("openai/gpt-oss-120b"),
+  GROQ_DATA_POLICY_CLASS: z.enum(["unpaid_free_tier", "paid_api"]).default("unpaid_free_tier"),
+  MODEL_SMALL: z.string().default(""),
+  MODEL_STRONG: z.string().default(""),
   EMBEDDING_PROVIDER: z.enum(["voyage", "openai"]).default("openai"),
+  OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  OPENAI_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(3072).default(1536),
+  VOYAGE_EMBEDDING_MODEL: z.string().default("voyage-large-2-instruct"),
+  VOYAGE_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(4096).default(1024),
+  JOB_EMBEDDINGS_ENABLED: z.string().transform((value) => value === "true").default("false"),
+  AI_ALLOW_MOCKS: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
+  AI_BLOCK_UNPAID_PERSONAL_DATA: z
+    .string()
+    .transform((value) => value !== "false")
+    .default("true"),
+  AI_MONTHLY_ALLOWANCE_SHADOW_MODE: z
+    .string()
+    .transform((value) => value !== "false")
+    .default("true"),
+  AI_MONTHLY_ALLOWANCE_SHADOW_RATIO: z.coerce.number().finite().positive().max(1).default(0.25),
+  AI_PROVIDER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
+  ORPHAN_RESUME_CLEANUP_AFTER_HOURS: z.coerce.number().int().min(1).max(8760).default(24),
+  ORPHAN_RESUME_CLEANUP_DELETE_ENABLED: z.string().transform((value) => value === "true").default("false"),
   OPENAI_API_KEY: z.string().optional().default("dummy_openai_key"),
   VOYAGE_API_KEY: z.string().optional().default(""),
 
   // Cost & Guardrails
-  DAILY_USER_USD_BUDGET: z.coerce.number().default(5.0),
-  GLOBAL_DAILY_USD_CAP: z.coerce.number().default(500.0),
+  DAILY_USER_USD_BUDGET: z.coerce.number().finite().positive().default(5.0),
+  GLOBAL_DAILY_USD_CAP: z.coerce.number().finite().positive().default(500.0),
+  MOCK_INTERVIEW_PREMIUM_DAILY_LIMIT: z.coerce.number().int().min(1).default(3),
+  MOCK_INTERVIEW_SESSION_TOKEN_CAP: z.coerce.number().int().min(1000).default(12000),
+  MOCK_INTERVIEW_FREE_TRIAL_ENABLED: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
+  MOCK_INTERVIEW_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
+  MOCK_INTERVIEW_QUESTION_TIER: z.enum(["small", "strong"]).default("small"),
+  MOCK_INTERVIEW_EVALUATION_TIER: z.enum(["small", "strong"]).default("small"),
+  MOCK_INTERVIEW_REPORT_TIER: z.enum(["small", "strong"]).default("strong"),
   AI_KILL_SWITCH: z
     .string()
     .transform((val) => val === "true")
@@ -89,6 +129,7 @@ const envSchema = z.object({
     .string()
     .transform((val) => val === "true")
     .default("true"),
+  JOBS_RECENT_FALLBACK_LIMIT: z.coerce.number().int().min(0).max(400).default(100),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

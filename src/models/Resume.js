@@ -35,6 +35,12 @@ const ResumeSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    factsSummary: {
+      roles: { type: Number, default: 0 },
+      skills: { type: Number, default: 0 },
+      education: { type: Number, default: 0 },
+      totalFacts: { type: Number, default: 0 },
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -44,5 +50,7 @@ const ResumeSchema = new mongoose.Schema(
     timestamps: false,
   },
 );
+
+ResumeSchema.index({ userId: 1, s3Key: 1 }, { unique: true });
 
 export const Resume = mongoose.models.Resume || mongoose.model("Resume", ResumeSchema);

@@ -1,0 +1,11 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): feature call -> catalog/policy/quota -> provider -> awaited ledger
+%% Target design (not built yet): feature policy registry and server-authorized tools
+flowchart LR
+  F[Feature caller] --> I[invokeLLM or streamLLM]
+  I --> C[Provider/model catalog + data policy]
+  C --> Q[Kill switch and quota]
+  Q --> P[Gemini / Groq / Anthropic adapter]
+  P --> U[Awaited UsageEvent]
+  Q -. target .-> PR[Atomic reserve/settle]
+  P -. target .-> T[Allowlisted server-side tools]

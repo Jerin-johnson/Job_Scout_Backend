@@ -1,0 +1,2195 @@
+{
+  "measuredAt": "2026-10-16T12:48:46.630Z",
+  "databaseNamespace": "Irowz_Scout_Dev.jobs",
+  "redactions": "Profile-derived query literals, job IDs, filters, and index bounds are redacted; plan structure and execution statistics are preserved.",
+  "candidateCap": 400,
+  "lexicalCandidateCount": 20,
+  "finalCandidates": 400,
+  "branches": [
+    {
+      "name": "role-title-occupation",
+      "queryPlanner": {
+        "namespace": "Irowz_Scout_Dev.jobs",
+        "winningPlan": {
+          "stage": "LIMIT",
+          "limitAmount": 400,
+          "isCached": true,
+          "inputStage": {
+            "stage": "PROJECTION_SIMPLE",
+            "inputStage": {
+              "stage": "FETCH",
+              "filter": "<filter values redacted>",
+              "inputStage": {
+                "stage": "IXSCAN",
+                "indexName": "job_candidate_title_recent",
+                "keyPattern": {
+                  "status": 1,
+                  "features.titleTokens": 1,
+                  "postedAt": -1
+                },
+                "direction": "forward",
+                "isMultiKey": true,
+                "indexVersion": 2,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexBounds": {
+                  "status": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "features.titleTokens": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "postedAt": [
+                    "<profile/job-specific bound redacted>"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "rejectedPlans": [
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "sourceBoard_1",
+                  "keyPattern": {
+                    "sourceBoard": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "remoteType_1_postedAt_-1",
+                  "keyPattern": {
+                    "remoteType": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "expiresAt_1",
+                  "keyPattern": {
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "status_1",
+                  "keyPattern": {
+                    "status": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_occupation",
+                  "keyPattern": {
+                    "status": 1,
+                    "expiresAt": 1,
+                    "occupationCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "occupationCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_active_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "expiresAt": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_source_coverage",
+                  "keyPattern": {
+                    "sourceBoard": 1,
+                    "status": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_location_mode",
+                  "keyPattern": {
+                    "status": 1,
+                    "structuredLocation.countryCode": 1,
+                    "remoteType": 1,
+                    "expiresAt": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "structuredLocation.countryCode": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_recent_feed",
+                  "keyPattern": {
+                    "status": 1,
+                    "sourceBoard": 1,
+                    "postedAt": -1,
+                    "_id": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "_id": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_features_title_active",
+                  "keyPattern": {
+                    "features.titleTokens": 1,
+                    "status": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "features.titleTokens": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_skills_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "features.skills": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "features.skills": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "remoteType_1",
+                  "keyPattern": {
+                    "remoteType": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_occupation_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "occupationCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "occupationCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_eligible_country_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "structuredLocation.eligibleCountryCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "structuredLocation.eligibleCountryCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "executionStats": {
+        "executionSuccess": true,
+        "nReturned": 1,
+        "executionTimeMillis": 11,
+        "totalKeysExamined": 3,
+        "totalDocsExamined": 1,
+        "executionStages": {
+          "stage": "LIMIT",
+          "nReturned": 1,
+          "works": 4,
+          "advanced": 1,
+          "needTime": 1,
+          "needYield": 0,
+          "saveState": 0,
+          "restoreState": 0,
+          "isEOF": 1,
+          "limitAmount": 400,
+          "isCached": true,
+          "inputStage": {
+            "stage": "PROJECTION_SIMPLE",
+            "nReturned": 1,
+            "works": 4,
+            "advanced": 1,
+            "needTime": 1,
+            "needYield": 0,
+            "saveState": 0,
+            "restoreState": 0,
+            "isEOF": 1,
+            "inputStage": {
+              "stage": "FETCH",
+              "nReturned": 1,
+              "docsExamined": 1,
+              "works": 4,
+              "advanced": 1,
+              "needTime": 1,
+              "needYield": 0,
+              "saveState": 0,
+              "restoreState": 0,
+              "isEOF": 1,
+              "filter": "<filter values redacted>",
+              "inputStage": {
+                "stage": "IXSCAN",
+                "indexName": "job_candidate_title_recent",
+                "keyPattern": {
+                  "status": 1,
+                  "features.titleTokens": 1,
+                  "postedAt": -1
+                },
+                "direction": "forward",
+                "isMultiKey": true,
+                "nReturned": 1,
+                "keysExamined": 3,
+                "works": 3,
+                "advanced": 1,
+                "needTime": 1,
+                "needYield": 0,
+                "saveState": 0,
+                "restoreState": 0,
+                "isEOF": 1,
+                "dupsTested": 1,
+                "dupsDropped": 0,
+                "indexVersion": 2,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexBounds": {
+                  "status": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "features.titleTokens": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "postedAt": [
+                    "<profile/job-specific bound redacted>"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "skills",
+      "queryPlanner": {
+        "namespace": "Irowz_Scout_Dev.jobs",
+        "winningPlan": {
+          "stage": "LIMIT",
+          "limitAmount": 400,
+          "isCached": true,
+          "inputStage": {
+            "stage": "PROJECTION_SIMPLE",
+            "inputStage": {
+              "stage": "FETCH",
+              "filter": "<filter values redacted>",
+              "inputStage": {
+                "stage": "IXSCAN",
+                "indexName": "job_candidate_skills_recent",
+                "keyPattern": {
+                  "status": 1,
+                  "features.skills": 1,
+                  "postedAt": -1
+                },
+                "direction": "forward",
+                "isMultiKey": true,
+                "indexVersion": 2,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexBounds": {
+                  "status": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "features.skills": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "postedAt": [
+                    "<profile/job-specific bound redacted>"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "rejectedPlans": [
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "sourceBoard_1",
+                  "keyPattern": {
+                    "sourceBoard": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "remoteType_1_postedAt_-1",
+                  "keyPattern": {
+                    "remoteType": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "expiresAt_1",
+                  "keyPattern": {
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "status_1",
+                  "keyPattern": {
+                    "status": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_occupation",
+                  "keyPattern": {
+                    "status": 1,
+                    "expiresAt": 1,
+                    "occupationCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "occupationCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_active_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "expiresAt": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_source_coverage",
+                  "keyPattern": {
+                    "sourceBoard": 1,
+                    "status": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_location_mode",
+                  "keyPattern": {
+                    "status": 1,
+                    "structuredLocation.countryCode": 1,
+                    "remoteType": 1,
+                    "expiresAt": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "structuredLocation.countryCode": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_recent_feed",
+                  "keyPattern": {
+                    "status": 1,
+                    "sourceBoard": 1,
+                    "postedAt": -1,
+                    "_id": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "_id": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_features_skills_active",
+                  "keyPattern": {
+                    "features.skills": 1,
+                    "status": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "features.skills": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "remoteType_1",
+                  "keyPattern": {
+                    "remoteType": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_title_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "features.titleTokens": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "features.titleTokens": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_occupation_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "occupationCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "occupationCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "LIMIT",
+            "limitAmount": 400,
+            "isCached": false,
+            "inputStage": {
+              "stage": "PROJECTION_SIMPLE",
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_eligible_country_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "structuredLocation.eligibleCountryCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "structuredLocation.eligibleCountryCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "executionStats": {
+        "executionSuccess": true,
+        "nReturned": 19,
+        "executionTimeMillis": 7,
+        "totalKeysExamined": 72,
+        "totalDocsExamined": 22,
+        "executionStages": {
+          "stage": "LIMIT",
+          "nReturned": 19,
+          "works": 73,
+          "advanced": 19,
+          "needTime": 52,
+          "needYield": 0,
+          "saveState": 0,
+          "restoreState": 0,
+          "isEOF": 1,
+          "limitAmount": 400,
+          "isCached": true,
+          "inputStage": {
+            "stage": "PROJECTION_SIMPLE",
+            "nReturned": 19,
+            "works": 73,
+            "advanced": 19,
+            "needTime": 52,
+            "needYield": 0,
+            "saveState": 0,
+            "restoreState": 0,
+            "isEOF": 1,
+            "inputStage": {
+              "stage": "FETCH",
+              "nReturned": 19,
+              "docsExamined": 22,
+              "works": 73,
+              "advanced": 19,
+              "needTime": 52,
+              "needYield": 0,
+              "saveState": 0,
+              "restoreState": 0,
+              "isEOF": 1,
+              "filter": "<filter values redacted>",
+              "inputStage": {
+                "stage": "IXSCAN",
+                "indexName": "job_candidate_skills_recent",
+                "keyPattern": {
+                  "status": 1,
+                  "features.skills": 1,
+                  "postedAt": -1
+                },
+                "direction": "forward",
+                "isMultiKey": true,
+                "nReturned": 22,
+                "keysExamined": 72,
+                "works": 72,
+                "advanced": 22,
+                "needTime": 49,
+                "needYield": 0,
+                "saveState": 0,
+                "restoreState": 0,
+                "isEOF": 1,
+                "dupsTested": 34,
+                "dupsDropped": 12,
+                "indexVersion": 2,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexBounds": {
+                  "status": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "features.skills": [
+                    "<profile/job-specific bound redacted>"
+                  ],
+                  "postedAt": [
+                    "<profile/job-specific bound redacted>"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "recent-fallback",
+      "queryPlanner": {
+        "namespace": "Irowz_Scout_Dev.jobs",
+        "winningPlan": {
+          "stage": "LIMIT",
+          "limitAmount": 380,
+          "isCached": true,
+          "inputStage": {
+            "stage": "PROJECTION_SIMPLE",
+            "inputStage": {
+              "stage": "FETCH",
+              "filter": "<filter values redacted>",
+              "inputStage": {
+                "stage": "SORT_MERGE",
+                "sortPattern": {
+                  "postedAt": -1,
+                  "_id": 1
+                },
+                "inputStages": [
+                  {
+                    "stage": "IXSCAN",
+                    "indexName": "job_candidate_recent_feed",
+                    "keyPattern": {
+                      "status": 1,
+                      "sourceBoard": 1,
+                      "postedAt": -1,
+                      "_id": 1,
+                      "expiresAt": 1
+                    },
+                    "direction": "forward",
+                    "isMultiKey": false,
+                    "indexVersion": 2,
+                    "isUnique": false,
+                    "isSparse": false,
+                    "isPartial": false,
+                    "indexBounds": {
+                      "status": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "sourceBoard": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "postedAt": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "_id": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "expiresAt": [
+                        "<profile/job-specific bound redacted>"
+                      ]
+                    }
+                  },
+                  {
+                    "stage": "IXSCAN",
+                    "indexName": "job_candidate_recent_feed",
+                    "keyPattern": {
+                      "status": 1,
+                      "sourceBoard": 1,
+                      "postedAt": -1,
+                      "_id": 1,
+                      "expiresAt": 1
+                    },
+                    "direction": "forward",
+                    "isMultiKey": false,
+                    "indexVersion": 2,
+                    "isUnique": false,
+                    "isSparse": false,
+                    "isPartial": false,
+                    "indexBounds": {
+                      "status": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "sourceBoard": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "postedAt": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "_id": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "expiresAt": [
+                        "<profile/job-specific bound redacted>"
+                      ]
+                    }
+                  },
+                  {
+                    "stage": "IXSCAN",
+                    "indexName": "job_candidate_recent_feed",
+                    "keyPattern": {
+                      "status": 1,
+                      "sourceBoard": 1,
+                      "postedAt": -1,
+                      "_id": 1,
+                      "expiresAt": 1
+                    },
+                    "direction": "forward",
+                    "isMultiKey": false,
+                    "indexVersion": 2,
+                    "isUnique": false,
+                    "isSparse": false,
+                    "isPartial": false,
+                    "indexBounds": {
+                      "status": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "sourceBoard": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "postedAt": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "_id": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "expiresAt": [
+                        "<profile/job-specific bound redacted>"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "rejectedPlans": [
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "remoteType_1",
+                  "keyPattern": {
+                    "remoteType": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "sourceBoard_1",
+                  "keyPattern": {
+                    "sourceBoard": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "remoteType_1_postedAt_-1",
+                  "keyPattern": {
+                    "remoteType": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "expiresAt_1",
+                  "keyPattern": {
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "status_1",
+                  "keyPattern": {
+                    "status": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_occupation",
+                  "keyPattern": {
+                    "status": 1,
+                    "expiresAt": 1,
+                    "occupationCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "occupationCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_active_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "expiresAt": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_source_coverage",
+                  "keyPattern": {
+                    "sourceBoard": 1,
+                    "status": 1,
+                    "expiresAt": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "sourceBoard": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_location_mode",
+                  "keyPattern": {
+                    "status": 1,
+                    "structuredLocation.countryCode": 1,
+                    "remoteType": 1,
+                    "expiresAt": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "structuredLocation.countryCode": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "remoteType": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "expiresAt": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "_id_",
+                  "keyPattern": {
+                    "_id": 1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": false,
+                  "indexVersion": 2,
+                  "isUnique": true,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "_id": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_skills_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "features.skills": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "features.skills": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_title_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "features.titleTokens": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "features.titleTokens": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_occupation_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "occupationCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "occupationCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "stage": "PROJECTION_SIMPLE",
+            "isCached": false,
+            "inputStage": {
+              "stage": "SORT",
+              "sortPattern": {
+                "postedAt": -1,
+                "_id": 1
+              },
+              "limitAmount": 380,
+              "memLimit": 104857600,
+              "inputStage": {
+                "stage": "FETCH",
+                "filter": "<filter values redacted>",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "job_candidate_eligible_country_recent",
+                  "keyPattern": {
+                    "status": 1,
+                    "structuredLocation.eligibleCountryCodes": 1,
+                    "postedAt": -1
+                  },
+                  "direction": "forward",
+                  "isMultiKey": true,
+                  "indexVersion": 2,
+                  "isUnique": false,
+                  "isSparse": false,
+                  "isPartial": false,
+                  "indexBounds": {
+                    "status": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "structuredLocation.eligibleCountryCodes": [
+                      "<profile/job-specific bound redacted>"
+                    ],
+                    "postedAt": [
+                      "<profile/job-specific bound redacted>"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "executionStats": {
+        "executionSuccess": true,
+        "nReturned": 380,
+        "executionTimeMillis": 87,
+        "totalKeysExamined": 387,
+        "totalDocsExamined": 380,
+        "executionStages": {
+          "stage": "LIMIT",
+          "nReturned": 380,
+          "works": 768,
+          "advanced": 380,
+          "needTime": 387,
+          "needYield": 0,
+          "saveState": 4,
+          "restoreState": 4,
+          "isEOF": 1,
+          "limitAmount": 380,
+          "isCached": true,
+          "inputStage": {
+            "stage": "PROJECTION_SIMPLE",
+            "nReturned": 380,
+            "works": 767,
+            "advanced": 380,
+            "needTime": 387,
+            "needYield": 0,
+            "saveState": 4,
+            "restoreState": 4,
+            "isEOF": 0,
+            "inputStage": {
+              "stage": "FETCH",
+              "nReturned": 380,
+              "docsExamined": 380,
+              "works": 767,
+              "advanced": 380,
+              "needTime": 387,
+              "needYield": 0,
+              "saveState": 4,
+              "restoreState": 4,
+              "isEOF": 0,
+              "filter": "<filter values redacted>",
+              "inputStage": {
+                "stage": "SORT_MERGE",
+                "nReturned": 380,
+                "works": 767,
+                "advanced": 380,
+                "needTime": 387,
+                "needYield": 0,
+                "saveState": 4,
+                "restoreState": 4,
+                "isEOF": 0,
+                "dupsTested": 0,
+                "dupsDropped": 0,
+                "sortPattern": {
+                  "postedAt": -1,
+                  "_id": 1
+                },
+                "inputStages": [
+                  {
+                    "stage": "IXSCAN",
+                    "indexName": "job_candidate_recent_feed",
+                    "keyPattern": {
+                      "status": 1,
+                      "sourceBoard": 1,
+                      "postedAt": -1,
+                      "_id": 1,
+                      "expiresAt": 1
+                    },
+                    "direction": "forward",
+                    "isMultiKey": false,
+                    "nReturned": 375,
+                    "keysExamined": 378,
+                    "works": 378,
+                    "advanced": 375,
+                    "needTime": 3,
+                    "needYield": 0,
+                    "saveState": 4,
+                    "restoreState": 4,
+                    "isEOF": 0,
+                    "dupsTested": 0,
+                    "dupsDropped": 0,
+                    "indexVersion": 2,
+                    "isUnique": false,
+                    "isSparse": false,
+                    "isPartial": false,
+                    "indexBounds": {
+                      "status": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "sourceBoard": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "postedAt": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "_id": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "expiresAt": [
+                        "<profile/job-specific bound redacted>"
+                      ]
+                    }
+                  },
+                  {
+                    "stage": "IXSCAN",
+                    "indexName": "job_candidate_recent_feed",
+                    "keyPattern": {
+                      "status": 1,
+                      "sourceBoard": 1,
+                      "postedAt": -1,
+                      "_id": 1,
+                      "expiresAt": 1
+                    },
+                    "direction": "forward",
+                    "isMultiKey": false,
+                    "nReturned": 6,
+                    "keysExamined": 7,
+                    "works": 7,
+                    "advanced": 6,
+                    "needTime": 1,
+                    "needYield": 0,
+                    "saveState": 4,
+                    "restoreState": 4,
+                    "isEOF": 0,
+                    "dupsTested": 0,
+                    "dupsDropped": 0,
+                    "indexVersion": 2,
+                    "isUnique": false,
+                    "isSparse": false,
+                    "isPartial": false,
+                    "indexBounds": {
+                      "status": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "sourceBoard": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "postedAt": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "_id": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "expiresAt": [
+                        "<profile/job-specific bound redacted>"
+                      ]
+                    }
+                  },
+                  {
+                    "stage": "IXSCAN",
+                    "indexName": "job_candidate_recent_feed",
+                    "keyPattern": {
+                      "status": 1,
+                      "sourceBoard": 1,
+                      "postedAt": -1,
+                      "_id": 1,
+                      "expiresAt": 1
+                    },
+                    "direction": "forward",
+                    "isMultiKey": false,
+                    "nReturned": 1,
+                    "keysExamined": 2,
+                    "works": 2,
+                    "advanced": 1,
+                    "needTime": 1,
+                    "needYield": 0,
+                    "saveState": 4,
+                    "restoreState": 4,
+                    "isEOF": 0,
+                    "dupsTested": 0,
+                    "dupsDropped": 0,
+                    "indexVersion": 2,
+                    "isUnique": false,
+                    "isSparse": false,
+                    "isPartial": false,
+                    "indexBounds": {
+                      "status": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "sourceBoard": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "postedAt": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "_id": [
+                        "<profile/job-specific bound redacted>"
+                      ],
+                      "expiresAt": [
+                        "<profile/job-specific bound redacted>"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -46,14 +46,20 @@ export const longTermMemory = {
     }
 
     // 3. Generate vector embedding
-    const embedding = await embeddingService.getEmbedding(content);
+    const { vector: embedding, metadata: embeddingMetadata } = await embeddingService.getEmbeddingWithMetadata(content, {
+      user: { _id: userId, plan: userPlan },
+      feature: "chat",
+    });
 
     // 4. Check for near-duplicates (> 0.9 cosine similarity)
     const existingMemories = await this.listUserMemories(userId);
     let duplicate = null;
 
     for (const m of existingMemories) {
-      if (m.type === type && m.embedding && m.embedding.length > 0) {
+      if (m.type === type && m.embedding && m.embedding.length > 0 &&
+          m.embeddingMetadata?.provider === embeddingMetadata.provider &&
+          m.embeddingMetadata?.model === embeddingMetadata.model &&
+          m.embeddingMetadata?.dimension === embeddingMetadata.dimension) {
         const sim = cosineSimilarity(embedding, m.embedding);
         if (sim >= 0.9) {
           duplicate = m;
@@ -72,6 +78,8 @@ export const longTermMemory = {
           {
             $set: {
               content,
+              embedding,
+              embeddingMetadata,
               importance: Math.max(importance, duplicate.importance),
               confidence,
               lastUsedAt: new Date(),
@@ -82,6 +90,8 @@ export const longTermMemory = {
         ).lean();
       } else {
         duplicate.content = content;
+        duplicate.embedding = embedding;
+        duplicate.embeddingMetadata = embeddingMetadata;
         duplicate.importance = Math.max(importance, duplicate.importance);
         duplicate.useCount++;
         duplicate.lastUsedAt = new Date();
@@ -114,6 +124,7 @@ export const longTermMemory = {
           key,
           content,
           embedding,
+          embeddingMetadata,
           importance,
           confidence,
           source,
@@ -127,6 +138,7 @@ export const longTermMemory = {
           key,
           content,
           embedding,
+          embeddingMetadata,
           importance,
           confidence,
           source,
@@ -151,11 +163,19 @@ export const longTermMemory = {
     const memories = await this.listUserMemories(userId);
     if (!memories || memories.length === 0) return [];
 
-    const queryEmbedding = await embeddingService.getEmbedding(queryText);
+    const { vector: queryEmbedding, metadata: queryMetadata } = await embeddingService.getEmbeddingWithMetadata(queryText, {
+      user: { _id: userId, plan: PLANS.FREE },
+      feature: "chat",
+    });
     const now = Date.now();
 
     const scored = memories.map((m) => {
-      const sim = m.embedding ? cosineSimilarity(queryEmbedding, m.embedding) : 0.5;
+      const sameEmbeddingSpace = m.embeddingMetadata?.provider === queryMetadata.provider &&
+        m.embeddingMetadata?.model === queryMetadata.model &&
+        m.embeddingMetadata?.dimension === queryMetadata.dimension;
+      const sim = sameEmbeddingSpace && m.embedding
+        ? cosineSimilarity(queryEmbedding, m.embedding)
+        : 0.5;
       const ageHours = (now - new Date(m.lastUsedAt || m.createdAt).getTime()) / (1000 * 3600);
       const recencyScore = Math.max(0.1, 1 / (1 + ageHours * 0.05)); // decay over time
       const finalScore = sim * 0.5 + (m.importance / 5) * 0.3 + recencyScore * 0.2;

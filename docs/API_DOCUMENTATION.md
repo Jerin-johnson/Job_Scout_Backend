@@ -6,7 +6,7 @@
 
 | Environment           | Base URL                          | Description                              |
 | --------------------- | --------------------------------- | ---------------------------------------- |
-| **Local Development** | `http://localhost:4000`           | Local Express monolith                   |
+| **Local Development** | `http://localhost:4001`           | Local Express monolith                   |
 | **Staging**           | `https://staging-api.jobscout.ai` | Staging cluster (Vercel / Fly / Railway) |
 | **Production**        | `https://api.jobscout.ai`         | Global distributed API Gateway           |
 
@@ -296,6 +296,23 @@ sequenceDiagram
 
 ### 3.3. Candidate Profile & Resume Parsing (`/api/v1/profile`)
 
+#### `POST /api/v1/profile/resume-upload-url`
+
+- **Purpose**: Creates a five-minute, user-scoped AWS S3 `PUT` URL for direct browser upload.
+- **Headers**: Bearer authentication and `X-Requested-With: JobScoutClient` (or the authenticated session cookie plus CSRF headers).
+- **JSON body**: `{ "originalFilename": "resume.pdf", "mimeType": "application/pdf", "fileSize": 12345 }`. DOCX uses its standard OpenXML MIME type. Files must be non-empty and at most 5 MB.
+- **Response**: `{ "data": { "uploadId": "<uuid>", "uploadUrl": "<presigned-url>", "requiredHeaders": { "Content-Type": "application/pdf" }, "expiresInSeconds": 300 } }`.
+- **Browser upload**: `PUT` the file bytes to `uploadUrl` with every `requiredHeaders` value. The S3 bucket CORS policy must allow the frontend origin, `PUT`, and the `Content-Type` request header.
+
+#### `POST /api/v1/profile/resume-upload-complete`
+
+- **Purpose**: Verifies the authenticated user's uploaded object in S3, checks its size/content type and file magic, then extracts and stores resume facts. Completion is safe to retry for the same `uploadId`.
+- **JSON body**: `{ "uploadId": "<uuid>", "originalFilename": "resume.pdf", "mimeType": "application/pdf" }`.
+- **Storage**: The API constructs the object key from the authenticated user and UUID; clients cannot choose another user's key. Original bytes are downloaded only after the S3 metadata and size checks.
+- **Response**: Includes the updated profile, `factsSummary` counts, and `resume` metadata (`id`, filename, MIME type, upload time, fact counts, and `status`). Retrying a completed upload returns the same resume metadata without reprocessing or creating another record.
+
+The existing multipart endpoint below remains available for compatibility and local mock mode.
+
 #### `POST /api/v1/profile/upload-resume`
 
 - **Purpose**: Uploads and parses resume into immutable structured facts with unique `factId`s.
@@ -408,6 +425,20 @@ sequenceDiagram
   ```
 - **Response `200 OK`**: Returns updated profile object with bumped version.
 
+#### `GET /api/v1/profile/career-profile`
+
+- **Purpose**: Returns the signed-in user's additive career profile plus unsaved experience, education-level, target-role suggestions derived from existing facts. Nothing is auto-saved and the languages list is empty by default.
+
+#### `PATCH /api/v1/profile/career-profile`
+
+- **Purpose**: Saves a validated career-profile payload using optimistic concurrency.
+- **Request body**: `{ "profileVersion": 2, "careerProfile": { "schemaVersion": 1, "targetRoles": [], "moreDetails": { "languages": [] } } }`; include the full schema payload as returned by GET. A stale version returns `409 PROFILE_VERSION_CONFLICT`.
+
+#### `GET /api/v1/profile/role-suggestions?q=` and `GET /api/v1/profile/place-suggestions?q=`
+
+- **Purpose**: Authenticated, rate-limited, deterministic catalog suggestions. Custom role text remains valid. Place pairs must be consistent; ambiguous places return `needsConfirmation`. Responses include an ETag and private five-minute cache policy.
+- **Place catalog**: `in-place-aliases-v2`; `Remote` and `Anywhere in India` are explicit choices, not inferred from prose.
+
 ---
 
 ### 3.4. AI Router & Streaming Chat (`/api/v1/ai`)
@@ -502,14 +533,18 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 #### `GET /api/v1/jobs/matches`
 
-- **Purpose**: Retrieves top job opportunities ranked by vector cosine similarity and rule filters.
-- **Caching**: L1 Redis response cache (60 seconds TTL).
+- **Purpose**: Retrieves precomputed recommendations and the user's asynchronous refresh state. This read never runs ingestion or discovery.
+- **Caching**: Versioned response cache (60 seconds TTL); preference or resume updates increment `profileVersion`, and a completed refresh invalidates that version's cache.
 - **Response `200 OK`**:
   ```json
   {
     "data": {
       "totalMatches": 10,
       "fromCache": false,
+      "refresh": { "status": "done", "resultCount": 10 },
+      "sources": [{ "key": "remotive", "displayName": "Remotive", "indexedCount": 120 }],
+      "profileReady": true,
+      "emptyReason": "",
       "matches": [
         {
           "jobId": "job_c5c37c0a87",
@@ -517,6 +552,8 @@ Returns the authenticated user's currently selectable chat models. The list is c
           "company": "Acme",
           "location": "Remote",
           "score": 92.5,
+          "locationTier": 3,
+          "locationLabel": "No jobs in Kochi yet. Showing remote roles; confirm location eligibility before applying.",
           "rationale": "Strong alignment with candidate's distributed systems and caching background.",
           "matchingSkills": ["Node.js", "Redis", "Distributed Systems"],
           "missingSkills": ["GraphQL"]
@@ -528,14 +565,20 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 #### `POST /api/v1/jobs/discover`
 
-- **Purpose**: Manually triggers Graph A discovery cycle. Gated by `match_jobs` quota.
-- **Response `200 OK`**: Returns new matches generated.
+- **Purpose**: Queues a coalesced refresh for the current user and `profileVersion`. Gated by `match_jobs` quota. Matching is processed by the existing BullMQ worker; it never triggers feed ingestion.
+- **Request**: Optional `{ "broaden": true }` temporarily relaxes work-mode, country, occupation, and salary filters for one refresh; it does not change saved preferences.
+- **Response `202 Accepted`**: Returns the refresh state. Poll `GET /api/v1/jobs/matches/refresh` or read `refresh` from `GET /api/v1/jobs/matches` for `queued`, `running`, `done`, or `failed`.
+
+#### `GET /api/v1/jobs/matches/refresh`
+
+- **Purpose**: Reads the signed-in user's latest refresh state for their current profile version.
+- **Response `200 OK`**: `{ "data": { "refresh": { "status": "running" } } }` (or `null` if no refresh has been requested).
 
 #### `GET /api/v1/jobs/catalog`
 
-- **Purpose**: Searches all non-expired jobs currently indexed by enabled adapters (not the whole public internet).
-- **Query**: Optional `q`, `location`, `source`, `remoteType` (`remote|hybrid|onsite`), `page` (default 1), `limit` (default 20, max 50).
-- **Response**: `{ "data": { "jobs": [], "total": 0, "page": 1, "limit": 20, "pages": 0 } }`. Each result includes `jobId`, role/company, source board, and original listing URL where available.
+- **Purpose**: Searches active, non-expired listings indexed from approved, enabled feeds (currently Remote OK, Remotive, and Jobicy). The catalog is not the whole internet. Source metadata includes `indexedCount` for each enabled feed.
+- **Query**: Optional `q`, `location`, `countryCode` (two-letter code), `source`, `remoteType` (`remote|hybrid|onsite`), `page` (default 1), `limit` (default 20, max 50).
+- **Response**: `{ "data": { "jobs": [], "total": 0, "page": 1, "limit": 20, "pages": 0, "sources": [] } }`. Each result includes `jobId`, role/company, source board, source attribution, posted date, and original listing URL where available.
 
 #### `POST /api/v1/jobs/:id/feedback`
 
@@ -868,12 +911,12 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 - `GET /api/v1/admin/users?q=&page=&limit=` returns active accounts with name, email, role, plan, and creation date. Requires admin role and MongoDB.
 - `GET /api/v1/admin/jobs?q=&source=&page=&limit=` returns indexed job inventory.
+- `GET /api/v1/admin/jobs/sources` lists source approval, daily budget/use, active indexed count, last/next run, health, and fetched/new/updated/duplicate/error metrics. `PATCH /api/v1/admin/jobs/sources/:key` accepts `{ "enabled": true|false }` and only toggles a source that passed the verified policy gate.
 - `GET /api/v1/admin/audit?page=&limit=` returns recent admin audit events with the acting account name/email.
-- `POST /api/v1/admin/jobs/ingest` runs enabled adapters and returns fetched/embedded counts and source names. Requires admin role and CSRF protection.
 - `PATCH /api/v1/admin/users/:id` updates a user's plan or role. Super-admin only; active Razorpay subscriptions cannot be overwritten locally.
 - `GET /api/v1/admin/billing/overview`, `/billing/subscriptions`, and `/billing/payments` expose currency-grouped revenue and Razorpay ledger data to super-admins only.
 - `POST /api/v1/admin/billing/subscriptions/:id/cancel` schedules period-end cancellation; `POST /api/v1/admin/billing/payments/:paymentId/refund` submits the refundable balance. Both require super-admin access and CSRF protection.
-- Admin reads and ingestion are written to `AuditLog` when MongoDB is available.
+- Source ingestion is worker/CLI-only. For local diagnostics, run `npm run jobs:ingest:source -- remotive` from the backend; it refuses production. Admin reads and source enablement changes are written to `AuditLog` when MongoDB is available.
 
 ---
 

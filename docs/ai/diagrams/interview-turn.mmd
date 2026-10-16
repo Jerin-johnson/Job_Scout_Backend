@@ -1,0 +1,13 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): consent, quota, question plan, answer state and report
+%% Target design (not built yet): expanded human-rated evaluation set
+flowchart TD
+  R[Owned resume + consent] --> S[Create session and reserve quota]
+  S --> Q[Question plan via invokeLLM or deterministic fallback]
+  Q --> A[Answer with idempotency/sequence claim]
+  A --> E[Evaluate answer via invokeLLM + schema]
+  E --> L{More turns?}
+  L -->|yes| A
+  L -->|no| C[Complete idempotently]
+  C --> P[Validated one-per-session report]
+  P -. target .-> H[Human-rated role-family evaluation]

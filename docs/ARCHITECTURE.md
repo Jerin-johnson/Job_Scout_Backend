@@ -1,143 +1,95 @@
-# JobScout Architecture Documentation
+# JobScout architecture and scaling plan
 
-## 1. System Topology & Dual-Process Design
+Last reviewed: 2026-10-16. This describes the repository implementation; it does not assert a particular production topology. See the separately maintained frontend repo at `../Ai_resume_frontend`.
 
-JobScout API (`jobscout-api`) is engineered as a standalone, enterprise-grade backend service built with Node.js 22 LTS and Express.js (pure JavaScript ES Modules, JSDoc types, and Zod runtime schema validation).
+## System at a glance
 
-A single production Docker image powers two independently scalable processes:
-
-1. **HTTP Server Process (`src/server.js`)**:
-   - Handles REST API requests, auth cookies, file uploads, billing webhooks, and Server-Sent Events (SSE) streaming for chat and LangGraph workflow progress.
-   - Uses non-blocking asynchronous event loops, connection pooling to MongoDB Atlas, and Redis for caching and rate limiting.
-2. **Background Worker Process (`src/worker.js`)**:
-   - Dedicated BullMQ worker consuming scheduled discovery tasks (`ingestJobs`, `dailyMatch`), thread summarization, memory extraction, delayed follow-up reminders, and email digest dispatches via Resend.
-   - Can be scaled to $N$ replicas horizontally without affecting API request latencies.
-
-```mermaid
-flowchart TD
-    subgraph ClientLayer["Frontend & Clients"]
-        NextClient["JobScout Web (Next.js 15)"]
-        ThirdParty["Webhooks (Razorpay)"]
-    end
-
-    subgraph ServiceLayer["JobScout API Container"]
-        HTTPServer["HTTP Server Process (src/server.js)\n• REST & Auth\n• SSE Streaming\n• AI Router Gateways"]
-        WorkerProcess["Worker Process (src/worker.js)\n• BullMQ Queues\n• Job Ingestion\n• Memory & Summaries"]
-    end
-
-    subgraph Persistence["Storage & Infrastructure"]
-        RedisDB[("Redis 7\n• Cache (js:v1:)\n• Quotas & Rate Limits\n• BullMQ State")]
-        MongoDBAtlas[("MongoDB Atlas\n• Users & UsageEvents\n• Resumes & Structured Facts\n• Atlas Vector Search")]
-        S3Storage[("AWS S3 / Cloudflare R2\n• Encrypted Raw Resumes")]
-    end
-
-    NextClient -->|HTTPS / WSS / SSE| HTTPServer
-    ThirdParty -->|Signed Webhook| HTTPServer
-    HTTPServer --> RedisDB
-    HTTPServer --> MongoDBAtlas
-    HTTPServer --> S3Storage
-    WorkerProcess --> RedisDB
-    WorkerProcess --> MongoDBAtlas
-```
-
----
-
-## 2. The 3-Tier AI Router & Cost-Optimization Engine
-
-The AI Router (`src/ai/router.js`) sits between incoming candidate requests and LLM model invocations. Its primary goal is keeping **70–80% of all traffic on Tier 0 or Tier 1**, protecting operational margins.
+JobScout uses a Next.js web application, a Node.js/Express API, a separate Node.js worker, MongoDB, Redis/BullMQ, and AWS S3 for private resume objects. API and worker are separate process entry points and can be deployed/scaled independently. The exact hosting provider, production replica counts, Atlas tier, Redis tier, and S3 lifecycle configuration are **Unverified** here.
 
 ```mermaid
 flowchart LR
-    Request["Incoming Query / Action"] --> ParallelFork{"Race in Parallel"}
-
-    ParallelFork --> Tier0["Tier 0 ($0.00)\n• Exact Cache (SHA256)\n• Semantic Cache (>0.96)\n• Slash Commands (/track, /export)\n• Direct Deterministic Mongo Query"]
-    ParallelFork --> Tier1["Tier 1 (Claude 3.5 Haiku)\n• Structured Classification\n• Intent, Entities, Complexity\n• Simple Answers"]
-
-    Tier0 -- "Instant Hit" --> AbortTier1["Abort Tier 1 & Return Immediately (<50ms)"]
-    Tier0 -- "Miss" --> EvaluateTier1{"Evaluate Haiku Result"}
-
-    EvaluateTier1 -- "Confidence >= 0.7 & Simple" --> CompleteTier1["Execute at Tier 1 (<800ms)"]
-    EvaluateTier1 -- "Needs Workflow or Conf < 0.7" --> Tier2["Tier 2 (Claude 3.5 Sonnet)\n• LangGraph Stateful Graphs\n• Human-in-the-Loop Interrupts"]
+  Browser[Next.js frontend] -->|REST / SSE, port 4001 locally| API[Express API]
+  Browser -->|short-lived user-scoped presigned PUT| S3[(Private S3 resumes)]
+  API --> Mongo[(MongoDB)]
+  API --> Redis[(Redis: cache, quota, BullMQ)]
+  API --> LLM[Shared LangChain model gateway]
+  API --> S3
+  Redis --> Worker[Background worker]
+  Worker --> Mongo
+  Worker --> Sources[Approved job feeds]
+  Worker --> Embeddings[Metered embedding service]
+  Worker --> Email[Configured email provider]
 ```
 
-### Routing Tiers
+## Backend services
 
-- **Tier 0 (Zero Cost)**:
-  - Exact match lookup on Redis: `SHA256(normalizedPrompt + contextVersion)`.
-  - Generic non-personal semantic cache in MongoDB `semanticCache` with cosine similarity > 0.96.
-  - Slash commands: `/track`, `/status`, `/export`, `/stats`.
-  - Deterministic queries: "show my applications" directly triggers MongoDB aggregation without sending tokens to any model.
-- **Tier 1 (Small Model: Claude 3.5 Haiku)**:
-  - Single fast structured Zod output call yielding `{ intent, complexity, needsTools, needsMemory, confidence, entities }`.
-  - Handles simple conversations, facts extraction, and basic job categorization.
-- **Tier 2 (Strong Model: Claude 3.5 Sonnet + LangGraph)**:
-  - Triggered only when confidence < 0.7, validation fails, or intent explicitly requires a heavy graph workflow (`match_jobs`, `tailor_resume`, `interview_prep`, `full_strategy`).
+- **Express API (`src/server.js`)** handles authentication, owner-scoped profile/resume APIs, job search and matching, application tracking, billing webhooks, and chat/interview streaming. User requests do not trigger source ingestion.
+- **Worker (`src/worker.js`)** handles scheduled job ingestion and bounded/background work through BullMQ. Its Mongo/Redis dependencies and concurrency are independent of the HTTP process.
+- **MongoDB** is the system of record for users, profile/resume metadata and encrypted extracted text, jobs, source registry/run state, applications, interviews and usage events. Schemas and indexes live in `src/models`.
+- **Redis** provides cache/quota coordination and BullMQ state. Production AI paid calls fail closed when the durable quota store is unavailable. The exact hosted Redis topology is deployment-configured.
+- **AWS S3** stores private resume files. The browser receives a short-lived, user-prefix-scoped presigned URL; API completion verifies ownership and is idempotent.
+- **AI integrations** go through the shared LangChain invocation layer and model catalog. Embeddings use their dedicated quota- and kill-switch-aware service. Job matching remains deterministic and LLM-free in its hot path.
+- **Job feeds** are selected through a source registry and policy gate. Only currently enabled/approved registry sources are ingested; the catalog is not the whole internet.
 
----
+## Frontend services
 
-## 3. LangGraph Workflow Architectures
+The separate `Ai_resume_frontend` repository is a Next.js App Router application. Pages compose shared React components, design tokens and API operations in `src/lib/api`. Authentication is cookie-based; server/API origins and permitted browser connections are environment/configuration controlled. Resume file bytes go from browser directly to the scoped S3 presigned URL, while metadata and completion are sent to the backend API.
 
-All stateful graph executions utilize `@langchain/langgraph-checkpoint-mongodb`, enabling jobs to pause for human approval, recover from server restarts, and stream progress events over SSE.
+The frontend is static/server rendered where appropriate and makes authenticated API calls for user data. It does not own business rules, billing enforcement, quota checks, matching, or provider keys. The backend remains the authorization and validation boundary.
 
-### Graph A: Scheduled Job Discovery
+## Current request and ingestion flows
 
-1. **Fetch**: Query public job APIs (Adzuna, RemoteOK, Greenhouse, Lever, Ashby) with rate limiters.
-2. **Deduplicate**: Compute SHA256 of normalized title, company, and location. Skip already ingested jobs.
-3. **Embed Once**: Compute vector embedding via Voyage/OpenAI once per unique job; index in Atlas Vector Search (shared across all users).
-4. **Vector Match**: Cosine similarity against candidate profile embeddings.
-5. **Rule Filter**: Strict filtering on location, salary expectations, and remote preferences.
-6. **Rerank**: Small model (Haiku) reranks top 30 truncated job descriptions.
-7. **Explain Top 10**: Generate match rationales and skill gap analyses.
-8. **Store & Digest**: Precompute dashboard matches and queue daily email digest.
+1. Browser makes an authenticated REST request to the API.
+2. The API validates schemas, obtains identity from authenticated server state, checks owner and plan/consent gates, and reads/writes MongoDB or Redis.
+3. Expensive or repeatable work is queued to the existing worker where appropriate; the worker uses the same Mongo/Redis stores.
+4. Resume upload uses a presigned browser PUT to S3; completion is an API operation that validates the user's key, file metadata and consent before parsing.
+5. Scheduled source adapters fetch only policy-approved sources, normalize and deduplicate by source identity, and update changed job documents. Discovery reads the indexed catalog only.
 
-### Graph B: Resume Tailoring with Mandatory Truthfulness
+## Scaling in stages
 
-1. **Parse JD**: Extract core requirements and keywords (cached for 30 days).
-2. **Map to Facts**: Match candidate's structured profile facts (`factId` registry) to job requirements.
-3. **Draft Resume**: Generate targeted experience bullets.
-4. **Truthfulness Check**: Mandatory validation node. Every generated bullet **must** link to a candidate `factId`. If any claim is unsupported, the graph rejects and regenerates (max 2 retries). Hallucinating credentials or experience is strictly forbidden.
-5. **ATS Keyword Check**: Calculate keyword density and semantic match score.
-6. **Interrupt Node**: `interrupt()` pauses graph execution, awaiting candidate review and edits in the frontend UI.
-7. **Export**: Generates ATS-friendly PDF and DOCX files only after explicit candidate approval.
+These are scale options, not current deployed capacity commitments. Use observed latency, queue age, Mongo explain plans, Redis utilization and provider spend before increasing resources.
 
-### Graph C: Interview Prep & Mock Interview Loop
+### Marginal catalog cost scenarios
 
-1. **Company Research**: Scrape and synthesize recent news, culture, and tech stack (cached 7 days).
-2. **Question Bank**: Generate behavioral and technical questions tailored to the target role.
-3. **STAR Stories**: Align candidate's real profile achievements into Situation-Task-Action-Result format.
-4. **Mock Interview Loop**: Stateful multi-turn Q&A loop (hard-capped at 5 turns) with real-time scoring.
-5. **Feedback Report**: Actionable evaluation summary with areas of strength and improvement.
+Production monthly invoices cannot be calculated from this repository because the MongoDB/Redis/worker hosting tiers, region, replica counts, ingestion cadence and provider billing account are not specified. The following bounded estimate isolates embedding API spend and catalog document volume; it is not a total infrastructure bill. It uses the configured `text-embedding-3-small` rate of $0.02 per million input tokens and a measured 6,174-byte average raw description (~1,544 tokens at an illustrative four characters/token). It assumes every job is new or changed in the month; because the worker caches/embeds only changed jobs, 10% monthly change costs one tenth.
 
-### Graph D: Application Manager & Follow-Ups
+| Catalog jobs | Logical BSON size at 28,807 bytes/job | One full new/changed pass of embeddings | At 10% monthly change |
+|---:|---:|---:|---:|
+| 10,000 | ~0.29 GB | ~$0.31/month | ~$0.03/month |
+| 100,000 | ~2.88 GB | ~$3.09/month | ~$0.31/month |
+| 1,000,000 | ~28.81 GB | ~$30.88/month | ~$3.09/month |
 
-1. **Status Change**: Update application status (saved &rarr; applied &rarr; interviewing &rarr; offer).
-2. **Follow-Up Scheduler**: Compute follow-up delay (e.g., 5 business days) and schedule BullMQ job.
-3. **Draft Email**: Generate context-aware follow-up email.
-4. **Interrupt Node**: Graph pauses for candidate approval; email is **never** sent automatically.
-5. **Send**: Dispatches via Resend upon explicit candidate approval.
+The token estimate uses raw-description bytes only; title, company and requirements add a small amount, while provider tokenization may differ. The measured document size includes the existing 1,536-dimension vector and raw description. BSON volume excludes indexes, MongoDB compression, replication, backups and storage tier minimums. Source API costs are zero for the currently configured public feeds within their allowed quotas, but quota limits and terms still apply. API/worker compute, MongoDB, Redis, S3, backups, logs, and bandwidth are **Unverified** and excluded; use the actual provider bill before capacity or budget decisions. Cost controls are content-hash skip, batching, changed-only embeddings, bounded candidate retrieval, and no per-job LLM scoring.
 
----
+### Current architecture: one API and one worker process
 
-## 4. Multi-Layer Caching Map
+- Keep API and worker as distinct processes, even if they share an image, so expensive ingestion cannot block request handling.
+- Use existing Mongo indexes and bounded candidate retrieval; keep the discovery pool capped and matching deterministic.
+- Use existing Redis queues/cache/quota paths and per-source quotas. Keep retry counts bounded and avoid duplicate provider work with content hashes/idempotency keys.
+- Upload resume bytes directly to S3 instead of proxying them through the API.
+- Monitor API p95/error rate, worker queue age, per-source request budget, Mongo examined/returned ratio, Redis health, and AI usage before scaling.
 
-All caching is routed through the single helper `src/shared/cache.js` under the namespace `js:v1:`:
+### Increased traffic: scale existing processes horizontally
 
-| Key Pattern                             | TTL        | Shared vs Private | Purpose                                          |
-| :-------------------------------------- | :--------- | :---------------- | :----------------------------------------------- |
-| `js:v1:resp:{userId}:{resource}:v{ver}` | 30–120s    | Private           | User dashboard and query response cache          |
-| `js:v1:mem:pinned:{userId}:v{ver}`      | 24 hours   | Private           | Pinned user profile facts and core preferences   |
-| `js:v1:sess:{userId}:{threadId}`        | 24 hours   | Private           | Short-term chat history (last 8 turns)           |
-| `js:v1:exact:{sha256}`                  | 1–24 hours | Mixed             | Exact prompt hash hit (non-personalized)         |
-| `semanticCache` (MongoDB)               | 7 days     | Shared            | Generic non-personal queries (similarity > 0.96) |
-| `js:v1:jd:{hash}`                       | 30 days    | Shared            | Parsed job descriptions and requirements         |
-| `js:v1:emb:{hash}`                      | 90 days    | Shared            | Job vector embeddings (Voyage/OpenAI)            |
-| `js:v1:co:{slug}`                       | 7 days     | Shared            | Company background, tech stack, and news         |
-| `js:v1:rp:{fileHash}`                   | 30 days    | Private           | Parsed resume structured facts                   |
-| `js:v1:board:{userId}:v{ver}`           | 60 seconds | Private           | Kanban application tracker board state           |
-| `js:v1:lock:{key}`                      | 10–30s     | System            | Distributed single-flight lock (`SET NX PX`)     |
+- Add stateless API replicas behind the existing load balancer; keep secrets/config identical and session/auth state in the shared stores.
+- Increase worker replicas or queue concurrency gradually by workload type. Preserve per-source rate limits and AI quotas across replicas using Redis-backed coordination.
+- Tune Mongo connection pools and query/index patterns before upgrading the database tier. Check `explain()` and queue-backed write pressure.
+- Apply S3 lifecycle/retention and least-privilege IAM only after the intended policy is reviewed; no bucket lifecycle was changed here.
 
-### Single-Flight & Fail-Open Philosophy
+### Larger catalog or sustained bottlenecks
 
-- **Single-Flight Lock**: `getOrSet(key, computeFn)` acquires a Redis lock to eliminate cache stampedes when expensive operations (like JD parsing or LLM explanations) are triggered simultaneously.
-- **Fail-Open Resilience**: If Redis experiences an outage, read operations bypass the cache transparently without crashing.
-- **Fail-Closed Quotas**: For expensive Tier 2 actions, quota verification fails closed if limits cannot be checked, preventing unauthorized cost overruns.
+- Partition worker queues by task/source only when queue-age metrics show contention. Keep a single source registry and durable cursors.
+- Consider a separate Mongo collection for high-volume vectors only after a measured size/latency case and migration/rollback review; existing vectors are not moved or deleted.
+- Consider a dedicated search index or database only when bounded Mongo queries fail measured p95/throughput goals. This requires approval because it adds infrastructure and operational cost.
+- Add autoscaling from sustained CPU, latency and queue-age signals with hard cost ceilings; do not scale from instantaneous job count alone.
+- Introduce regional deployment, event bus, or service decomposition only when latency/residency/availability requirements justify their added cost and failure modes.
+
+## Development and local startup
+
+Use the backend `npm run dev:stack` command to start the API, worker and sibling frontend together when local prerequisites (MongoDB and Redis) are available. Ports: frontend 3000, API 4001. Separate commands are documented in the root `AGENTS.md` and each repo's README. Never paste `.env` values into logs or reports.
+
+## Operational gaps
+
+- Production host/replica count, MongoDB and Redis service tiers, autoscaling policy, backup RPO/RTO, S3 lifecycle and observability thresholds must be verified against deployment configuration.
+- Monthly spend depends on hosting tiers, job source quotas, model selection/usage, embedding calls, retention and traffic; no paid service or infrastructure was added by this change.
+- This document is a topology/scaling guide, not a capacity guarantee. Benchmark with representative data before setting numeric SLOs.

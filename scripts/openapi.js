@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import * as prettier from "prettier";
 import { logger } from "../src/shared/utils/logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +18,7 @@ async function generateOpenApi() {
         "Production-ready backend API for JobScout, an AI-powered job-hunt agent for Discover -> Evaluate -> Prepare -> Manage workflows.",
     },
     servers: [
-      { url: "http://localhost:4000", description: "Local development server" },
+      { url: "http://localhost:4001", description: "Local development server" },
       { url: "https://api.jobscout.ai", description: "Production server" },
     ],
     components: {
@@ -89,6 +90,30 @@ async function generateOpenApi() {
         },
       },
       // Profile
+      "/api/v1/profile/resume-upload-url": {
+        post: {
+          summary: "Create a short-lived user-scoped S3 resume upload URL",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Presigned S3 PUT URL and required headers" },
+            400: { description: "Invalid resume file metadata" },
+            503: { description: "S3 storage is unavailable or mock mode is active" },
+          },
+        },
+      },
+      "/api/v1/profile/resume-upload-complete": {
+        post: {
+          summary: "Verify an S3 upload and parse its resume facts",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Resume verified, encrypted, parsed, and stored" },
+            400: { description: "Invalid or unsupported uploaded resume" },
+            503: { description: "S3 storage or AI provider is unavailable" },
+          },
+        },
+      },
       "/api/v1/profile/upload-resume": {
         post: {
           summary: "Upload PDF/DOCX resume for structured fact parsing",
@@ -97,12 +122,68 @@ async function generateOpenApi() {
           responses: { 200: { description: "Resume encrypted and parsed with factIds" } },
         },
       },
+      "/api/v1/profile/resumes": {
+        get: {
+          summary: "List the authenticated user's resume metadata without document contents",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Owned resume metadata" } },
+        },
+      },
       "/api/v1/profile/preferences": {
         put: {
           summary: "Update target role, salary, and location preferences",
           tags: ["Profile"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "Preferences updated and version bumped" } },
+        },
+      },
+      "/api/v1/profile/career-profile": {
+        get: {
+          summary: "Read the authenticated user's additive career profile and unsaved fact-derived suggestions",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Owner career profile, experience and education suggestions" } },
+        },
+        patch: {
+          summary: "Save a validated career profile with optimistic concurrency",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { type: "object", required: ["profileVersion", "careerProfile"], properties: { profileVersion: { type: "integer", minimum: 1 }, careerProfile: { type: "object", description: "Validated career profile v1; language list defaults to empty." } }, additionalProperties: false } } },
+          },
+          responses: { 200: { description: "Career profile saved" }, 409: { description: "Profile version conflict" } },
+        },
+      },
+      "/api/v1/profile/role-suggestions": {
+        get: {
+          summary: "Search the curated role and synonym catalog",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "q", in: "query", required: true, schema: { type: "string", minLength: 2, maxLength: 80 } }],
+          responses: { 200: { description: "Rate-limited role suggestions with ETag" }, 304: { description: "Unchanged response" } },
+        },
+      },
+      "/api/v1/profile/place-suggestions": {
+        get: {
+          summary: "Search exact versioned place aliases and validate city/region pairs",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "q", in: "query", required: true, schema: { type: "string", minLength: 2, maxLength: 100 } }],
+          responses: { 200: { description: "Place suggestions, ambiguity confirmation, and ETag" }, 304: { description: "Unchanged response" } },
+        },
+      },
+      "/api/v1/profile/preferences/target-roles": {
+        patch: {
+          summary: "Confirm target roles suggested from a typo correction or resume facts",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { type: "object", required: ["targetRoles"], properties: { targetRoles: { type: "array", maxItems: 10, items: { type: "string", minLength: 1, maxLength: 120 } } }, additionalProperties: false } } },
+          },
+          responses: { 200: { description: "Confirmed target roles saved; all other preferences preserved" } },
         },
       },
       "/api/v1/profile/facts": {
@@ -168,20 +249,30 @@ async function generateOpenApi() {
       // Jobs & Discovery
       "/api/v1/jobs/matches": {
         get: {
-          summary: "Get precomputed top job matches with L1 cache",
+          summary: "Get precomputed profile recommendations and refresh state",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "List of scored job matches" } },
         },
       },
+      "/api/v1/jobs/matches/refresh": {
+        get: {
+          summary: "Get the signed-in user's match refresh state",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Queued, running, completed, or failed refresh state" } },
+        },
+      },
       "/api/v1/jobs/catalog": {
         get: {
           summary: "Search the paginated catalog of indexed jobs",
+          description: "Search only active jobs indexed from approved, enabled sources; this catalog is not the whole internet. Results include source and posted date.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: "q", in: "query", schema: { type: "string" } },
             { name: "location", in: "query", schema: { type: "string" } },
+            { name: "countryCode", in: "query", schema: { type: "string", pattern: "^[A-Za-z]{2}$" } },
             { name: "source", in: "query", schema: { type: "string" } },
             {
               name: "remoteType",
@@ -196,10 +287,11 @@ async function generateOpenApi() {
       },
       "/api/v1/jobs/discover": {
         post: {
-          summary: "Trigger on-demand discovery pipeline",
+          summary: "Queue a coalesced asynchronous match refresh",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
-          responses: { 200: { description: "Discovery results" } },
+          requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { broaden: { type: "boolean", description: "Temporarily relax work mode, country, occupation, and salary filters for this refresh" } }, additionalProperties: false } } } },
+          responses: { 202: { description: "Refresh queued; poll /matches/refresh" } },
         },
       },
       "/api/v1/jobs/{id}/feedback": {
@@ -239,14 +331,84 @@ async function generateOpenApi() {
       "/api/v1/applications": {
         get: {
           summary: "Get Kanban board columns of tracked applications",
+          description:
+            "Returns the existing grouped columns and flat applications list. Archived cards are excluded. Supports server-side search, stage, priority, pin, follow-up, stale, and sort filters. Includes unfiltered board statistics.",
           tags: ["Applications"],
           security: [{ bearerAuth: [] }],
-          responses: { 200: { description: "Applications grouped by status" } },
+          parameters: [
+            {
+              in: "query",
+              name: "q",
+              schema: { type: "string", maxLength: 100 },
+              description: "Search company and role",
+            },
+            {
+              in: "query",
+              name: "stage",
+              schema: { type: "string" },
+              description: "Comma-separated pipeline stages",
+            },
+            {
+              in: "query",
+              name: "priority",
+              schema: { type: "string", enum: ["high", "medium", "low"] },
+            },
+            { in: "query", name: "pinned", schema: { type: "boolean" } },
+            {
+              in: "query",
+              name: "followUp",
+              schema: { type: "string", enum: ["overdue", "due-soon"] },
+            },
+            { in: "query", name: "stale", schema: { type: "boolean" } },
+            { in: "query", name: "appliedSinceDays", schema: { type: "integer", enum: [7] } },
+            {
+              in: "query",
+              name: "sort",
+              schema: { type: "string", enum: ["recommended", "recent", "follow-up", "priority"] },
+            },
+          ],
+          responses: {
+            200: {
+              description:
+                "Applications grouped by status; the client board orders cards by pinned state, priority, follow-up date, then activity",
+            },
+          },
         },
         post: {
           summary: "Track new job application",
           tags: ["Applications"],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["company", "role"],
+                  properties: {
+                    company: { type: "string" },
+                    role: { type: "string" },
+                    status: {
+                      type: "string",
+                      enum: ["saved", "applied", "screening", "interviewing", "offer", "rejected"],
+                    },
+                    priority: {
+                      type: "string",
+                      enum: ["high", "medium", "low"],
+                      default: "medium",
+                    },
+                    pinnedAt: { type: ["string", "null"], format: "date-time" },
+                    source: { type: "string" },
+                    location: { type: "string", maxLength: 160 },
+                    salaryMin: { type: ["number", "null"], minimum: 0 },
+                    salaryMax: { type: ["number", "null"], minimum: 0 },
+                    nextFollowUpAt: { type: ["string", "null"], format: "date-time" },
+                    reminderEnabled: { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
           responses: { 201: { description: "Application tracked" } },
         },
       },
@@ -259,14 +421,78 @@ async function generateOpenApi() {
         },
         patch: {
           summary: "Update application contacts, job link, notes, and reminder",
+          description:
+            "Supports priority (high/medium/low), pinnedAt (null to unpin), source, job details, and reminders additively. A card's stage color is derived from status and is never stored. Ownership mismatches return 404.",
           tags: ["Applications"],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    priority: { type: "string", enum: ["high", "medium", "low"] },
+                    pinnedAt: { type: ["string", "null"], format: "date-time" },
+                    source: { type: "string" },
+                    location: { type: "string", maxLength: 160 },
+                    salaryMin: { type: ["number", "null"], minimum: 0 },
+                    salaryMax: { type: ["number", "null"], minimum: 0 },
+                    nextFollowUpAt: { type: ["string", "null"], format: "date-time" },
+                    reminderEnabled: { type: "boolean" },
+                    notes: { type: "string", maxLength: 5000 },
+                  },
+                },
+              },
+            },
+          },
           responses: { 200: { description: "Application details updated" } },
+        },
+        delete: {
+          summary: "Permanently delete an owned application",
+          tags: ["Applications"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Application deleted" },
+            404: { description: "Application not found" },
+          },
+        },
+      },
+      "/api/v1/applications/{id}/archive": {
+        patch: {
+          summary: "Archive or restore an owned application",
+          description:
+            "Archiving hides the application from the active board and cancels its reminder. Optional archive reason: withdrawn, ghosted, or no_longer_interested.",
+          tags: ["Applications"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    archived: { type: "boolean", default: true },
+                    reason: {
+                      type: "string",
+                      enum: ["withdrawn", "ghosted", "no_longer_interested"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: "Application archived or restored" },
+            404: { description: "Application not found" },
+          },
         },
       },
       "/api/v1/applications/{id}/status": {
         patch: {
           summary: "Update pipeline stage and draft automated follow-up email",
+          description:
+            "Moves a card between the six fixed stages and updates its activity timestamp. Offer and Rejected cancel active follow-up reminders.",
           tags: ["Applications"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "Stage updated and draft created" } },
@@ -281,6 +507,126 @@ async function generateOpenApi() {
         },
       },
       // Interview Prep & Mock (Graph C)
+      "/api/v1/interview/modes": {
+        get: {
+          summary: "List interview modes and current consent version",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Interview setup configuration" } },
+        },
+      },
+      "/api/v1/interview/sessions": {
+        get: {
+          summary: "List the authenticated user's mock interview sessions",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Paginated session history" } },
+        },
+        post: {
+          summary: "Create a durable mock interview session with recorded consent",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            201: { description: "Interview session created" },
+            403: { description: "Plan does not include mock interviews" },
+            429: { description: "Daily quota reached" },
+          },
+        },
+      },
+      "/api/v1/interview/sessions/{id}": {
+        get: {
+          summary: "Get an owned session and its transcript",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Session details" },
+            404: { description: "Session not found" },
+          },
+        },
+        delete: {
+          summary: "Delete an owned session, transcript, and report",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Session deleted" } },
+        },
+      },
+      "/api/v1/interview/sessions/{id}/start": {
+        post: {
+          summary: "Start an interview and begin server-enforced duration",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "First question and timed session" },
+            409: { description: "Invalid session state" },
+          },
+        },
+      },
+      "/api/v1/interview/sessions/{id}/answers": {
+        post: {
+          summary: "Submit an idempotent text answer and get validated feedback",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "Idempotency-Key",
+              in: "header",
+              required: true,
+              schema: { type: "string", minLength: 8, maxLength: 128 },
+            },
+          ],
+          responses: {
+            200: { description: "Evaluation and next question" },
+            409: { description: "Answer already in progress or session state conflict" },
+            410: { description: "Session time elapsed" },
+            429: { description: "Per-session token cap reached" },
+          },
+        },
+      },
+      "/api/v1/interview/sessions/{id}/answers/stream": {
+        post: {
+          summary: "Submit an idempotent answer and stream the next question using SSE",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "Idempotency-Key",
+              in: "header",
+              required: true,
+              schema: { type: "string", minLength: 8, maxLength: 128 },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Server-sent token events followed by the complete answer result",
+              content: { "text/event-stream": { schema: { type: "string" } } },
+            },
+            409: { description: "Answer processing or session state conflict" },
+            429: { description: "Rate or token limit reached" },
+          },
+        },
+      },
+      "/api/v1/interview/sessions/{id}/complete": {
+        post: {
+          summary: "Create or return the session's single validated report",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Idempotent report" },
+            409: { description: "No answers or invalid state" },
+          },
+        },
+      },
+      "/api/v1/interview/sessions/{id}/report": {
+        get: {
+          summary: "Get a saved report for an owned session",
+          tags: ["Interview"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Validated interview report" },
+            404: { description: "Report not found" },
+          },
+        },
+      },
       "/api/v1/interview/prep": {
         post: {
           summary: "Generate role question bank, company brief, and STAR stories",
@@ -436,6 +782,31 @@ async function generateOpenApi() {
           },
         },
       },
+      "/api/v1/admin/jobs/sources": {
+        get: {
+          summary: "List job source policies, budgets, and ingestion health (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Source approval state, daily quota use, metrics, and health" },
+            403: { description: "Admin role required" },
+          },
+        },
+      },
+      "/api/v1/admin/jobs/sources/{key}": {
+        patch: {
+          summary: "Enable or disable an already approved source (admin only)",
+          tags: ["Admin"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "key", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["enabled"], properties: { enabled: { type: "boolean" } } } } } },
+          responses: {
+            200: { description: "Updated source switch and current source budgets" },
+            403: { description: "Admin role required" },
+            404: { description: "Source is unknown or has not passed the policy gate" },
+          },
+        },
+      },
       "/api/v1/admin/audit": {
         get: {
           summary: "List recent admin audit events (admin only)",
@@ -446,17 +817,6 @@ async function generateOpenApi() {
             200: { description: "Paginated admin audit history" },
             403: { description: "Admin role required" },
             503: { description: "MongoDB unavailable" },
-          },
-        },
-      },
-      "/api/v1/admin/jobs/ingest": {
-        post: {
-          summary: "Run enabled job ingestion adapters (admin only)",
-          tags: ["Admin"],
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: { description: "Source ingestion summary" },
-            403: { description: "Admin role required" },
           },
         },
       },
@@ -481,7 +841,12 @@ async function generateOpenApi() {
   };
 
   const outputPath = path.resolve(__dirname, "../openapi.json");
-  await fs.writeFile(outputPath, JSON.stringify(openApiDoc, null, 2), "utf8");
+  const prettierOptions = (await prettier.resolveConfig(outputPath)) || {};
+  const formatted = await prettier.format(JSON.stringify(openApiDoc), {
+    ...prettierOptions,
+    filepath: outputPath,
+  });
+  await fs.writeFile(outputPath, formatted, "utf8");
   logger.info(`OpenAPI 3.1.0 catalog successfully generated at ${outputPath}`);
 }
 

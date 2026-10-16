@@ -175,6 +175,12 @@ Return a JSON object conforming to:
 
     // Get or initialize session
     let session = mockSessions.get(sid);
+    if (session && session.userId !== userId) {
+      const error = new Error("Mock interview session not found");
+      error.statusCode = 404;
+      error.code = "NOT_FOUND";
+      throw error;
+    }
     if (!session) {
       session = {
         sessionId: sid,
@@ -285,9 +291,9 @@ Return JSON with:
   /**
    * Retrieve aggregate report for a mock interview session
    */
-  async getMockSessionReport(sessionId) {
+  async getMockSessionReport(sessionId, userId) {
     const session = mockSessions.get(sessionId);
-    if (!session) return null;
+    if (!session || session.userId !== userId?.toString()) return null;
 
     const scores = session.turns.map((t) => t.evaluation.score);
     const avgScore =
@@ -303,5 +309,11 @@ Return JSON with:
           ? "Interview Ready — High confidence for senior/staff roles."
           : "Needs Practice — Focus on quantifiable results and structure.",
     };
+  },
+
+  deleteMockSessionsByUserId(userId) {
+    for (const [sessionId, session] of mockSessions.entries()) {
+      if (session.userId === userId.toString()) mockSessions.delete(sessionId);
+    }
   },
 };

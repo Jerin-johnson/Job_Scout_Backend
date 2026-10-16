@@ -17,12 +17,16 @@ export const profileRepository = {
 
   async upsertProfile(userId, profileData) {
     const uid = userId.toString();
+    const updateData = { ...profileData };
+    // An extractor that finds no role entries must not erase previously
+    // source-grounded role history. Explicit profile editing can still clear it.
+    if (Array.isArray(updateData.roles) && updateData.roles.length === 0) delete updateData.roles;
     if (isMongoReady()) {
       return Profile.findOneAndUpdate(
         { userId },
         {
           $set: {
-            ...profileData,
+            ...updateData,
             userId,
           },
           $inc: { version: 1 },
@@ -36,7 +40,7 @@ export const profileRepository = {
       _id: existing?._id || new mongoose.Types.ObjectId().toString(),
       userId: uid,
       ...(existing || {}),
-      ...profileData,
+      ...updateData,
       version: (existing?.version || 0) + 1,
       updatedAt: new Date(),
     };
@@ -46,9 +50,25 @@ export const profileRepository = {
 
   async createResume(resumeData) {
     if (isMongoReady()) {
-      const resume = new Resume(resumeData);
-      return (await resume.save()).toObject();
+      try {
+        const resume = new Resume(resumeData);
+        return (await resume.save()).toObject();
+      } catch (error) {
+        if (error?.code !== 11000 || !resumeData.s3Key) throw error;
+        const existing = await Resume.findOne({
+          userId: resumeData.userId,
+          s3Key: resumeData.s3Key,
+        }).lean();
+        if (!existing) throw error;
+        return existing;
+      }
     }
+    const existing = inMemoryResumes.find(
+      (resume) =>
+        resume.userId.toString() === resumeData.userId.toString() &&
+        resume.s3Key === resumeData.s3Key,
+    );
+    if (existing) return existing;
     const newResume = {
       _id: new mongoose.Types.ObjectId().toString(),
       ...resumeData,
@@ -64,5 +84,29 @@ export const profileRepository = {
       return Resume.find({ userId }).sort({ createdAt: -1 }).lean();
     }
     return inMemoryResumes.filter((r) => r.userId.toString() === uid);
+  },
+
+  async findResumeByIdAndUserId(resumeId, userId) {
+    if (isMongoReady()) {
+      return Resume.findOne({ _id: resumeId, userId }).lean();
+    }
+    return (
+      inMemoryResumes.find(
+        (resume) =>
+          resume._id.toString() === resumeId.toString() &&
+          resume.userId.toString() === userId.toString(),
+      ) || null
+    );
+  },
+
+  async findResumeByS3KeyAndUserId(s3Key, userId) {
+    if (isMongoReady()) {
+      return Resume.findOne({ s3Key, userId }).lean();
+    }
+    return (
+      inMemoryResumes.find(
+        (resume) => resume.s3Key === s3Key && resume.userId.toString() === userId.toString(),
+      ) || null
+    );
   },
 };

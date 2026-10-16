@@ -1,0 +1,11 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): stages through score and top-20 persistence
+%% Target design (not built yet): stronger structured eligibility/occupation data
+flowchart LR
+  A[Enabled active unexpired catalog] --> B[Profile filters]
+  B --> C[Lexical relevance candidates]
+  C --> D[Recency fallback to cap 400]
+  D --> E[Location tier]
+  E --> F[Deterministic lexical-v2 score]
+  F --> G[Top 20 persisted]
+  F -. target .-> H[Country/work-authorization quality gate]

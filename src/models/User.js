@@ -35,6 +35,7 @@ const UserSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    preferredName: { type: String, trim: true, maxlength: 80, default: "" },
     role: {
       type: String,
       enum: Object.values(ROLES),
@@ -86,6 +87,19 @@ const UserSchema = new mongoose.Schema(
     memoryPaused: {
       type: Boolean,
       default: false,
+    },
+    resumeAiConsent: {
+      acceptedAt: { type: Date, default: null },
+      version: { type: String, default: null },
+    },
+    timezone: { type: String, default: "UTC", trim: true, maxlength: 64 },
+    mockInterviewTrialUsedAt: { type: Date, default: undefined },
+    mockInterviewTrialSessionId: { type: mongoose.Schema.Types.ObjectId, default: undefined },
+    mockInterviewQuotaDay: { type: String, default: undefined },
+    mockInterviewQuotaCount: { type: Number, default: 0 },
+    mockInterviewQuotaSessionIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: undefined,
     },
     profileVersion: {
       type: Number,

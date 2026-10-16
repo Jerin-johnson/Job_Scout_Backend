@@ -17,6 +17,7 @@ import { exportService } from "../services/exportService.js";
 import { Document } from "../models/Document.js";
 import { profileRepository } from "../repositories/profileRepository.js";
 import mongoose from "mongoose";
+import { acceptRequestQuota } from "../middleware/quotaGate.js";
 
 // ── In-memory document store for offline/test mode ──────────────────────────
 const inMemoryDocs = new Map();
@@ -129,6 +130,8 @@ export async function startTailor(req, res, next) {
         },
       });
     }
+
+    await acceptRequestQuota(req, "tailor_resume");
 
     // Run tailoring graph
     const result = await tailoringGraph.runTailoring({

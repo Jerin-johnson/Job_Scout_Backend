@@ -2,7 +2,7 @@ import { BaseJobAdapter } from "./baseAdapter.js";
 
 export class MockBoardAdapter extends BaseJobAdapter {
   constructor() {
-    super("mock_public_board", true);
+    super({ key: "mock_public_board", displayName: "Mock Public Board", capabilities: { paging: false } });
   }
 
   async fetchJobs() {
@@ -56,8 +56,10 @@ export class MockBoardAdapter extends BaseJobAdapter {
       },
     ];
 
-    return rawJobs.map((j) => ({
+    return rawJobs.map((j, index) => ({
       ...j,
+      sourceJobId: String(index + 1),
+      canonicalUrl: j.sourceUrl,
       contentHash: this.generateContentHash(j),
       sourceBoard: this.name,
       postedAt: new Date(),

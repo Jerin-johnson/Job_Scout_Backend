@@ -18,6 +18,7 @@ import { interviewRouter } from "./routes/interview.js";
 import { billingRouter } from "./routes/billing.js";
 import { adminRouter } from "./routes/admin.js";
 import { privacyRouter } from "./routes/privacy.js";
+import { isTrustedWebOrigin } from "./shared/utils/webOrigin.js";
 
 export function createApp() {
   const app = express();
@@ -38,7 +39,7 @@ export function createApp() {
     cors({
       origin: (origin, callback) => {
         // Allow requests with no origin (like mobile apps, curl, smoke script)
-        if (!origin || origin === env.WEB_ORIGIN) {
+        if (isTrustedWebOrigin(origin, env)) {
           return callback(null, true);
         }
         return callback(new Error("CORS policy violation: Disallowed origin"));

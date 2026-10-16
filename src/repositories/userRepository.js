@@ -42,6 +42,7 @@ export const userRepository = {
       passwordHash: userData.passwordHash || null,
       googleId: userData.googleId || null,
       name: userData.name || "",
+      preferredName: userData.preferredName || "",
       role: userData.role || ROLES.USER,
       plan: userData.plan || PLANS.FREE,
       planSource: userData.planSource || "manual",
@@ -71,6 +72,13 @@ export const userRepository = {
       }
     }
     return null;
+  },
+
+  async bumpProfileVersion(id) {
+    if (isMongoReady())
+      return User.findByIdAndUpdate(id, { $inc: { profileVersion: 1 } }, { new: true }).lean();
+    const current = await this.findById(id);
+    return current ? this.update(id, { profileVersion: (current.profileVersion || 1) + 1 }) : null;
   },
 
   async recordFailedLogin(id, currentAttempts) {

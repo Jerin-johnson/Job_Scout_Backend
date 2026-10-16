@@ -1,0 +1,30 @@
+# 13 — Failure modes and runbooks
+
+Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16.
+
+## As built (verified in code)
+
+| Symptom                                        | Code behavior / diagnosis                                                                          | First safe action                                                                                                 |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| No recommendations/all low                     | Read dev funnel: catalog, eligibility, cap, location and score histogram.                          | Check docs/JOB_MATCHING.md; verify facts, country code and source coverage. Do not tune weights from one profile. |
+| Provider missing or unknown                    | Startup validates credential/model price; shared layer returns a safe provider error.              | Check variable names/catalog status without printing secrets; restart after config correction.                    |
+| Free-tier personal data blocked                | Production guard returns AI_PERSONAL_DATA_PROVIDER_BLOCKED.                                        | Select a reviewed paid API policy or keep feature unavailable; do not weaken the guard.                           |
+| Daily quota/cap                                | User/global spend or feature counter returns 429; monthly shadow only logs.                        | Inspect sanitized ledger/config; do not raise limits without approval.                                            |
+| Redis outage in production                     | AI quota path fails closed with retryable 503.                                                     | Restore Redis and inspect API/worker readiness.                                                                   |
+| Model transient error                          | Only classified 429, 5xx and network errors retry; timeout is not retried.                         | Use request ID/error class; retry user request only when appropriate.                                             |
+| Stream fails/cancels                           | Stream finalization writes estimated partial/failure usage when user context exists.               | Inspect request ID/outcome; never log response content.                                                           |
+| Resume S3 upload succeeds but completion fails | Completion may retry idempotently with the same key; facts reload is separate from upload success. | Retry completion, not the file upload; inspect request ID and S3 CORS, never expose signed URL.                   |
+| Source run stuck                               | Check JobSource run state/lease/quota/circuit, Redis and BullMQ worker.                            | Do not clear locks or raise quota to force fetch; wait for allowed interval.                                      |
+| Stale match result                             | Profile/score version participates in cache; empty match cache TTL is short.                       | Inspect profileVersion, scoreVersion, refresh status and cache health.                                            |
+| Catalog does not refresh                       | Worker source repeats are reconciled at boot; Redis heartbeat TTL is 45 seconds.                 | Run `npm run jobs:schedule:report`; start `npm run worker:dev`; verify Redis `maxmemory-policy noeviction`. |
+| Profile role history unexpectedly empty         | Check the request error and parser path first; deterministic section parsing runs before one structured LLM call, and grounding drops unsupported facts. | Check the facts-v4 content-hash cache and role fixtures; a cache hit avoids a second provider call. Never log resume text. |
+| Job eligibility unclear                         | Rules did not find supported country/scope evidence.                                         | Keep it labeled unclear; verify the listing before applying. Do not infer authorization from remote status.          |
+| Salary conversion unavailable                   | ECB refresh failed or the stored rate is stale/missing.                                       | Keep original pay visible, show rate date when available, and use the last saved rate; never fetch per request.       |
+| ATS board not ingested                           | Source is disabled/unapproved, company request is pending, or per-source quota is exhausted.  | Review the exact board and source terms, then approve both company and source separately.                             |
+| Adzuna blocked                                    | License/attribution/storage gates are incomplete.                                             | Leave disabled; review the checklist in `17-phase3-job-quality.md` before asking for activation.                      |
+
+## Target design (not built yet)
+
+Add deployed provider/queue runbooks, queue-age alerts, spend reconciliation and safe dry-run recovery commands. Add cache poisoning/stale-empty incident steps and a named kill-switch owner.
+
+**Unverified:** production alert thresholds, restore RTO/RPO and Redis failover drills. Ask the on-call owner and inspect deployment runbooks.

@@ -17,6 +17,14 @@ const UsageEventSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    provider: { type: String, default: "unknown", index: true },
+    plan: { type: String, default: "free", index: true },
+    planVersion: { type: String, default: "unversioned" },
+    requestId: { type: String, default: null, index: true },
+    attemptId: { type: String, default: null },
+    status: { type: String, enum: ["success", "partial", "failed"], default: "success", index: true },
+    outcome: { type: String, default: "success" },
+    usageIsEstimated: { type: Boolean, default: false },
     inputTokens: {
       type: Number,
       default: 0,
@@ -29,6 +37,7 @@ const UsageEventSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    cachedInputTokens: { type: Number, default: 0 },
     cacheWriteTokens: {
       type: Number,
       default: 0,
@@ -42,6 +51,8 @@ const UsageEventSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    pricingVersion: { type: String, default: "unknown" },
+    retryCount: { type: Number, min: 0, default: 0 },
     createdAt: {
       type: Date,
       default: Date.now,

@@ -1,0 +1,14 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): registry-gated feed, rules, optional batch vectors, deterministic scoring
+%% Target design (not built yet): expanded structured occupation/eligibility coverage
+flowchart LR
+  Q[Worker repeat job] --> R[Approved enabled source registry]
+  R --> A[Source adapter and quota]
+  A --> N[Normalize and hash]
+  N --> M[Mongo job catalog]
+  N --> F[Deterministic feature extraction]
+  N --> V[Metered batch vector service]
+  M --> C[Bounded lexical retrieval]
+  F --> C
+  C --> S[Deterministic score]
+  S -. target .-> E[Improved structured eligibility]

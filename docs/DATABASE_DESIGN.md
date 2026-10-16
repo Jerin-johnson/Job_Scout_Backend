@@ -214,11 +214,14 @@ The parsed canonical career data represented as immutable **STRUCTURED FACTS**, 
     preferredLocations: [String],
     remotePreference: String       // enum: ["remote", "hybrid", "onsite", "any"]
   },
+  careerProfile: Object,           // optional validated v1 profile; no default language values
   version: Number,                 // profile version counter
   createdAt: Date,
   updatedAt: Date
 }
 ```
+
+The additive careerProfile stores explicit target-role selections, confirmed/derived experience, home and target locations, work authorization, work preferences, compensation with currency and period, and optional education/language/test-score/availability/certification details. It remains owner-scoped with the profile document. Migration is report-only until approved; existing legacy fields remain compatible. Career-profile suggestions and derived years are not saved unless the user confirms them.
 
 ---
 
