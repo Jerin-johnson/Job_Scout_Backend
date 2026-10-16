@@ -3,6 +3,10 @@ import { get, set, CacheKeys, TTL } from "../shared/cache.js";
 import { del } from "../shared/cache.js";
 import { longTermMemory } from "../ai/memory/longTerm.js";
 import { jobIngestionService } from "../services/jobs/jobIngestionService.js";
+import { latestEcbReferenceRates, convertAmount, isFxRateStale } from "../services/jobs/fxRates.js";
+import { getJobRiskFlags } from "../services/jobs/jobRisk.js";
+import { classifyEligibility, profileApplicantCountries } from "../services/jobs/eligibility.js";
+import { requestCompanyTracking } from "../services/jobs/trackedCompanyService.js";
 import { z } from "zod";
 import { getMatchRefresh, requestMatchRefresh } from "../services/matchRefreshService.js";
 import { profileRepository } from "../repositories/profileRepository.js";
@@ -10,7 +14,6 @@ import { MATCH_SCORE_VERSION, scoreJobMatch, extractJobFeatures } from "../servi
 import { Job } from "../models/Job.js";
 import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
-import { JobReport } from "../models/JobReport.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
 
 const feedbackSchema = z.object({
@@ -45,10 +48,26 @@ function serializeMatch(match) {
     postedDateKnown: Boolean(postedDateKnown),
     locationTier: match.locationTier || null,
     locationLabel: match.locationLabel || "",
+    eligibility: match.eligibility || "unknown",
+    eligibilityDetails: match.eligibilityDetails || {},
   };
 }
 
 export const jobController = {
+  async coverage(req, res, next) {
+    try {
+      const profile = await profileRepository.findByUserId(req.user._id || req.user.id);
+      const report = await jobIngestionService.coverageReport(profile);
+      return res.status(200).json({ data: report });
+    } catch (error) { return next(error); }
+  },
+  async trackCompany(req, res, next) {
+    try {
+      const { careersUrl } = z.object({ careersUrl: z.string().url().max(500) }).strict().parse(req.body);
+      const company = await requestCompanyTracking(careersUrl, req.user._id || req.user.id);
+      return res.status(202).json({ data: { company, message: "Company board verified and queued for admin review." } });
+    } catch (error) { return next(error); }
+  },
   async getMatches(req, res, next) {
     try {
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
@@ -125,16 +144,46 @@ export const jobController = {
         countryCode: String(req.query.countryCode || "").trim(),
         source: String(req.query.source || "").trim(),
         remoteType: String(req.query.remoteType || "").trim(),
+        minimumSalaryInr: req.query.minimumSalaryInr === undefined ? null : Number(req.query.minimumSalaryInr),
+        showAnyway: req.query.showAnyway === "true",
       };
       const userId = req.user._id || req.user.id;
       const hiddenJobIds = await HiddenJob.distinct("jobId", { userId });
-      const result = await jobIngestionService.searchJobs({ ...filters, page, limit, excludeJobIds: hiddenJobIds });
-      const profile = await profileRepository.findByUserId(req.user._id || req.user.id);
-      if (profile && Array.isArray(result.jobs)) {
-        result.jobs = result.jobs.map((job) => ({
-          ...job,
-          ...scoreJobMatch(profile, job),
-        }));
+      const profile = await profileRepository.findByUserId(userId);
+      const result = await jobIngestionService.searchJobs({ ...filters, eligibilityCountryCodes: profileApplicantCountries(profile || {}), page, limit, excludeJobIds: hiddenJobIds });
+      if (["admin", "super_admin"].includes(req.user.role)) {
+        const sourceBudgets = await jobIngestionService.sourceBudgets();
+        result.worker = sourceBudgets[0]?.worker || { online: false, status: "offline", lastSeenAt: null };
+      }
+      const rates = await latestEcbReferenceRates().catch(() => null);
+      if (Array.isArray(result.jobs)) {
+        result.jobs = result.jobs.map((job) => {
+          const match = profile ? scoreJobMatch(profile, job) : null;
+          const salary = job.compensation;
+          const salaryRange = job.salaryRange;
+          const amountMin = salary?.min ?? salaryRange?.min;
+          const amountMax = salary?.max ?? salaryRange?.max;
+          const currency = salary?.currency || salaryRange?.currency;
+          const targetCurrency = profile?.careerProfile?.compensation?.currencyCode || (profileApplicantCountry(profile) === "IN" ? "INR" : currency);
+          const mapped = {
+            ...job,
+            ...(match || {}),
+            eligibility: match?.eligibility || classifyEligibility(job, profile || {}).status,
+            eligibilityDetails: match?.eligibilityDetails || classifyEligibility(job, profile || {}),
+            riskFlags: getJobRiskFlags(job),
+            salaryDisplay: currency && targetCurrency ? {
+              currency: String(currency).toUpperCase(), targetCurrency: String(targetCurrency).toUpperCase(),
+              converted: String(currency).toUpperCase() !== String(targetCurrency).toUpperCase(),
+              min: amountMin || null, max: amountMax || null,
+              convertedMin: currency === targetCurrency ? amountMin : rates ? convertAmount(amountMin, currency, targetCurrency, rates.ratesPerEur) : null,
+              convertedMax: currency === targetCurrency ? amountMax : rates ? convertAmount(amountMax, currency, targetCurrency, rates.ratesPerEur) : null,
+              rateDate: rates?.date || null, rateSource: rates?.source || null,
+              rateStale: isFxRateStale(rates),
+              period: salary?.payPeriod || "unknown",
+            } : null,
+          };
+          return mapped;
+        });
         if (req.query.sort === "best-match") result.jobs.sort((a, b) => b.score - a.score);
       }
       res.status(200).json({ data: result });
@@ -151,6 +200,23 @@ export const jobController = {
       const userId = req.user._id || req.user.id;
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;
+      const eligibilityDetails = classifyEligibility(job, profile || {});
+      const salary = job.compensation;
+      const salaryRange = job.salaryRange;
+      const amountMin = salary?.min ?? salaryRange?.min;
+      const amountMax = salary?.max ?? salaryRange?.max;
+      const currency = salary?.currency || salaryRange?.currency;
+      const targetCurrency = profile?.careerProfile?.compensation?.currencyCode || (profileApplicantCountry(profile) === "IN" ? "INR" : currency);
+      const rates = await latestEcbReferenceRates().catch(() => null);
+      const salaryDisplay = currency && targetCurrency ? {
+        currency: String(currency).toUpperCase(), targetCurrency: String(targetCurrency).toUpperCase(),
+          converted: String(currency).toUpperCase() !== String(targetCurrency).toUpperCase(),
+        min: amountMin || null, max: amountMax || null,
+          convertedMin: currency === targetCurrency ? amountMin : rates ? convertAmount(amountMin, currency, targetCurrency, rates.ratesPerEur) : null,
+          convertedMax: currency === targetCurrency ? amountMax : rates ? convertAmount(amountMax, currency, targetCurrency, rates.ratesPerEur) : null,
+        rateDate: rates?.date || null, rateSource: rates?.source || null, rateStale: isFxRateStale(rates),
+        period: salary?.payPeriod || "unknown",
+      } : null;
       const similar = await Job.find({
         _id: { $ne: job._id }, status: "active", expiresAt: { $gt: new Date() },
         $or: [{ features: { $exists: true, $ne: {} } }, { sourceBoard: job.sourceBoard }],
@@ -162,7 +228,7 @@ export const jobController = {
         const titleSame = job.features?.occupation && features.occupation === job.features.occupation ? 3 : 0;
         return { ...item, _similarity: shared + titleSame };
       }).sort((a, b) => b._similarity - a._similarity).slice(0, 3).map(({ _similarity, ...item }) => item);
-      res.json({ data: { job, match, similarJobs, companyInfoProvided: Boolean(job.companyDescription || job.companyWebsite || job.industry) } });
+      res.json({ data: { job: { ...job, eligibility: match?.eligibility || eligibilityDetails.status, eligibilityDetails: match?.eligibilityDetails || eligibilityDetails, riskFlags: getJobRiskFlags(job), salaryDisplay }, match, similarJobs, companyInfoProvided: Boolean(job.companyDescription || job.companyWebsite || job.industry) } });
     } catch (err) { next(err); }
   },
 
@@ -193,12 +259,7 @@ export const jobController = {
       if (!parsed.success) return res.status(400).json({ error: { code: "INVALID_REPORT_REASON", message: "Choose a report reason.", requestId: req.id } });
       const job = await Job.findOne({ _id: req.params.id }).select("_id").lean();
       if (!job) return res.sendStatus(404);
-      const userId = req.user._id || req.user.id;
-      await JobReport.findOneAndUpdate(
-        { userId, jobId: job._id },
-        { $set: { reason: parsed.data.reason, status: "pending", updatedAt: new Date() }, $setOnInsert: { userId, jobId: job._id } },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
-      );
+      await Job.updateOne({ _id: job._id }, { $inc: { [`reportCounts.${parsed.data.reason}`]: 1 } });
       res.status(204).end();
     } catch (err) { next(err); }
   },
@@ -353,3 +414,7 @@ export const jobController = {
     }
   },
 };
+
+function profileApplicantCountry(profile) {
+  return String(profile?.careerProfile?.homeLocation?.countryCode || (profile?.careerProfile?.homeLocation?.scope === "anywhere_in_india" ? "IN" : "") || profile?.preferences?.preferredCountryCodes?.[0] || "").toUpperCase();
+}

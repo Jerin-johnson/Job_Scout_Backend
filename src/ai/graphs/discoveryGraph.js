@@ -7,6 +7,9 @@ import { acceptQuota } from "../../middleware/quotaGate.js";
 import { logger } from "../../shared/utils/logger.js";
 import { scoreJobMatch, MATCH_SCORE_VERSION, extractJobFeatures } from "../../services/jobs/matching.js";
 import { HiddenJob } from "../../models/HiddenJob.js";
+import { PLACE_SUGGESTIONS } from "../../services/profileSuggestionCatalog.js";
+import { profileApplicantCountries } from "../../services/jobs/eligibility.js";
+import { latestEcbReferenceRates } from "../../services/jobs/fxRates.js";
 
 const inMemoryMatches = [];
 
@@ -65,21 +68,39 @@ export function locationTierForJob(job, locations = [], countryCodes = []) {
   )
     return 2;
   if (job.remoteType === "remote") {
-    const eligible = (structured.eligibleCountryCodes || []).map((code) =>
+    const eligible = [...(structured.eligibleCountryCodes || []), ...(job.eligibility?.countries || [])].map((code) =>
       String(code).toUpperCase(),
     );
+    const remoteScope = job.eligibility?.remoteScope || structured.remoteScope;
     if (countryCodes.length && countryCodes.some((code) => eligible.includes(code))) return 3;
     if (
       !eligible.length &&
-      (!structured.remoteScope ||
-        structured.remoteScope === "unknown" ||
-        structured.remoteScope === "country" ||
-        structured.remoteScope === "region")
+      (!remoteScope ||
+        remoteScope === "unknown" ||
+        remoteScope === "country" ||
+        remoteScope === "region")
     )
       return 3;
-    if (structured.remoteScope === "worldwide") return 4;
+    if (remoteScope === "worldwide") return 4;
   }
   return 2;
+}
+
+function careerProfileLocationLabels(profile = {}) {
+  const locationEntries = [profile.careerProfile?.homeLocation, ...(profile.careerProfile?.targetLocations || [])];
+  return [...new Set(locationEntries.flatMap((entry) => {
+    if (!entry) return [];
+    if (entry.cityCode) {
+      const place = PLACE_SUGGESTIONS.find((item) => item.code === entry.cityCode);
+      return place ? [place.label, place.country] : [];
+    }
+    if (entry.scope === "anywhere_in_india") return ["India"];
+    if (entry.countryCode) {
+      const country = PLACE_SUGGESTIONS.find((item) => item.countryCode === entry.countryCode)?.country;
+      return country ? [country] : [];
+    }
+    return [];
+  }))];
 }
 
 export async function persistMatchesBulk(matches) {
@@ -125,6 +146,7 @@ export const discoveryGraph = {
             occupationCodes: [],
             minimumSalaryUsd: 0,
           },
+          careerProfile: profile.careerProfile ? { ...profile.careerProfile, targetLocations: [] } : undefined,
         }
       : profile;
     const hiddenJobIds = isMongoReady() ? await HiddenJob.distinct("jobId", { userId }) : [];
@@ -150,7 +172,7 @@ export const discoveryGraph = {
       };
     }
 
-    const usableProfile = Boolean(profile.skills?.length || profile.roles?.length || profile.preferences?.targetRoles?.length);
+    const usableProfile = Boolean(profile.skills?.length || profile.roles?.length || profile.preferences?.targetRoles?.length || profile.careerProfile?.targetRoles?.length || profile.careerProfile?.experience?.isFresher || Number.isFinite(profile.careerProfile?.experience?.confirmedYears));
     if (!usableProfile) return { matches: [], emptyReason: "profile_missing", broadenActions: [] };
 
     // 5. Rule Filter: salary and work arrangement. Location uses ranked
@@ -182,10 +204,8 @@ export const discoveryGraph = {
       return true;
     });
 
-    const locations = (preferences.preferredLocations || []).filter(Boolean).slice(0, 5);
-    const countryCodes = (preferences.preferredCountryCodes || []).map((code) =>
-      String(code).toUpperCase(),
-    );
+    const locations = [...new Set([...(preferences.preferredLocations || []), ...careerProfileLocationLabels(matchProfile)].filter(Boolean))].slice(0, 10);
+    const countryCodes = profileApplicantCountries(matchProfile);
     for (const candidate of filtered)
       candidate.locationTier = locationTierForJob(candidate, locations, countryCodes);
     const bestTier = filtered.length
@@ -201,14 +221,15 @@ export const discoveryGraph = {
           : bestTier === 3
             ? `No jobs in ${preferredLocation} yet. Showing remote roles; confirm location eligibility before applying.`
             : `No jobs in ${preferredLocation} yet. Showing global remote roles.`;
+    const fxRates = MATCH_SCORE_VERSION === "lexical-v4" ? await latestEcbReferenceRates().catch(() => null) : null;
     const scoredCandidates = tiered.map((job) => {
-      const result = scoreJobMatch(profile, { ...job, locationTier: job.locationTier });
+      const result = scoreJobMatch(profile, { ...job, locationTier: job.locationTier }, { ratesPerEur: fxRates?.ratesPerEur || null });
       return { job, ...result };
     });
     const scored = scoredCandidates.filter((candidate) => !candidate.hardBlocked);
     scored.sort((a, b) => b.score - a.score || Number(Boolean(b.job.postedDateKnown)) - Number(Boolean(a.job.postedDateKnown)) || new Date(b.job.postedAt || 0) - new Date(a.job.postedAt || 0));
     const selected = scored.slice(0, 20);
-    const finalizedMatches = selected.map(({ job, score, band, reasons, matchingSkills, missingSkills, breakdown, features }) => ({
+    const finalizedMatches = selected.map(({ job, score, band, reasons, matchingSkills, missingSkills, breakdown, features, eligibility, eligibilityDetails }) => ({
       userId,
       jobId: job._id ? job._id.toString() : job.contentHash,
       score,
@@ -222,6 +243,8 @@ export const discoveryGraph = {
       features: job.features || features || extractJobFeatures(job),
       locationTier: job.locationTier,
       locationLabel,
+      eligibility,
+      eligibilityDetails,
       title: job.title,
       company: job.company,
       location: job.location,

@@ -40,6 +40,8 @@ const MatchSchema = new mongoose.Schema(
     postedAt: { type: Date, default: null },
     locationTier: { type: Number, min: 1, max: 4, default: null },
     locationLabel: { type: String, default: "" },
+    eligibility: { type: String, enum: ["eligible", "unknown", "excluded"], default: "unknown" },
+    eligibilityDetails: { type: mongoose.Schema.Types.Mixed, default: {} },
     userFeedback: {
       type: String,
       enum: ["thumbs_up", "thumbs_down", null],

@@ -4,8 +4,11 @@ import { BaseJobAdapter, sourceDescriptionText } from "../src/services/jobs/adap
 import { normalizeRemoteOkJob } from "../src/services/jobs/adapters/remoteOkAdapter.js";
 import { normalizeRemotiveJob } from "../src/services/jobs/adapters/remotiveAdapter.js";
 import { normalizeJobicyJob } from "../src/services/jobs/adapters/jobicyAdapter.js";
-import { isSourcePolicyComplete, SOURCE_POLICIES } from "../src/services/jobs/sourcePolicies.js";
+import { isSourcePolicyComplete, isSourceActivationAllowed, SOURCE_POLICIES } from "../src/services/jobs/sourcePolicies.js";
 import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
+import { normalizePublicAtsJob } from "../src/services/jobs/adapters/publicAtsAdapter.js";
+import { normalizeAdzunaJob } from "../src/services/jobs/adapters/adzunaAdapter.js";
+import { detectAtsCareersUrl, verifyPublicBoard } from "../src/services/jobs/trackedCompanyService.js";
 
 test("source identity uses source IDs first, then URL, then normalized company-title-location", () => {
   const adapter = new BaseJobAdapter({ key: "test" });
@@ -52,9 +55,42 @@ test("source descriptions discard active HTML and bound stored text", () => {
 });
 
 test("only approved source policies with full terms metadata are eligible", () => {
-  assert.deepEqual(SOURCE_POLICIES.map(({ key }) => key), ["remoteok", "remotive", "jobicy"]);
+  assert.deepEqual(SOURCE_POLICIES.filter((source) => source.approved && source.enabled).map(({ key }) => key), ["remoteok", "remotive", "jobicy"]);
+  assert.ok(SOURCE_POLICIES.filter((source) => ["greenhouse", "lever", "ashby", "adzuna-india"].includes(source.key)).every((source) => !source.approved && !source.enabled));
   assert.ok(SOURCE_POLICIES.every(isSourcePolicyComplete));
+  assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "adzuna-india")), false);
+  assert.equal(isSourceActivationAllowed({ key: "adzuna-india", commercialLicenseReference: "license", attributionBadgeVerified: true, storageDisplayTermsReviewed: true }), true);
   assert.equal(isSourcePolicyComplete({ key: "new", approved: false, enabled: false, quota: { requestsPerDay: 1 } }), false);
+});
+
+test("public ATS adapters normalize fixture postings and only retain Ashby-listed postings", () => {
+  const greenhouse = normalizePublicAtsJob("greenhouse", "acme", { id: 4, title: "Nurse", absolute_url: "https://boards.greenhouse.io/acme/jobs/4", location: { name: "Kochi" }, content: "Care" });
+  const lever = normalizePublicAtsJob("lever", "acme", { id: "5", text: "Engineer", hostedUrl: "https://jobs.lever.co/acme/5", categories: { location: "India" }, descriptionPlain: "Build" });
+  const ashby = normalizePublicAtsJob("ashby", "acme", { id: "6", title: "Designer", jobUrl: "https://jobs.ashbyhq.com/acme/6", isListed: true, descriptionPlain: "Design" });
+  assert.equal(greenhouse.sourceJobId, "4");
+  assert.equal(lever.location, "India");
+  assert.equal(ashby.title, "Designer");
+  assert.equal(normalizePublicAtsJob("ashby", "acme", { id: "7", title: "Private", isListed: false }), null);
+});
+
+test("Adzuna normalizer retains attribution source and does not invent salary period", () => {
+  const job = normalizeAdzunaJob({ id: "a1", title: "Care Assistant", redirect_url: "https://www.adzuna.in/details/1", salary_min: 300000, salary_max: 500000, company: { display_name: "Care Co" } });
+  assert.equal(job.attributionText, "Adzuna");
+  assert.equal(job.compensation.payPeriod, "unknown");
+});
+
+test("company tracking only accepts exact public ATS career hosts and safe slugs", () => {
+  assert.deepEqual(detectAtsCareersUrl("https://jobs.lever.co/acme"), { platform: "lever", slug: "acme", careersUrl: "https://jobs.lever.co/acme" });
+  assert.equal(detectAtsCareersUrl("https://evil.example/?url=https://jobs.lever.co/acme"), null);
+  assert.equal(detectAtsCareersUrl("https://jobs.lever.co/acme/redirect"), null);
+  assert.equal(detectAtsCareersUrl("http://jobs.ashbyhq.com/acme"), null);
+});
+
+test("company board verification rejects redirects and responses above its byte cap", async () => {
+  const board = { platform: "lever", slug: "acme" };
+  assert.equal(await verifyPublicBoard(board, async () => new Response("", { status: 302, headers: { location: "https://evil.example" } })), false);
+  assert.equal(await verifyPublicBoard(board, async () => new Response("{}", { status: 200, headers: { "content-length": "2000001" } })), false);
+  assert.equal(await verifyPublicBoard(board, async () => new Response('{"postings":[]}')), true);
 });
 
 test("source registry module names load adapters from the bounded local adapter directory", async () => {

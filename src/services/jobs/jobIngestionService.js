@@ -7,16 +7,18 @@ import { getRedisClient, isRedisReady } from "../../config/redis.js";
 import { embeddingService } from "../embeddingService.js";
 import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
-import { SOURCE_POLICIES, isSourcePolicyComplete } from "./sourcePolicies.js";
+import { SOURCE_POLICIES, isSourcePolicyComplete, isSourceActivationAllowed } from "./sourcePolicies.js";
 import { extractJobFeatures, canonicalSkill } from "./matching.js";
 import { normalizeRoleForMatching } from "./roleNormalization.js";
 import { classifyJobOccupation } from "./occupationClassification.js";
+import { parseJobEligibility, profileApplicantCountries } from "./eligibility.js";
+import { latestEcbReferenceRates, convertAmount } from "./fxRates.js";
+import { PLACE_SUGGESTIONS, ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
 const BATCH_SIZE = 32;
 const inMemoryJobs = new Map();
-let demandCache = { expiresAt: 0, terms: [] };
 const adapterFactories = Object.create(null);
 const sourceSeedPromises = new Map();
 
@@ -75,6 +77,7 @@ function cleanNormalizedJob(job, source) {
   });
   const now = new Date();
   normalized.features = extractJobFeatures(normalized);
+  normalized.eligibility = parseJobEligibility({ ...normalized, ...job });
   Object.assign(normalized, classifyJobOccupation(normalized));
   const postedAt =
     normalized.postedAt instanceof Date && !Number.isNaN(normalized.postedAt.getTime())
@@ -148,13 +151,31 @@ async function listSourceRecords({ enabledOnly = false } = {}) {
     await ensureSourceRecords();
     const query = enabledOnly ? { enabled: true, approved: true } : {};
     const records = await JobSource.find(query).lean();
-    return enabledOnly ? records.filter(isSourcePolicyComplete) : records;
+    return enabledOnly ? records.filter((source) => isSourcePolicyComplete(source) && isSourceActivationAllowed(source)) : records;
   }
-  return SOURCE_POLICIES.filter((source) => !enabledOnly || (source.enabled && source.approved));
+  return SOURCE_POLICIES.filter((source) => !enabledOnly || (source.enabled && source.approved && isSourceActivationAllowed(source)));
 }
 
 export async function reserveSourceRequest(sourceKey, maxPerDay) {
   if (!isMongoReady()) return true;
+  if (typeof maxPerDay === "object" && maxPerDay?.limits) {
+    const now = new Date();
+    const minuteStart = new Date(now); minuteStart.setUTCSeconds(0, 0);
+    const dateStart = dayStart(now);
+    const weekStart = new Date(dateStart); weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const windows = [
+      ["quotaMinuteStart", "quotaMinuteUsed", minuteStart, maxPerDay.limits.perMinute],
+      ["quotaWindowStart", "quotaUsed", dateStart, maxPerDay.limits.perDay || maxPerDay.requestsPerDay],
+      ["quotaWeekStart", "quotaWeekUsed", weekStart, maxPerDay.limits.perWeek],
+      ["quotaMonthStart", "quotaMonthUsed", monthStart, maxPerDay.limits.perMonth],
+    ].filter(([, , , limit]) => Number.isFinite(Number(limit)) && Number(limit) > 0);
+    const nextUsed = ([startField, usedField, start]) => ({ $cond: [{ $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] }, 1, { $add: [{ $ifNull: [`$${usedField}`, 0] }, 1] }] });
+    const expression = { $and: windows.map(([startField, usedField, start, limit]) => ({ $lte: [nextUsed([startField, usedField, start]), Number(limit)] })) };
+    const updates = Object.fromEntries(windows.flatMap(([startField, usedField, start]) => [[startField, { $cond: [{ $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] }, start, `$${startField}`] }], [usedField, nextUsed([startField, usedField, start])]]));
+    const reserved = await JobSource.findOneAndUpdate({ key: sourceKey, enabled: true, approved: true, $expr: expression }, [{ $set: { ...updates, lastRequestAt: now } }], { new: true, projection: { quotaUsed: 1 } }).lean();
+    return Boolean(reserved);
+  }
   const windowStart = dayStart();
   const oldWindow = { $lt: [{ $ifNull: ["$quotaWindowStart", new Date(0)] }, windowStart] };
   const usedExpr = {
@@ -189,12 +210,8 @@ function countCoverage(jobs) {
 
 async function getAggregatedDemandTerms() {
   if (!isMongoReady()) return [];
-  if (demandCache.expiresAt > Date.now()) return demandCache.terms;
   const cachedTerms = await get(CacheKeys.jobDemand());
-  if (Array.isArray(cachedTerms)) {
-    demandCache = { expiresAt: Date.now() + 6 * 60 * 60 * 1000, terms: cachedTerms };
-    return cachedTerms;
-  }
+  if (Array.isArray(cachedTerms)) return cachedTerms;
   let aggregated;
   try {
     aggregated = await Profile.aggregate([
@@ -207,6 +224,20 @@ async function getAggregatedDemandTerms() {
                   input: { $slice: [{ $ifNull: ["$preferences.targetRoles", []] }, 5] },
                   as: "value",
                   in: { kind: "role", value: "$$value" },
+                },
+              },
+              {
+                $map: {
+                  input: { $slice: [{ $ifNull: ["$careerProfile.targetRoles", []] }, 5] },
+                  as: "role",
+                  in: { kind: "role", value: { $ifNull: ["$$role.customRoleLabel", "$$role.roleCode"] } },
+                },
+              },
+              {
+                $map: {
+                  input: { $slice: [{ $concatArrays: [{ $ifNull: ["$careerProfile.targetLocations", []] }, [{ $ifNull: ["$careerProfile.homeLocation", {}] }]] }, 8] },
+                  as: "location",
+                  in: { kind: "location", value: { $ifNull: ["$$location.cityCode", { $ifNull: ["$$location.countryCode", "$$location.scope"] }] } },
                 },
               },
               {
@@ -255,8 +286,16 @@ async function getAggregatedDemandTerms() {
     );
     return [];
   }
-  const roles = aggregated.filter((item) => item._id.kind === "role").slice(0, 12);
-  const locations = aggregated.filter((item) => item._id.kind === "location").slice(0, 8);
+  const resolveRole = (value) => ROLE_SUGGESTIONS.find((role) => role.code === value)?.label || value.replace(/[-_]+/g, " ");
+  const resolveLocation = (value) => {
+    const place = PLACE_SUGGESTIONS.find((item) => item.code === value);
+    if (place) return place.label.toLowerCase();
+    if (/^[a-z]{2}$/i.test(value)) return (PLACE_SUGGESTIONS.find((item) => item.countryCode === value.toUpperCase())?.country || value).toLowerCase();
+    if (value === "anywhere_in_india") return "india";
+    return value.toLowerCase();
+  };
+  const roles = aggregated.filter((item) => item._id.kind === "role").slice(0, 12).map((item) => ({ ...item, _id: { ...item._id, value: resolveRole(item._id.value) } }));
+  const locations = aggregated.filter((item) => item._id.kind === "location").slice(0, 8).map((item) => ({ ...item, _id: { ...item._id, value: resolveLocation(item._id.value) } }));
   const terms = [];
   for (const role of roles) {
     terms.push(role._id.value);
@@ -264,12 +303,9 @@ async function getAggregatedDemandTerms() {
       terms.push(`${role._id.value} ${location._id.value}`.slice(0, 50));
   }
   if (!roles.length) terms.push(...locations.map((location) => location._id.value));
-  demandCache = {
-    expiresAt: Date.now() + 6 * 60 * 60 * 1000,
-    terms: [...new Set(terms)].slice(0, 32),
-  };
-  await set(CacheKeys.jobDemand(), demandCache.terms, 21600);
-  return demandCache.terms;
+  const resolvedTerms = [...new Set(terms)].slice(0, 32);
+  await set(CacheKeys.jobDemand(), resolvedTerms, 21600);
+  return resolvedTerms;
 }
 
 export const jobIngestionService = {
@@ -293,12 +329,12 @@ export const jobIngestionService = {
       );
       const Adapter = adapterModule.default;
       if (typeof Adapter !== "function") return null;
-      adapter = new Adapter(source.quota);
+      adapter = new Adapter({ ...source.quota, key: source.key });
     } else {
       return null;
     }
     adapter.consumeQuota = async () => {
-      if (!(await reserveSourceRequest(source.key, source.quota.requestsPerDay)))
+      if (!(await reserveSourceRequest(source.key, source.quota.limits ? source.quota : source.quota.requestsPerDay)))
         throw quotaExceeded(source.key);
     };
     return adapter;
@@ -345,7 +381,7 @@ export const jobIngestionService = {
     const source = isMongoReady()
       ? await JobSource.findOne({ key: sourceKey, enabled: true, approved: true }).lean()
       : SOURCE_POLICIES.find((item) => item.key === sourceKey && item.enabled && item.approved);
-    if (!source || !isSourcePolicyComplete(source))
+    if (!source || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source))
       return { source: sourceKey, skipped: true, reason: "disabled_or_unapproved" };
     if (source.circuit?.openUntil && new Date(source.circuit.openUntil) > new Date()) {
       return { source: sourceKey, skipped: true, reason: "circuit_open" };
@@ -554,6 +590,7 @@ export const jobIngestionService = {
         }
 
         if (changed.length) {
+          if (env.JOB_EMBEDDINGS_ENABLED || process.env.JOB_EMBEDDINGS_ENABLED === "true") {
           const config = embeddingService.getConfig();
           const vectorsByIndex = new Map();
           const missing = [];
@@ -602,6 +639,7 @@ export const jobIngestionService = {
             job.embedding = vector.vector;
             job.embeddingMetadata = vector.metadata;
           });
+          }
           if (isMongoReady()) {
             await Job.bulkWrite(
               changed.map((job) => ({
@@ -819,15 +857,19 @@ export const jobIngestionService = {
     filter.sourceBoard = { $in: enabledKeys };
     if (["remote", "hybrid", "onsite"].includes(preferences.remotePreference))
       filter.remoteType = preferences.remotePreference;
-    const countryCodes = (preferences.preferredCountryCodes || [])
-      .map((code) => String(code).toUpperCase())
-      .filter((code) => /^[A-Z]{2}$/.test(code));
+    const countryCodes = [...new Set([...profileApplicantCountries(profile || {}), ...(preferences.preferredCountryCodes || []).map((code) => String(code).toUpperCase())])].filter((code) => /^[A-Z]{2}$/.test(code));
     if (countryCodes.length) {
+      const matchingRegions = countryCodes.some((code) => ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"].includes(code)) ? ["EU"] : [];
+      if (countryCodes.some((code) => ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"].includes(code))) matchingRegions.push("APAC");
       filter.$or = [
         { "structuredLocation.countryCode": { $in: countryCodes } },
         { "structuredLocation.eligibleCountryCodes": { $in: countryCodes } },
+        { "eligibility.countries": { $in: countryCodes } },
         { "structuredLocation.remoteScope": "worldwide" },
         { "structuredLocation.remoteScope": "unknown" },
+        { "eligibility.remoteScope": "worldwide" },
+        { "eligibility.remoteScope": "unknown" },
+        ...(matchingRegions.length ? [{ "eligibility.remoteScope": { $in: matchingRegions } }] : []),
       ];
     }
     const occupationCodes = (preferences.occupationCodes || []).slice(0, 20);
@@ -861,6 +903,7 @@ export const jobIngestionService = {
     if (isMongoReady()) {
       const roleTerms = [
         ...(profile?.preferences?.targetRoles || []),
+        ...(profile?.careerProfile?.targetRoles || []).map((role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " ")),
         ...(profile?.roles || []).map((role) => role.title),
       ];
       const lexicalTerms = [
@@ -876,9 +919,9 @@ export const jobIngestionService = {
         ),
       ].slice(0, 64);
       const safeSelect =
-        "title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation occupationCodes embedding embeddingMetadata contentHash features featuresVersion";
+        "title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation eligibility occupationCodes occupation occupationConfidence embedding embeddingMetadata contentHash features featuresVersion";
       const recentFallbackSelect =
-        "title company location remoteType salaryRange compensation requirements tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown expiresAt structuredLocation occupationCodes contentHash features featuresVersion";
+        "title company location remoteType salaryRange compensation requirements tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown expiresAt structuredLocation eligibility occupation occupationConfidence occupationCodes contentHash features featuresVersion";
       const base = { ...filter };
       const existingAnd = Array.isArray(base.$and) ? base.$and : [];
       delete base.$and;
@@ -900,7 +943,7 @@ export const jobIngestionService = {
       // candidate cap, which became a catalog-wide scan for broad skill lists.
       const normalizedRoleTerms = [
         ...new Set(
-          [...(preferences.targetRoles || []), ...(profile?.roles || []).map((role) => role.title)]
+          [...(preferences.targetRoles || []), ...(profile?.careerProfile?.targetRoles || []).map((role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " ")), ...(profile?.roles || []).map((role) => role.title)]
             .flatMap((role) =>
               String(normalizeRoleForMatching(role))
                 .toLowerCase()
@@ -1033,6 +1076,9 @@ export const jobIngestionService = {
     countryCode = "",
     source = "",
     remoteType = "",
+    minimumSalaryInr = null,
+    eligibilityCountryCodes = [],
+    showAnyway = false,
     excludeJobIds = [],
     page = 1,
     limit = 20,
@@ -1064,7 +1110,44 @@ export const jobIngestionService = {
       filter.sourceBoard = requestedSource;
     }
     if (["remote", "hybrid", "onsite"].includes(remoteType)) filter.remoteType = remoteType;
+    const minimumInr = Number(minimumSalaryInr);
+    if (Number.isFinite(minimumInr) && minimumInr > 0) {
+      const rate = await latestEcbReferenceRates().catch(() => null);
+      const comparable = [];
+      for (const currency of ["INR", "USD", "EUR", "GBP", "CAD", "AUD", "AED", "SAR"]) {
+        const requiredAnnual = currency === "INR" ? minimumInr : rate ? convertAmount(minimumInr, "INR", currency, rate.ratesPerEur) : null;
+        if (!requiredAnnual) continue;
+        comparable.push({ "compensation.currency": currency, "compensation.payPeriod": "year", "compensation.max": { $gte: requiredAnnual } });
+        comparable.push({ "compensation.currency": currency, "compensation.payPeriod": "month", "compensation.max": { $gte: requiredAnnual / 12 } });
+        comparable.push({ "compensation.normalizedCurrency": currency, "compensation.normalizedAnnualMax": { $gte: requiredAnnual } });
+      }
+      // Incomparable pay (hourly, contract, unknown, or undisclosed) remains visible.
+      const incomparable = [
+        { "compensation.payPeriod": { $in: ["hour", "day", "contract", "unknown", null] } },
+        { compensation: { $exists: false } },
+        { "compensation.max": null },
+        { "compensation.max": { $lte: 0 } },
+      ];
+      filter.$and = [...(filter.$and || []), { $or: [...comparable, ...incomparable] }];
+    }
     if (excludeJobIds.length) filter._id = { $nin: excludeJobIds };
+    const applicantCountries = eligibilityCountryCodes.map((code) => String(code).toUpperCase()).filter((code) => /^[A-Z]{2}$/.test(code));
+    if (applicantCountries.length && !showAnyway) {
+      const regionCodes = {
+        EU: ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"],
+        APAC: ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"],
+      };
+      const matchingRegions = Object.entries(regionCodes).filter(([, countries]) => applicantCountries.some((code) => countries.includes(code))).map(([region]) => region);
+      const explicitMismatch = {
+        $or: [
+          { "eligibility.countries": { $exists: true, $ne: [], $nin: applicantCountries } },
+          { "eligibility.countries": { $exists: false }, "structuredLocation.countryCode": { $exists: true, $ne: "", $nin: applicantCountries }, "structuredLocation.remoteScope": { $nin: ["worldwide", "unknown"] } },
+          ...(matchingRegions.includes("EU") ? [] : [{ "eligibility.remoteScope": "EU" }]),
+          ...(matchingRegions.includes("APAC") ? [] : [{ "eligibility.remoteScope": "APAC" }]),
+        ],
+      };
+      filter.$nor = [...(filter.$nor || []), explicitMismatch];
+    }
     const skip = (page - 1) * limit;
     if (isMongoReady()) {
       const [jobs, total] = await Promise.all([
@@ -1111,6 +1194,13 @@ export const jobIngestionService = {
           return false;
         if (source && job.sourceBoard?.toLowerCase() !== source.toLowerCase()) return false;
         if (remoteType && job.remoteType !== remoteType) return false;
+        if (applicantCountries.length && !showAnyway) {
+          const countries = job.eligibility?.countries || job.structuredLocation?.eligibleCountryCodes || [];
+          const country = job.structuredLocation?.countryCode;
+          const scope = job.eligibility?.remoteScope || job.structuredLocation?.remoteScope || "unknown";
+          const matchesRegion = scope === "EU" && applicantCountries.some((code) => ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"].includes(code)) || scope === "APAC" && applicantCountries.some((code) => ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"].includes(code));
+          if (scope !== "worldwide" && !matchesRegion && ((countries.length && !countries.some((code) => applicantCountries.includes(code))) || (country && scope !== "unknown" && !applicantCountries.includes(country)))) return false;
+        }
         return true;
       })
       .sort(
@@ -1194,6 +1284,31 @@ export const jobIngestionService = {
     }));
   },
 
+  async coverageReport(profile = null) {
+    if (!isMongoReady()) return { totalActive: 0, byOccupation: [], byCountry: [], byRemoteScope: [], bySource: [], unknownEligibilityCount: 0, targetLocations: [] };
+    const active = { status: "active", expiresAt: { $gt: new Date() } };
+    const groupBy = async (field) => Job.aggregate([{ $match: active }, { $group: { _id: { $ifNull: [`$${field}`, "unknown"] }, count: { $sum: 1 } } }, { $sort: { count: -1, _id: 1 } }]).option({ maxTimeMS: 2000 });
+    const [totalActive, byOccupation, byCountry, byRemoteScope, bySource, unknownEligibilityCount, byOccupationCountry, unclassifiedBySource] = await Promise.all([
+      Job.countDocuments(active),
+      groupBy("occupation"),
+      groupBy("structuredLocation.countryCode"),
+      groupBy("eligibility.remoteScope"),
+      groupBy("sourceBoard"),
+      Job.countDocuments({ ...active, $or: [{ eligibility: { $exists: false } }, { "eligibility.remoteScope": "unknown" }, { "eligibility.confidence": { $lt: 0.5 } }] }),
+      Job.aggregate([{ $match: active }, { $group: { _id: { occupation: { $ifNull: ["$occupation", "unclassified"] }, country: { $ifNull: ["$structuredLocation.countryCode", "unknown"] } }, count: { $sum: 1 } } }, { $sort: { count: -1, "_id.occupation": 1 } }]).option({ maxTimeMS: 2000 }),
+      Job.aggregate([{ $match: active }, { $group: { _id: "$sourceBoard", total: { $sum: 1 }, unclassified: { $sum: { $cond: [{ $eq: [{ $ifNull: ["$occupation", "unclassified"] }, "unclassified"] }, 1, 0] } } } }, { $sort: { _id: 1 } }]).option({ maxTimeMS: 2000 }),
+    ]);
+    const locations = [...new Map([
+      profile?.careerProfile?.homeLocation,
+      ...(profile?.careerProfile?.targetLocations || []),
+    ].filter((item) => item?.countryCode).map((item) => [item.countryCode, item])).values()];
+    const targetLocations = await Promise.all(locations.map(async (location) => ({
+      countryCode: location.countryCode,
+      eligibleCount: await Job.countDocuments({ ...active, $or: [{ "eligibility.countries": location.countryCode }, { "eligibility.remoteScope": "worldwide" }] }),
+    })));
+    return { totalActive, byOccupation, byCountry, byRemoteScope, bySource, unknownEligibilityCount, byOccupationCountry, unclassifiedBySource: unclassifiedBySource.map((item) => ({ ...item, unclassifiedShare: item.total ? Number((item.unclassified / item.total).toFixed(4)) : 0 })), targetLocations };
+  },
+
   async publicSources() {
     const sources = await listSourceRecords({ enabledOnly: true });
     const counts =
@@ -1227,7 +1342,7 @@ export const jobIngestionService = {
       throw error;
     }
     const source = await JobSource.findOne({ key: sourceKey }).lean();
-    if (!source || !source.approved || !isSourcePolicyComplete(source)) {
+    if (!source || !source.approved || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source)) {
       const error = new Error("This source has not passed the approved source policy gate.");
       error.statusCode = 404;
       error.code = "SOURCE_NOT_APPROVED";
@@ -1237,6 +1352,24 @@ export const jobIngestionService = {
       { key: sourceKey },
       { $set: { enabled: Boolean(enabled), runState: enabled ? "idle" : "disabled" } },
     );
+    return this.sourceBudgets();
+  },
+
+  async setSourceApproved(sourceKey, approved) {
+    if (!isMongoReady()) {
+      const error = new Error("Job source controls require MongoDB.");
+      error.statusCode = 503;
+      error.code = "SOURCE_REGISTRY_UNAVAILABLE";
+      throw error;
+    }
+    const source = await JobSource.findOne({ key: sourceKey }).lean();
+    if (!source || !isSourcePolicyComplete(source) || (approved && !isSourceActivationAllowed(source))) {
+      const error = new Error("This source does not have the required policy metadata.");
+      error.statusCode = 404;
+      error.code = "SOURCE_POLICY_INCOMPLETE";
+      throw error;
+    }
+    await JobSource.updateOne({ key: sourceKey }, { $set: { approved: Boolean(approved), ...(approved ? {} : { enabled: false, runState: "disabled" }) } });
     return this.sourceBudgets();
   },
 };

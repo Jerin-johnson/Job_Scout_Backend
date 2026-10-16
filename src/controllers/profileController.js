@@ -386,6 +386,19 @@ export const profileController = {
     }
   },
 
+  async rereadResume(req, res, next) {
+    try {
+      if (!/^[a-f\d]{24}$/i.test(req.params.id)) return res.sendStatus(404);
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      await requireResumeAiConsent(userId);
+      const resume = await profileRepository.findResumeByIdAndUserId(req.params.id, userId);
+      if (!resume) return res.sendStatus(404);
+      const fileBuffer = await storageService.getFile({ key: resume.s3Key });
+      const result = await processResumeFile({ req, userId, fileBuffer, originalFilename: resume.originalFilename, mimeType: resume.mimeType, s3Key: resume.s3Key });
+      return res.status(200).json({ data: { profile: result.profile, factsSummary: result.factsSummary, resume: result.resume, costNotice: "Up to a fraction of a cent if the content-hash cache misses; cached extractions avoid another model call." } });
+    } catch (err) { return next(err); }
+  },
+
   async uploadResume(req, res, next) {
     try {
       if (!req.file) {

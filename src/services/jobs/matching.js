@@ -1,5 +1,7 @@
 import { normalizeRoleForMatching } from "./roleNormalization.js";
 import { env } from "../../config/env.js";
+import { classifyEligibility } from "./eligibility.js";
+import { classifyJobOccupation } from "./occupationClassification.js";
 
 /** Deterministic, provider-free job feature extraction and profile matching. */
 export const MATCH_SCORE_VERSION = env.JOB_MATCH_SCORE_VERSION;
@@ -11,6 +13,8 @@ export const MATCH_SCORE_WEIGHTS = Object.freeze({
   salary: 5,
   recency: 5,
 });
+// New, versioned scoring contract. v2 and v3 remain unchanged.
+export const LEXICAL_V4_WEIGHTS = Object.freeze({ skills: 32, title: 22, experience: 10, location: 12, salary: 5, recency: 5, occupation: 8, seniority: 3, eligibility: 3 });
 
 const ALIASES = new Map([
   ["js", "javascript"], ["node", "node.js"], ["nodejs", "node.js"],
@@ -45,13 +49,21 @@ function includesPhrase(text, phrase) {
   return normalizedText.includes(` ${normalize(phrase)} `);
 }
 
-export function annualComparableAmount({ amount, currency, period }, targetCurrency) {
+export function annualComparableAmount({ amount, currency, period }, targetCurrency, ratesPerEur = null) {
   const value = Number(amount);
   const code = String(currency || "").toUpperCase();
   const cadence = String(period || "").toLowerCase();
-  if (!Number.isFinite(value) || value <= 0 || !targetCurrency || code !== String(targetCurrency).toUpperCase()) return null;
-  if (cadence === "year" || cadence === "annual") return value;
-  if (cadence === "month" || cadence === "monthly") return value * 12;
+  if (!Number.isFinite(value) || value <= 0 || !targetCurrency) return null;
+  const target = String(targetCurrency).toUpperCase();
+  const rates = ratesPerEur instanceof Map ? Object.fromEntries(ratesPerEur) : ratesPerEur || {};
+  let comparable = value;
+  if (code !== target) {
+    if (!Number(rates[code]) || !Number(rates[target])) return null;
+    comparable = (value / Number(rates[code])) * Number(rates[target]);
+  }
+  if (cadence === "year" || cadence === "annual") return comparable;
+  if (cadence === "month" || cadence === "monthly") return comparable * 12;
+  if (cadence === "yearly") return comparable;
   return null;
 }
 
@@ -85,7 +97,9 @@ export function extractJobFeatures(job = {}) {
     : /\b(principal|staff engineer|director|head of|vp|vice president)\b/.test(lower)
       ? "senior"
       : /\b(senior|lead|manager|experienced)\b/.test(lower) ? "mid_senior" : "mid";
-  const occupation = OCCUPATION_GROUPS.find((group) => group.some((term) => includesPhrase(title, term)))?.[0] || "";
+  const classifiedOccupation = job.occupation && job.occupation !== "unclassified" ? job.occupation : classifyJobOccupation(job).occupation;
+  // Preserve the feature extractor's established public label while the catalog taxonomy uses `nursing`.
+  const occupation = classifiedOccupation === "nursing" ? "nurse" : classifiedOccupation;
   const licenses = LICENSE_TERMS.filter((term) => includesPhrase(text, term));
   const education = [...new Set((text.match(/\b(?:bachelor|master|b\.sc|b\.tech|m\.tech|phd|diploma|degree)\b/gi) || []).map(normalize))];
   const workMode = job.remoteType || (/\b(remote|work from home|distributed)\b/i.test(text) ? "remote" : "unknown");
@@ -112,8 +126,10 @@ export function extractJobFeatures(job = {}) {
 }
 
 function roleSimilarity(profile, features, title, version) {
+  const careerTargets = (profile.careerProfile?.targetRoles || []).map((role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " "));
   const roleTerms = [
     ...(profile.preferences?.targetRoles || []),
+    ...careerTargets,
     ...(profile.roles || []).map((role) => role.title),
   ].map((role) => normalize(version === "lexical-v3" ? normalizeRoleForMatching(role) : role)).filter(Boolean);
   if (!roleTerms.length) return features.occupation ? 0.5 : 0.35;
@@ -134,7 +150,7 @@ function roleSimilarity(profile, features, title, version) {
   return best;
 }
 
-export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_SCORE_VERSION } = {}) {
+export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_SCORE_VERSION, ratesPerEur = null } = {}) {
   const features = job.features?.version === 1 ? job.features : extractJobFeatures(job);
   const profileSkills = new Set((profile.skills || []).map((skill) => canonicalSkill(skill.name)));
   const jobSkills = new Set(features.skills.map(canonicalSkill));
@@ -144,12 +160,15 @@ export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_
   const denominator = Math.max(1, Math.min(7, requiredFeatures.length || jobSkills.size || profileSkills.size));
   const skillRatio = Math.min(1, overlap.length / denominator);
   const titleFit = roleSimilarity(profile, features, job.title, version);
-  const profileYears = Math.max(0, ...(profile.roles || []).map((role) => {
+  const roleYears = (profile.roles || []).map((role) => {
     if (Number(role.years) > 0) return Number(role.years);
     const start = Date.parse(role.startDate || "");
     const end = role.isCurrent || !role.endDate ? now.getTime() : Date.parse(role.endDate);
     return Number.isFinite(start) && Number.isFinite(end) && end >= start ? (end - start) / (365.25 * 86400000) : 0;
-  }));
+  });
+  const confirmedCareerExperience = profile.careerProfile?.experience || {};
+  const careerYears = confirmedCareerExperience?.isFresher ? 0 : (!confirmedCareerExperience?.needsConfirmation && confirmedCareerExperience?.confirmedYears !== null ? Number(confirmedCareerExperience.confirmedYears) : 0);
+  const profileYears = Math.max(careerYears, 0, ...roleYears);
   const experienceFit = features.experienceYears === null || features.experienceYears === undefined || !profileYears
     ? 0.55
     : profileYears >= features.experienceYears ? 1 : Math.max(0.25, profileYears / features.experienceYears);
@@ -163,30 +182,40 @@ export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_
     amount: targetMinimum,
     currency: targetCurrency,
     period: desiredCompensation?.period || "annual",
-  }, targetCurrency);
-  const jobSalaryMax = job.compensation?.normalizedAnnualMax && job.compensation?.normalizedCurrency === targetCurrency
-    ? Number(job.compensation.normalizedAnnualMax)
-    : annualComparableAmount({ amount: job.compensation?.max, currency: job.compensation?.currency, period: job.compensation?.payPeriod }, targetCurrency);
+  }, targetCurrency, ratesPerEur);
+  const normalizedAnnualMax = job.compensation?.normalizedAnnualMax;
+  const normalizedAnnualCurrency = job.compensation?.normalizedCurrency;
+  const jobSalaryMax = normalizedAnnualMax && normalizedAnnualCurrency
+    ? annualComparableAmount({ amount: normalizedAnnualMax, currency: normalizedAnnualCurrency, period: "annual" }, targetCurrency, ratesPerEur)
+    : annualComparableAmount({ amount: job.compensation?.max, currency: job.compensation?.currency, period: job.compensation?.payPeriod }, targetCurrency, ratesPerEur);
   const salaryFit = !targetAnnualMinimum || !jobSalaryMax ? 0.6 : jobSalaryMax >= targetAnnualMinimum ? 1 : 0.25;
   const ageDays = job.postedDateKnown && job.postedAt
     ? Math.max(0, (now - new Date(job.postedAt)) / 86400000) : 30;
   const recencyFit = job.postedDateKnown ? Math.max(0.1, 1 - ageDays / 60) : 0.35;
+  const eligibilityDetails = classifyEligibility(job, profile);
   const preferredCountries = (pref.preferredCountryCodes || []).map((code) => String(code).toUpperCase());
   const eligibleCountries = (job.structuredLocation?.eligibleCountryCodes || []).map((code) => String(code).toUpperCase());
   const explicitCountry = String(job.structuredLocation?.countryCode || "").toUpperCase();
-  const eligibility = !preferredCountries.length ? "unknown"
+  const legacyEligibility = !preferredCountries.length ? "unknown"
     : eligibleCountries.some((code) => preferredCountries.includes(code)) || preferredCountries.includes(explicitCountry) || job.structuredLocation?.remoteScope === "worldwide" ? "eligible"
       : eligibleCountries.length ? "excluded" : "unknown";
+  const eligibility = eligibilityDetails.status === "unknown" && legacyEligibility !== "unknown" ? legacyEligibility : eligibilityDetails.status === "not_open" ? "excluded" : eligibilityDetails.status;
   const requiredText = (job.requirements || []).join(" ").toLowerCase();
   const requiredLicenses = features.licenses.filter((license) =>
     new RegExp(`(?:${license.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}).{0,24}(?:required|mandatory|must have)`, "i").test(requiredText),
   );
   const missingRequiredLicense = requiredLicenses.some((license) => !profileSkills.has(canonicalSkill(license)));
+  const v4 = version === "lexical-v4";
+  const profileRoleTitles = [...(pref.targetRoles || []), ...(profile.careerProfile?.targetRoles || []).map((role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " ")), ...(profile.roles || []).map((role) => role.title)].filter(Boolean);
+  const profileOccupationFamilies = profileRoleTitles.map((role) => classifyJobOccupation({ title: role }).occupation).filter((family) => family && family !== "unclassified");
+  const jobOccupationFamily = job.occupation && job.occupation !== "unclassified" ? job.occupation : classifyJobOccupation(job).occupation;
+  const occupationFit = jobOccupationFamily && profileOccupationFamilies.includes(jobOccupationFamily);
   const hardBlocked = eligibility === "excluded" || missingRequiredLicense;
   const weights = MATCH_SCORE_WEIGHTS;
   const score = Math.round(
-    skillRatio * weights.skills + titleFit * weights.title + experienceFit * weights.experience +
-    locationFit * weights.location + salaryFit * weights.salary + recencyFit * weights.recency,
+    v4
+      ? skillRatio * LEXICAL_V4_WEIGHTS.skills + titleFit * LEXICAL_V4_WEIGHTS.title + experienceFit * LEXICAL_V4_WEIGHTS.experience + locationFit * LEXICAL_V4_WEIGHTS.location + salaryFit * LEXICAL_V4_WEIGHTS.salary + recencyFit * LEXICAL_V4_WEIGHTS.recency + (occupationFit ? LEXICAL_V4_WEIGHTS.occupation : 0) + (profile.careerProfile?.experience?.isFresher && features.seniority === "entry" ? LEXICAL_V4_WEIGHTS.seniority : 0) + (eligibility === "eligible" ? LEXICAL_V4_WEIGHTS.eligibility : eligibility === "unknown" ? -2 : -LEXICAL_V4_WEIGHTS.eligibility)
+      : skillRatio * weights.skills + titleFit * weights.title + experienceFit * weights.experience + locationFit * weights.location + salaryFit * weights.salary + recencyFit * weights.recency,
   );
   const fairThreshold = version === "lexical-v2" ? 40 : 50;
   const band = score >= 80 ? "strong" : score >= 65 ? "good" : score >= fairThreshold ? "fair" : "low";
@@ -194,14 +223,17 @@ export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_
     `${overlap.length} of ${Math.max(1, requiredFeatures.length || jobSkills.size)} listed skills match`,
     titleFit >= 0.7 ? "Role title is closely related to your target" : "Role title is a partial fit",
     tier === 1 ? "Matches your preferred location" : job.remoteType === "remote" ? `Remote role; eligibility ${eligibility}` : "Location fit is approximate",
+    ...(v4 && !profile.roles?.length && !confirmedCareerExperience?.isFresher && confirmedCareerExperience?.needsConfirmation !== false ? ["Role facts are missing or unconfirmed; confirm experience for a more reliable estimate"] : []),
   ];
   const missingRequired = [...new Set(requiredFeatures)].filter((skill) => !profileSkills.has(skill)).slice(0, 12);
   return {
     score: Math.max(0, Math.min(100, score)), band, reasons,
     matchingSkills: overlap.slice(0, 20), missingSkills: missingRequired,
     scoreVersion: version,
+    confidence: v4 ? (profile.roles?.length || confirmedCareerExperience?.isFresher || confirmedCareerExperience?.needsConfirmation === false ? "medium" : "low") : undefined,
     breakdown: { skills: skillRatio, title: titleFit, experience: experienceFit, location: locationFit, salary: salaryFit, recency: recencyFit },
     eligibility,
+    eligibilityDetails,
     hardBlocked,
     gaps: { missingRequiredSkills: missingRequired, missingPreferredSkills: (features.preferredSkills || []).map(canonicalSkill).filter((skill) => !profileSkills.has(skill)).slice(0, 12) },
     features,

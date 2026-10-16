@@ -43,6 +43,15 @@ const JobSchema = new mongoose.Schema(
       eligibleCountryCodes: [{ type: String, uppercase: true }],
       workAuthorization: [{ type: String }],
     },
+    eligibility: {
+      version: { type: Number, default: 1 },
+      countries: [{ type: String, uppercase: true }],
+      remoteScope: { type: String, default: "unknown" },
+      sponsorship: { type: Boolean, default: false },
+      workAuthorizationRequired: { type: Boolean, default: false },
+      confidence: { type: Number, default: 0, min: 0, max: 1 },
+      evidence: { type: String, default: "", maxlength: 180 },
+    },
     occupationCodes: [{ type: String, index: true }],
     sourceCategory: { type: String, default: "", maxlength: 160 },
     occupation: { type: String, default: "unclassified", index: true },
@@ -53,6 +62,8 @@ const JobSchema = new mongoose.Schema(
     features: { type: mongoose.Schema.Types.Mixed, default: undefined },
     featuresVersion: { type: Number, default: 0, index: true },
     applyClickCount: { type: Number, default: 0, min: 0 },
+    // Aggregate safety reports by reason only; never retain reporter identity.
+    reportCounts: { type: Map, of: Number, default: () => new Map() },
     remoteType: {
       type: String,
       enum: ["remote", "hybrid", "onsite"],

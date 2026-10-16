@@ -75,7 +75,7 @@ export class BaseJobAdapter {
     return computeSha256(`${job.identityKey || this.name}:${JSON.stringify(relevant)}`);
   }
 
-  async requestJson(url, { headers = {}, acceptNotModified = false } = {}) {
+  async requestJson(url, { headers = {}, acceptNotModified = false, method = "GET", body } = {}) {
     let lastError;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       if (this.consumeQuota) await this.consumeQuota();
@@ -84,7 +84,9 @@ export class BaseJobAdapter {
       let response;
       try {
         response = await fetch(url, {
+          method,
           headers: { "User-Agent": "JobScoutJobCatalog/1.0 (+https://jobscout.ai)", ...headers },
+          ...(body === undefined ? {} : { body }),
           signal: controller.signal,
         });
       } catch (error) {

@@ -1,0 +1,15 @@
+[
+  { "name": "US-only", "job": { "location": "Remote - US only" }, "scope": "country", "countries": ["US"] },
+  { "name": "EU remote", "job": { "location": "Remote (EU)" }, "scope": "EU" },
+  { "name": "authorization requirement", "job": { "location": "United States", "rawDescription": "Must be authorized to work in the US" }, "authorization": true },
+  { "name": "UK and Ireland", "job": { "location": "UK, Ireland" }, "countries": ["GB", "IE"] },
+  { "name": "worldwide", "job": { "location": "Remote worldwide" }, "scope": "worldwide" },
+  { "name": "APAC", "job": { "location": "Remote - APAC" }, "scope": "APAC" },
+  { "name": "timezone", "job": { "location": "Remote, UTC+2 to UTC+5 overlap" }, "scope": "timezone" },
+  { "name": "India", "job": { "location": "Remote - India" }, "countries": ["IN"] },
+  { "name": "unknown", "job": { "location": "Remote" }, "scope": "unknown" },
+  { "name": "Jobicy-style location array", "job": { "location": ["Remote", "India"] }, "scope": "country", "countries": ["IN"] },
+  { "name": "Remotive restrictions", "job": { "location": "Remote", "locationRestrictions": "EU only" }, "scope": "EU" },
+  { "name": "sponsorship offered", "job": { "location": "Remote worldwide", "rawDescription": "Visa sponsorship available" }, "scope": "worldwide", "sponsorship": true },
+  { "name": "source-structured country", "job": { "location": "Remote", "structuredLocation": { "countryCode": "IN", "remoteScope": "country" } }, "scope": "country", "countries": ["IN"] }
+]

@@ -14,7 +14,7 @@ import { PLANS, ROLES } from "../shared/constants/plans.js";
 import { z } from "zod";
 import mongoose from "mongoose";
 import { billingService } from "../services/billingService.js";
-import { JobReport } from "../models/JobReport.js";
+import { TrackedCompany } from "../models/TrackedCompany.js";
 
 async function audit(req, action, metadata = {}) {
   if (!isMongoReady()) return;
@@ -28,14 +28,34 @@ async function audit(req, action, metadata = {}) {
 }
 
 export const adminController = {
+  async listTrackedCompanies(req, res, next) {
+    try {
+      const status = ["pending", "approved", "disabled"].includes(req.query.status) ? req.query.status : undefined;
+      const companies = await TrackedCompany.find(status ? { status } : {}).select("platform slug careersUrl status verifiedAt createdAt").sort({ createdAt: -1 }).limit(500).lean();
+      return res.json({ data: { companies } });
+    } catch (error) { return next(error); }
+  },
+  async jobCoverage(req, res, next) {
+    try { return res.json({ data: await jobIngestionService.coverageReport() }); }
+    catch (error) { return next(error); }
+  },
+  async updateTrackedCompany(req, res, next) {
+    try {
+      const { status } = z.object({ status: z.enum(["approved", "disabled"]) }).strict().parse(req.body);
+      const company = await TrackedCompany.findByIdAndUpdate(req.params.id, { $set: { status } }, { new: true }).select("platform slug careersUrl status verifiedAt createdAt").lean();
+      if (!company) return res.sendStatus(404);
+      await audit(req, "admin.jobs.company.status", { platform: company.platform, status });
+      return res.json({ data: { company } });
+    } catch (error) { return next(error); }
+  },
   async listJobReports(req, res, next) {
     try {
       const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
       const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
-      const [reports, total] = await Promise.all([
-        JobReport.find({ status: "pending" }).populate("jobId", "title company sourceBoard sourceUrl").select("jobId reason status createdAt updatedAt").sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-        JobReport.countDocuments({ status: "pending" }),
-      ]);
+        const reported = { $or: ["expired", "broken_link", "misleading", "spam", "other"].map((reason) => ({ [`reportCounts.${reason}`]: { $gt: 0 } })) };
+        const jobs = await mongoose.model("Job").find(reported).select("title company sourceBoard sourceUrl reportCounts").sort({ updatedAt: -1 }).skip((page - 1) * limit).limit(limit).lean();
+        const reports = jobs.map((job) => ({ jobId: { _id: job._id, title: job.title, company: job.company, sourceBoard: job.sourceBoard, sourceUrl: job.sourceUrl }, reasonCounts: Object.fromEntries(job.reportCounts || []) }));
+        const total = await mongoose.model("Job").countDocuments(reported);
       res.json({ data: { reports, total, page, limit, pages: Math.ceil(total / limit) } });
     } catch (err) { next(err); }
   },
@@ -623,11 +643,11 @@ export const adminController = {
 
   async updateJobSource(req, res, next) {
     try {
-      const enabled = z.object({ enabled: z.boolean() }).parse(req.body).enabled;
-      const sources = await jobIngestionService.setSourceEnabled(req.params.key, enabled);
-      await audit(req, enabled ? "admin.jobs.source.enable" : "admin.jobs.source.disable", {
-        source: req.params.key,
-      });
+      const input = z.object({ enabled: z.boolean().optional(), approved: z.boolean().optional() }).strict().refine((value) => value.enabled !== undefined || value.approved !== undefined).parse(req.body);
+      let sources;
+      if (input.approved !== undefined) sources = await jobIngestionService.setSourceApproved(req.params.key, input.approved);
+      if (input.enabled !== undefined) sources = await jobIngestionService.setSourceEnabled(req.params.key, input.enabled);
+      await audit(req, input.approved !== undefined ? (input.approved ? "admin.jobs.source.approve" : "admin.jobs.source.unapprove") : (input.enabled ? "admin.jobs.source.enable" : "admin.jobs.source.disable"), { source: req.params.key });
       res.status(200).json({ data: { sources } });
     } catch (err) {
       next(err);

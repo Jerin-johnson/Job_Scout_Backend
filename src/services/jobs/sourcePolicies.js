@@ -43,6 +43,35 @@ export const SOURCE_POLICIES = Object.freeze([
     quota: { requestsPerDay: 24, intervalMs: 3600000, timeoutMs: 15000, maxRetries: 2 },
     termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
   },
+  ...["greenhouse", "lever", "ashby"].map((key) => ({
+    key,
+    displayName: `${key[0].toUpperCase()}${key.slice(1)} company job boards`,
+    adapterModule: "publicAtsAdapter.js",
+    approved: false,
+    enabled: false,
+    termsUrl: key === "greenhouse" ? "https://docs.greenhouse.io/job-board" : key === "lever" ? "https://github.com/lever/postings-api" : "https://developers.ashbyhq.com/docs/public-job-posting-api",
+    attributionText: key[0].toUpperCase() + key.slice(1),
+    attributionUrl: key === "greenhouse" ? "https://www.greenhouse.com/" : key === "lever" ? "https://www.lever.co/" : "https://www.ashbyhq.com/",
+    retentionDays: 14,
+    staleAfterDays: 2,
+    quota: { requestsPerDay: 10, intervalMs: 86400000, timeoutMs: 8000, maxRetries: 1 },
+    termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
+  })),
+  {
+    key: "adzuna-india",
+    displayName: "Adzuna India",
+    adapterModule: "adzunaAdapter.js",
+    approved: false,
+    enabled: false,
+    termsUrl: "https://developer.adzuna.com/docs/terms_of_service",
+    attributionText: "Adzuna",
+    attributionUrl: "https://www.adzuna.in/",
+    retentionDays: 1,
+    staleAfterDays: 1,
+    quota: { requestsPerDay: 250, intervalMs: 86400000, timeoutMs: 8000, maxRetries: 1, limits: { perMinute: 25, perDay: 250, perWeek: 1000, perMonth: 2500 } },
+    activationRequirements: ["commercial_license_reference", "attribution_badge_verified", "storage_and_display_terms_reviewed"],
+    termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
+  },
 ]);
 
 export function isSourcePolicyComplete(policy) {
@@ -53,4 +82,11 @@ export function isSourcePolicyComplete(policy) {
     Number.isFinite(policy?.quota?.requestsPerDay) && policy.quota.requestsPerDay > 0 &&
     policy?.termsVerifiedAt,
   );
+}
+
+// Adzuna's terms require a licensed commercial arrangement/strict display attribution;
+// ordinary admin approval is intentionally insufficient to activate it.
+export function isSourceActivationAllowed(source) {
+  if (source?.key !== "adzuna-india") return true;
+  return Boolean(source?.commercialLicenseReference && source?.attributionBadgeVerified && source?.storageDisplayTermsReviewed);
 }

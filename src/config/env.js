@@ -50,6 +50,7 @@ const envSchema = z.object({
   OPENAI_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(3072).default(1536),
   VOYAGE_EMBEDDING_MODEL: z.string().default("voyage-large-2-instruct"),
   VOYAGE_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(4096).default(1024),
+  JOB_EMBEDDINGS_ENABLED: z.string().transform((value) => value === "true").default("false"),
   AI_ALLOW_MOCKS: z
     .string()
     .transform((value) => value === "true")

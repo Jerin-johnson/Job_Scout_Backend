@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { Job } from "../src/models/Job.js";
+import { jobController } from "../src/controllers/jobController.js";
 import { JobSource } from "../src/models/JobSource.js";
 import { Profile } from "../src/models/Profile.js";
 import { embeddingService } from "../src/services/embeddingService.js";
@@ -72,6 +73,21 @@ test("Mongo quota reservation allows exactly the configured requests and no over
   }
 });
 
+test("Mongo source budget atomically enforces minute, day, week and month limits", async () => {
+  const key = `adzuna-quota-${new mongoose.Types.ObjectId()}`;
+  await JobSource.create(makeSource(key, { quota: { requestsPerDay: 2, intervalMs: 60000, timeoutMs: 10000, maxRetries: 0, limits: { perMinute: 1, perDay: 2, perWeek: 2, perMonth: 2 } } }));
+  try {
+    const quota = (await JobSource.findOne({ key }).lean()).quota;
+    assert.equal(await reserveSourceRequest(key, quota), true);
+    assert.equal(await reserveSourceRequest(key, quota), false);
+    const row = await JobSource.findOne({ key }).lean();
+    assert.equal(row.quotaUsed, 1);
+    assert.equal(row.quotaMinuteUsed, 1);
+    assert.equal(row.quotaWeekUsed, 1);
+    assert.equal(row.quotaMonthUsed, 1);
+  } finally { await JobSource.deleteOne({ key }); }
+});
+
 test("same content fingerprint from different sources is retained under source-specific identities", async () => {
   await Job.collection.createIndex(
     { contentHash: 1 },
@@ -111,11 +127,14 @@ test("demand terms are aggregated from role and location preferences without exp
     users.map((userId) => ({
       userId,
       preferences: { targetRoles: ["Software Engineer"], preferredLocations: ["India"] },
+      careerProfile: { targetRoles: [{ customRoleLabel: "Staff Nurse", custom: true }], homeLocation: { countryCode: "IN", scope: "country" }, targetLocations: [{ countryCode: "IN", cityCode: "in-kerala-kochi", scope: "city" }] },
     })),
   );
   const terms = await jobIngestionService.getDemandTerms();
   assert.ok(terms.includes("software engineer"));
   assert.ok(terms.includes("software engineer india"));
+  assert.ok(terms.includes("staff nurse"));
+  assert.ok(terms.includes("staff nurse kochi"));
   assert.equal(
     terms.some((term) => users.some((id) => term.includes(id.toString()))),
     false,
@@ -233,12 +252,35 @@ test("public catalog excludes disabled or unapproved source records", async () =
   await JobSource.deleteOne({ key });
 });
 
+test("catalog hides explicitly ineligible jobs by default and showAnyway reveals them", async () => {
+  const key = "eligibility-query-test";
+  await JobSource.create(makeSource(key));
+  const ids = ["us-only", "worldwide", "unknown"].map(() => new mongoose.Types.ObjectId());
+  const expiresAt = new Date(Date.now() + 86400000);
+  await Job.collection.insertMany([
+    { _id: ids[0], identityKey: "elig-us", contentHash: "elig-us", title: "US Nurse", company: "A", location: "Remote", rawDescription: "US only", sourceBoard: key, sourceUrl: "https://example.test/us", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: ["US"], remoteScope: "country" } },
+    { _id: ids[1], identityKey: "elig-world", contentHash: "elig-world", title: "Global Nurse", company: "B", location: "Remote", rawDescription: "Worldwide", sourceBoard: key, sourceUrl: "https://example.test/world", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "worldwide" } },
+    { _id: ids[2], identityKey: "elig-unknown", contentHash: "elig-unknown", title: "Unclear Nurse", company: "C", location: "Remote", rawDescription: "Remote", sourceBoard: key, sourceUrl: "https://example.test/unknown", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "unknown" } },
+  ]);
+  try {
+    const defaultResults = await jobIngestionService.searchJobs({ q: "Nurse", eligibilityCountryCodes: ["IN"], page: 1, limit: 10 });
+    assert.deepEqual(defaultResults.jobs.map((job) => job.title).sort(), ["Global Nurse", "Unclear Nurse"]);
+    const expanded = await jobIngestionService.searchJobs({ q: "Nurse", eligibilityCountryCodes: ["IN"], showAnyway: true, page: 1, limit: 10 });
+    assert.equal(expanded.jobs.length, 3);
+  } finally {
+    await Job.deleteMany({ _id: { $in: ids } });
+    await JobSource.deleteOne({ key });
+  }
+});
+
 test("source registry cursors survive a worker failure and resume without rescanning page one", async () => {
   const key = "cursor-integration";
   await JobSource.create(makeSource(key));
   const cursorArguments = [];
   let firstPass = true;
   let embeddingCalls = 0;
+  const priorEmbeddingFlag = process.env.JOB_EMBEDDINGS_ENABLED;
+  process.env.JOB_EMBEDDINGS_ENABLED = "true";
   const unregister = registerJobAdapterFactory(key, () => {
     const adapter = new BaseJobAdapter({
       key,
@@ -298,6 +340,8 @@ test("source registry cursors survive a worker failure and resume without rescan
     assert.deepEqual(cursorArguments, [null, "resume-token", "resume-token", null]);
   } finally {
     embeddingService.getEmbeddingsWithMetadata = originalEmbeddings;
+    if (priorEmbeddingFlag === undefined) delete process.env.JOB_EMBEDDINGS_ENABLED;
+    else process.env.JOB_EMBEDDINGS_ENABLED = priorEmbeddingFlag;
     unregister();
     await Job.deleteMany({ sourceBoard: key });
     await JobSource.deleteOne({ key });
@@ -344,4 +388,18 @@ test("discovery graph reads the indexed catalog and contains no ingestion call",
   );
   assert.match(graph, /getCandidateJobs\(\{ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds \}\)/);
   assert.doesNotMatch(graph, /\.ingestAll\(|\.ingestSource\(/);
+});
+
+test("job reports persist aggregate reason counts without storing reporter identity or text", async () => {
+  const id = new mongoose.Types.ObjectId();
+  await Job.create({ _id: id, contentHash: `report-${id}`, identityKey: `report-${id}`, title: "Public job", company: "Example", rawDescription: "A public fixture", sourceBoard: "remoteok", status: "active" });
+  const response = { statusCode: null, ended: false, status(code) { this.statusCode = code; return this; }, end() { this.ended = true; } };
+  await jobController.reportJob({ params: { id: String(id) }, body: { reason: "broken_link" }, id: "req-test" }, response, assert.fail);
+  const stored = await Job.findById(id).lean();
+  assert.equal(response.statusCode, 204);
+  assert.equal(response.ended, true);
+  assert.equal(stored.reportCounts.broken_link, 1);
+  assert.equal(stored.reporterId, undefined);
+  assert.equal(stored.reportText, undefined);
+  await Job.deleteOne({ _id: id });
 });
