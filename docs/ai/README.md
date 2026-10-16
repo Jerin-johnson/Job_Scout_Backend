@@ -15,14 +15,14 @@ Target sections are proposals only; they are not enabled by this documentation c
 1. [Overview](00-overview.md), [inventory](01-ai-inventory.md), [LLM and routing](02-llm-layer-and-routing.md), [cost and limits](03-cost-quota-and-limits.md), [prompt registry](04-prompt-registry.md).
 2. Feature pages: [chat](05-chat-assistant.md), [matching](06-job-matching-engine.md), [interviews](07-interview-engine.md), [resume](08-resume-ai-pipeline.md), [embeddings](09-embeddings-and-vectors.md).
 3. Operations: [safety](10-safety-and-privacy.md), [evaluation](11-evaluation.md), [observability](12-observability.md), [failure runbooks](13-failure-modes-and-runbooks.md), [roadmap](14-roadmap-and-open-decisions.md).
-4. [Working agreement](working-agreement.md), [ADRs](adr/), [Mermaid diagrams](diagrams/), and [brief template](prompts-and-briefs/brief-template.md).
+4. [Coverage and occupation classification](15-classification-and-catalog-coverage.md), [data inventory](16-data-inventory.md), [working agreement](working-agreement.md), [ADRs](adr/), [Mermaid diagrams](diagrams/), and [brief template](prompts-and-briefs/brief-template.md).
 
 ## Glossary
 
 - **Tier:** configured small/strong model selection; it does not guarantee different model IDs.
 - **Route:** the server-selected feature/provider/model path for one request.
 - **Prompt version:** version value saved with a mock interview session; most other prompts are not yet centrally versioned.
-- **Score version:** matching implementation identifier used in caches and persisted match records (lexical-v3).
+- **Score version:** matching implementation identifier used in caches and persisted match records (lexical-v2 is active; lexical-v3 remains parked).
 - **Funnel:** counts from active catalog through eligibility, candidate cap, location, and score threshold.
 - **Ledger:** UsageEvent records for provider/model, estimated or reported tokens, outcome, cost and retry metadata.
 

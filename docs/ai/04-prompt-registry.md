@@ -1,5 +1,16 @@
 # 04 — Prompt registry
 
+## Resume fact extraction v4
+
+- **Version:** `facts-v4` cache namespace; resume extraction prompt behavior is covered by `resume-structured-output.test.js`.
+- **Path:** `src/services/resumeParserService.js` through shared `invokeLLM`.
+- **Order:** deterministic experience parsing first; at most one structured `small`-tier call on a content-hash cache miss.
+- **Inputs:** up to 100,000 characters serialized as a JSON string with `<` and `>` escaped and labeled untrusted data.
+- **Output:** strict Zod schema for roles, skills, education, and achievements; cache is keyed by file hash and parser version, including empty results.
+- **Grounding:** unsupported title/company/date, skill, degree, achievement, or metric is dropped and counted. Deterministic role facts are copied from source text.
+- **Consent:** requires `resume-ai-processing-v1` before upload URL creation or processing.
+- **Privacy:** logs contain usage metadata, cache-hit state, and rejected-fact counts only; no resume text, file contents, or presigned URLs.
+
 Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16.
 
 ## As built (verified in code)
@@ -18,7 +29,7 @@ Only mock interviews have a prompt-version constant stored with the session (INT
 | MOCK_INTERVIEW_QUESTION_PLAN (version stored) | src/services/interview/sessionService.js:204–245   | configurable small/strong                | role/level/mode, resume ≤6k chars, JD ≤4k → question plan | resume/JD delimiters and safety rule; Zod; version 2026-10-15-v2                          |
 | MOCK_INTERVIEW_EVALUATION (version stored)    | src/services/interview/sessionService.js:620–674   | configurable small/strong                | question + answer ≤4k → evaluation                        | answer delimiter, strict score schema, fallback                                           |
 | MOCK_INTERVIEW_REPORT (version stored)        | src/services/interview/sessionService.js:700–800   | configurable small/strong                | bounded transcript/scores → report                        | transcript delimiter; exact evidence rule; schema retry; one report/session; schema v2    |
-| RESUME_EXTRACTION (unregistered)              | src/services/resumeParserService.js:104,164        | small then strong on zero grounded facts | resume text → facts schema                                | output grounded against source; resume-parser tests                                       |
+| RESUME_EXTRACTION (unregistered)              | src/services/resumeParserService.js:104,164        | small, at most once per content hash | resume text → strict facts schema                                | deterministic-first; output grounded against source; consent and resume-parser tests                                       |
 
 Max output tokens and retry details are recorded at each callsite and in feature pages. There is no shared registry or automatic prompt history.
 

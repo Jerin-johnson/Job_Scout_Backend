@@ -1,6 +1,6 @@
 # Deterministic role and location coverage
 
-Last verified against commit pending final commit on 2026-10-16.
+Last verified against commit `8547300` plus the classification v6 worktree changes on 2026-10-16 (local development database only).
 
 ## As built (verified in code)
 
@@ -83,10 +83,34 @@ npm run jobs:occupation:apply
 5. Resume interrupted work with the approved command and `--after-id=<lastScannedId>`; verify no records remain with `occupationFeaturesVersion != 6`.
 6. Roll back by unsetting only occupation-specific fields and `occupationFeaturesVersion` if downstream writes do not depend on them; retain the pre-backfill backup.
 
+### Hand-labeled precision audit
+
+A fresh random sample of 100 active local listings was manually labeled by primary occupation family after v6 was applied. This is a single, non-stratified sample; small-family estimates are noisy and should not be used as a production eligibility gate. The sample had 25/100 unclassified (25%). Among the 75 auto-classified records, 65 labels matched the manual label (86.7% aggregate precision). Precision by predicted family:
+
+| Predicted family | Correct / labeled | Precision |
+|---|---:|---:|
+| accounting-finance | 3/3 | 100% |
+| administration | 1/1 | 100% |
+| data | 2/2 | 100% |
+| design | 3/3 | 100% |
+| healthcare | 1/2 | 50% |
+| human-resources | 1/2 | 50% |
+| marketing | 3/5 | 60% |
+| operations | 6/6 | 100% |
+| product | 3/3 | 100% |
+| sales | 18/19 | 94.7% |
+| security | 4/4 | 100% |
+| software | 14/17 | 82.4% |
+| customer-support | 6/8 | 75% |
+
+The manual labels were based on job title and source category where available. Technical account, solutions, interpreter, fundraising, and sales-enablement titles are inherently ambiguous; the observed false positives and unclassified cases are why occupation remains a ranking/filter hint only, not an eligibility decision. A larger stratified audit is needed before treating these estimates as stable.
+
+The sample's unclassified share by source was Jobicy 21/88 (23.9%), RemoteOK 3/10 (30%), and mock board 1/2 (50%). The full-catalog source shares above are the more useful coverage measure: Jobicy 142/734 (19.35%), RemoteOK 16/99 (16.16%), Remotive 1/4 (25%), mock board 2/4 (50%).
+
 ## Target design (not built yet)
 
 Add more curated occupation aliases only after auditing false positives and measuring per-family precision on a hand-labeled sample. Do not call an LLM per job. A production migration requires an explicit deployment window and operator approval.
 
-**Unverified:** a stratified, hand-labeled 100-job precision report and the completeness of upstream source categories. The 100-item local random sample was reviewed qualitatively and prompted the v6 aliases, but per-family precision has not been computed; do not use occupation as a high-confidence eligibility filter yet.
+**Unverified:** a larger stratified precision audit and the completeness of upstream source categories. The manual sample above is a preliminary quality check, not a guarantee for low-support families or individual sources; do not use occupation as a high-confidence eligibility filter yet.
 
 Production backfill was not run. The local apply command refuses production and non-loopback hosts.

@@ -4,7 +4,7 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 
 ## As built (verified in code)
 
-Candidate selection ranks lexical feature overlap before recent fallback candidates; deterministic score has version lexical-v3. Discovery makes no LLM calls. See src/services/jobs/jobIngestionService.js and src/services/jobs/matching.js.
+Candidate selection ranks lexical feature overlap before recent fallback candidates; deterministic score defaults to lexical-v2. lexical-v3 remains available for comparison but fails the current fixture ship gate. Discovery makes no LLM calls. See src/services/jobs/jobIngestionService.js and src/services/jobs/matching.js.
 
 ## Target design (not built yet)
 

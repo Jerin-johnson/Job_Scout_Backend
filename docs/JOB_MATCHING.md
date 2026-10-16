@@ -1,8 +1,39 @@
 # Jobs discovery and matching — verified report
 
-Measured on 2026-10-16 against backend commit `d089af6` plus the uncommitted Part A retrieval changes in this review. The development MongoDB inspection emitted aggregate counts and query plans only; no profile text, identifiers, or job descriptions are included.
+Report generated 2026-10-16 from the current backend feature branch. Development MongoDB inspection used aggregate counts and query plans only; no profile text, identifiers, or job descriptions are included.
+
+## Current profile re-evaluation after occupation v6
+
+Re-run on 2026-10-16 after the additive local classification backfill, using lexical-v2. The current profile still has 43 skills, zero role facts, one education fact, one target-role preference, one preferred-location string and no preferred country codes. Stored resumes were not re-read, so classification does not change this profile's missing role facts. Bounded retrieval reports 837 active catalog jobs, 837 eligible, candidate cap 400, and 20 lexical candidates; 120 candidates reached scoring after the location tier. Histogram: 105 scores 20–29, 5 scores 30–39, 10 scores 40–49, and zero in other bands. None reached Fair (50). These are local dev data and a single profile snapshot.
+
+| Rank | Job title | Company | Source | Score |
+|---:|---|---|---|---:|
+| 1 | Frontend Engineer | Bjak | RemoteOK | 46 |
+| 2 | Senior Software Engineer (Full Stack \| Node.js & React \| AI Focus) | Oowlish Technology | Jobicy | 44 |
+| 3 | Senior Backend Engineer | Solace | Jobicy | 44 |
+| 4 | Senior Infrastructure Engineer | Webflow | Jobicy | 44 |
+| 5 | Application Support / SQL - (12 Month Maternity-leave Contract) | Varicent | Jobicy | 44 |
+| 6 | AI Senior Engineer (Graph) | Able | Jobicy | 44 |
+| 7 | Blockchain Security Expert - Chain Security Evaluation Track | CertiK | Jobicy | 44 |
+| 8 | Senior Fullstack Engineer (BR based only) | Double | Jobicy | 44 |
+| 9 | Staff DevOps Engineer | Nextiva | Jobicy | 44 |
+| 10 | Math Content Teacher - Mandarin Speaking Required | Think Academy US | Jobicy | 41 |
+| 11 | Golang Kubernetes Engineer | Arango | RemoteOK | 37 |
+| 12 | Senior .NET Software Engineer | OkWhen | RemoteOK | 35 |
+| 13 | Remote Office Assistant | Coalition Technologies | Remotive | 35 |
+| 14 | Senior React Full stack Developer | Lemon.io | RemoteOK | 35 |
+| 15 | SI agent engineer | Sticker Mule | RemoteOK | 34 |
+| 16 | Principal Software Engineer | Vytalize Health | RemoteOK | 29 |
+| 17 | DESARROLLADOR FULL STACK | Kruger NearShore LLC - Rekluti | RemoteOK | 29 |
+| 18 | Java Developer | Clera | RemoteOK | 29 |
+| 19 | Freelance Designer | Control Shift Video | RemoteOK | 29 |
+| 20 | Head of Security | Tremendous | RemoteOK | 29 |
+
+The last five are low-band because the live profile lacks grounded role history and its current target-role preference is not enough to differentiate broad titles; this top-20 is a diagnostic, not a recommendation that all are suitable. No data was sent to an external provider for this report.
 
 ## Real profile diagnostics
+
+**Historical snapshot, superseded by the current profile re-evaluation above.** This section records earlier retrieval measurements and is retained as a benchmark reference.
 
 The sampled dev profile contains 43 skills, 0 role facts, 1 education fact, 1 target-role preference, 1 preferred-location string, and 0 preferred country codes. Fields read by matching are `skills[].name`, `roles[].title`, optional legacy `roles[].years`, `roles[].startDate/endDate/isCurrent`, `preferences.targetRoles[]`, `preferences.preferredLocations[]`, `preferences.preferredCountryCodes[]`, `preferences.remotePreference`, and `preferences.minimumSalaryUsd`. `years` is read defensively but is not declared in the current Profile role schema; matching can derive it from role dates.
 
@@ -110,7 +141,7 @@ The Mongo integration fixture has 421 jobs: one older strongly relevant frontend
 
 ## Score behavior and product feedback
 
-Scoring is deterministic (`lexical-v3`), with weights: skill overlap 40, role-title similarity 20, experience 15, location 15, salary 5, recency 5. Bands are Low <50, Fair 50–64, Good 65–79, Strong 80+. Retrieval role normalization is limited to an explicit alias catalog and high-confidence edit-distance suggestions; a proposed correction is shown to the user and must be confirmed before preferences are changed. Missing target roles may be prefilled from saved role facts or resume facts. No LLM or vector ranking is used in the matching hot path.
+Scoring is deterministic (`lexical-v2` by default), with weights: skill overlap 40, role-title similarity 20, experience 15, location 15, salary 5, recency 5. Bands are Low <50, Fair 50–64, Good 65–79, Strong 80+. Retrieval role normalization is limited to an explicit alias catalog and high-confidence edit-distance suggestions; a proposed correction is shown to the user and must be confirmed before preferences are changed. Missing target roles may be prefilled from saved role facts or resume facts. No LLM or vector ranking is used in the matching hot path.
 
 When no result reaches 50, Recommended shows “No strong matches yet. Here are the closest roles”, the best score and available missing-skill/profile context, plus links to review profile/role facts or browse the indexed job catalog. The frontend reflects the 50+ Fair cutoff.
 
@@ -131,9 +162,9 @@ List and search queries exclude `embedding` and `rawPayload`; detail/recommendat
 
 Remotive is enabled/approved, with a 6-hour interval and daily request quota of 4. Its registry showed `lastRunAt=2026-10-16T09:31:00.620Z`, `lastSuccessAt=2026-10-16T09:31:01.073Z`, and cumulative metrics of 14 fetched/created, 0 updated/duplicate/error. At the read time, 5 Remotive records remained active and present. The source run guard therefore next permits an attempt at `2026-10-16T15:31:00.620Z` (21:01 IST). `src/worker.js` registers `ingest:remotive` with BullMQ `repeat.every=21600000` and job ID `scheduled-remotive` after Redis is ready; a repeat tick is not guaranteed to fire at the exact eligibility second, and the registered Redis schedule was not inspected. The adapter fixture test passes. The nine expected identities were not provided; the difference between cumulative-created count and current records does not identify which records are missing or why. No live ingestion was triggered before the eligible time, and restoration of those nine identities remains unverified.
 
-## Repository strategy (proposal only)
+## Repository strategy
 
-The backend is a Git repository on `feat/applications-tracker-phase-2`; the sibling frontend has no Git metadata. A monorepo gives atomic UI/API contract changes and shared CI but requires moving the backend's Git root/history carefully and agreeing on ownership/deployment boundaries. Two repositories preserve the existing backend history and deployment separation, but require API-contract coordination and independent CI. For the current setup, keep two repositories until the frontend is initialized as a Git repository; then choose based on deployment ownership. To move Jobs work without losing backend history, create a feature branch from the current backend branch, keep the commit series, and cherry-pick or merge that branch after review. No repository was moved and no branch was created for the frontend because it has no Git history to preserve.
+Frontend and backend are separate Git repositories with independent histories, branches, CI, and deployments. Keep API changes and frontend contract changes coordinated through versioned schemas and their separate review branches; do not combine their histories or assume a shared working tree.
 
 ## 10-minute Jobs manual QA
 
@@ -149,7 +180,7 @@ The backend is a Git repository on `feat/applications-tracker-phase-2`; the sibl
 10. With worker/Redis stopped, refresh Recommended and confirm a useful local deterministic result or clear retry state, without an external ingestion request.
 # 2026-10-16 scoring comparison
 
-Generated by `npm run eval:match-versions` with the configured lexical-v2 and explicit lexical-v3 implementations. We keep v2 active: one existing fixture regressed, and only one of three new profile-shaped fixtures improved. No weights were changed.
+Generated by `npm run eval:match-versions` with lexical-v2 and explicit lexical-v3 implementations. We keep v2 active: three existing fixtures regressed, and only one of three new profile-shaped fixtures improved. No weights, fixtures, or thresholds were changed. Regressions: HR (-10), designer (-10), and marketing (-10). The v3 title normalizer canonicalizes target role labels (for example HR Manager→HR / Recruiter, Graphic Designer→Product Designer, Digital Marketing Manager→Marketing Executive), then compares those canonical strings against raw job titles. This lowered title similarity from 1 to 0.5 for these exact-title fixtures, costing 10 points at the unchanged 20-point title weight. The business-analyst regression seen in an earlier run was resolved by removing the ambiguous `business analyst` alias from Data Analyst; it does not appear in the latest evaluation.
 
 | Fixture | v2 | v3 | Delta |
 |---|---:|---:|---:|
@@ -159,10 +190,10 @@ Generated by `npm run eval:match-versions` with the configured lexical-v2 and ex
 | Existing frontend | 81 strong | 81 strong | 0 |
 | Existing pharmacist | 86 strong | 86 strong | 0 |
 | Existing civil engineer | 86 strong | 86 strong | 0 |
-| Existing HR | 76 good | 76 good | 0 |
-| Existing designer | 86 strong | 86 strong | 0 |
-| Existing marketing | 86 strong | 86 strong | 0 |
-| Existing business analyst | 86 strong | 83 strong | -3 |
+| Existing HR | 76 good | 66 good | -10 |
+| Existing designer | 86 strong | 76 good | -10 |
+| Existing marketing | 86 strong | 76 good | -10 |
+| Existing business analyst | 86 strong | 86 strong | 0 |
 | Existing DevOps | 86 strong | 86 strong | 0 |
 | Existing project manager | 86 strong | 86 strong | 0 |
 | Existing customer support | 86 strong | 86 strong | 0 |

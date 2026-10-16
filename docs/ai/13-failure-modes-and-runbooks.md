@@ -17,7 +17,7 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 | Source run stuck                               | Check JobSource run state/lease/quota/circuit, Redis and BullMQ worker.                            | Do not clear locks or raise quota to force fetch; wait for allowed interval.                                      |
 | Stale match result                             | Profile/score version participates in cache; empty match cache TTL is short.                       | Inspect profileVersion, scoreVersion, refresh status and cache health.                                            |
 | Catalog does not refresh                       | Worker source repeats are reconciled at boot; Redis heartbeat TTL is 45 seconds.                 | Run `npm run jobs:schedule:report`; start `npm run worker:dev`; verify Redis `maxmemory-policy noeviction`. |
-| Profile role history unexpectedly empty         | LLM role output may be absent or fail exact source grounding. Deterministic section parser supplements it. | Re-upload/reprocess only with owner authorization; check facts-v3 and role extraction fixture tests; never log resume text. |
+| Profile role history unexpectedly empty         | Check the request error and parser path first; deterministic section parsing runs before one structured LLM call, and grounding drops unsupported facts. | Check the facts-v4 content-hash cache and role fixtures; a cache hit avoids a second provider call. Never log resume text. |
 
 ## Target design (not built yet)
 

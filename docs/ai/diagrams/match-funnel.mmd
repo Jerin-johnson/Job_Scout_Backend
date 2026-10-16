@@ -6,6 +6,6 @@ flowchart LR
   B --> C[Lexical relevance candidates]
   C --> D[Recency fallback to cap 400]
   D --> E[Location tier]
-  E --> F[Deterministic lexical-v3 score]
+  E --> F[Deterministic lexical-v2 score]
   F --> G[Top 20 persisted]
   F -. target .-> H[Country/work-authorization quality gate]
