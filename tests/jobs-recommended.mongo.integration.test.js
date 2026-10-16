@@ -29,7 +29,7 @@ after(async () => {
 
 test("Recommended returns scored, reasoned roles against an 852-job catalog without embedding calls", async () => {
   const userId = new mongoose.Types.ObjectId();
-  const profile = await Profile.create({
+  await Profile.create({
     userId,
     skills: ["GNM", "ICU", "BLS", "Patient care", "Nursing", ...Array.from({ length: 38 }, (_, i) => `Clinical skill ${i}`)].map((name) => ({ factId: new mongoose.Types.ObjectId().toString(), name })),
     roles: [{ factId: "role-1", title: "Staff Nurse", company: "Hospital", startDate: "2022", endDate: "", isCurrent: true, achievements: [] }],

@@ -101,7 +101,7 @@ export const discoveryGraph = {
   /** Deterministic lexical-first matching; embeddings are an optional rerank only. */
   async runDiscovery(
     user,
-    { idempotencyKey, requestId, quotaAccepted = false, broaden = false } = {},
+    { idempotencyKey, quotaAccepted = false, broaden = false } = {},
   ) {
     const userId = user._id ? user._id.toString() : user.id;
 
@@ -129,6 +129,7 @@ export const discoveryGraph = {
       : profile;
     const hiddenJobIds = isMongoReady() ? await HiddenJob.distinct("jobId", { userId }) : [];
     const jobs = await jobIngestionService.getCandidateJobs({ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds });
+    const retrieval = jobs.retrievalStats || { activeCatalogCount: jobs.length, eligibleCount: jobs.length, candidateCap: 400, lexicalCandidateCount: 0 };
 
     if (jobs.length === 0) {
       const allCandidates = await jobIngestionService.getCandidateJobs({
@@ -241,9 +242,11 @@ export const discoveryGraph = {
     await persistMatchesBulk(finalizedMatches);
 
     const funnel = {
-      catalogSize: await Match.db.collection("jobs").countDocuments({}),
-      afterStatusDates: jobs.length,
-      afterWorkMode: filtered.length,
+      catalogSize: retrieval.activeCatalogCount,
+      afterStatusDates: retrieval.activeCatalogCount,
+      afterWorkMode: retrieval.eligibleCount,
+      candidateCap: retrieval.candidateCap,
+      lexicalCandidates: retrieval.lexicalCandidateCount,
       afterLocationTiering: tiered.length,
       candidatesWithEmbeddings: jobs.filter((job) => job.embedding?.length > 0).length,
       profileEmbeddingAvailable: false,

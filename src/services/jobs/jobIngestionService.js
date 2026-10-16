@@ -8,6 +8,7 @@ import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
 import { SOURCE_POLICIES, isSourcePolicyComplete } from "./sourcePolicies.js";
 import { extractJobFeatures, canonicalSkill } from "./matching.js";
+import { normalizeRoleForMatching } from "./roleNormalization.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
@@ -792,7 +793,7 @@ export const jobIngestionService = {
       })
         .sort({ postedAt: -1 })
         .limit(MAX_CANDIDATES)
-        .select("-embedding")
+        .select("-embedding -rawPayload")
         .lean();
     return Array.from(inMemoryJobs.values())
       .filter(
@@ -806,8 +807,9 @@ export const jobIngestionService = {
 
   async getCandidateJobs({ profile, limit = MAX_CANDIDATES, excludeJobIds = [] } = {}) {
     const safeLimit = Math.min(MAX_CANDIDATES, Math.max(1, Number(limit) || MAX_CANDIDATES));
+    const now = new Date();
     const preferences = profile?.preferences || {};
-    const filter = { status: "active", expiresAt: { $gt: new Date() } };
+    const filter = { status: "active", expiresAt: { $gt: now } };
     const sources = await listSourceRecords({ enabledOnly: true });
     const enabledKeys = sources.map((source) => source.key);
     if (!enabledKeys.length) return [];
@@ -860,7 +862,7 @@ export const jobIngestionService = {
       ];
       const lexicalTerms = [...new Set([
         ...(profile?.skills || []).map((skill) => canonicalSkill(skill.name)),
-        ...roleTerms.flatMap((role) => String(role).toLowerCase().split(/[^\p{L}\p{N}.+#]+/u)),
+        ...roleTerms.flatMap((role) => String(normalizeRoleForMatching(role)).toLowerCase().split(/[^\p{L}\p{N}.+#]+/u)),
       ].filter((term) => term && term.length > 1))].slice(0, 64);
       const safeSelect =
         "title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation occupationCodes embedding embeddingMetadata contentHash features featuresVersion";
@@ -883,15 +885,60 @@ export const jobIngestionService = {
       ];
       const lexicalQuery = { ...base, ...(commonAnd.length || lexicalClauses.length ? { $and: [...commonAnd, ...lexicalClauses] } : {}) };
       const recentQuery = { ...base, ...(commonAnd.length ? { $and: commonAnd } : {}) };
-      const [lexical, recent] = await Promise.all([
-        lexicalTerms.length ? Job.find(lexicalQuery).sort({ postedDateKnown: -1, postedAt: -1, _id: 1 }).limit(safeLimit).select(safeSelect).lean() : [],
-        Job.find(recentQuery).sort({ postedDateKnown: -1, postedAt: -1, _id: 1 }).limit(safeLimit).select(safeSelect).lean(),
+      const activeCatalogQuery = {
+        status: "active",
+        expiresAt: { $gt: now },
+        sourceBoard: { $in: enabledKeys },
+      };
+      const [activeCatalogCount, eligibleCount] = await Promise.all([
+        Job.countDocuments(activeCatalogQuery),
+        Job.countDocuments(recentQuery),
       ]);
+      const lexical = lexicalTerms.length
+        ? await Job.aggregate([
+            { $match: lexicalQuery },
+            {
+              $addFields: {
+                _lexicalRelevance: {
+                  $add: [
+                    { $multiply: [{ $size: { $setIntersection: [{ $ifNull: ["$features.titleTokens", []] }, lexicalTerms] } }, 4] },
+                    { $multiply: [{ $size: { $setIntersection: [{ $ifNull: ["$features.skills", []] }, lexicalTerms] } }, 2] },
+                    { $size: { $setIntersection: [{ $ifNull: ["$tags", []] }, lexicalTerms] } },
+                    { $size: { $setIntersection: [{ $ifNull: ["$requirements", []] }, lexicalTerms] } },
+                  ],
+                },
+              },
+            },
+            { $sort: { _lexicalRelevance: -1, postedDateKnown: -1, postedAt: -1, _id: 1 } },
+            { $limit: safeLimit },
+            {
+              $project: {
+                ...Object.fromEntries(safeSelect.split(/\s+/).map((field) => [field, 1])),
+              },
+            },
+          ]).exec()
+        : [];
+      const remaining = Math.max(0, safeLimit - lexical.length);
+      const recent = remaining
+        ? await Job.find({
+            ...recentQuery,
+            ...(lexical.length ? { _id: { ...(recentQuery._id || {}), $nin: lexical.map((job) => job._id) } } : {}),
+          })
+            .sort({ postedDateKnown: -1, postedAt: -1, _id: 1 })
+            .limit(remaining)
+            .select(safeSelect)
+            .lean()
+        : [];
       const combined = new Map(lexical.map((job) => [String(job._id), job]));
-      for (const job of recent) if (combined.size < safeLimit) combined.set(String(job._id), job);
-      return [...combined.values()].slice(0, safeLimit);
+      for (const job of recent) combined.set(String(job._id), job);
+      const result = [...combined.values()].slice(0, safeLimit);
+      Object.defineProperty(result, "retrievalStats", {
+        enumerable: false,
+        value: { activeCatalogCount, eligibleCount, candidateCap: safeLimit, lexicalCandidateCount: lexical.length },
+      });
+      return result;
     }
-    return Array.from(inMemoryJobs.values())
+    const available = Array.from(inMemoryJobs.values())
       .filter((job) => {
         if (new Date(job.expiresAt) <= new Date() || job.status === "closed") return false;
         if (!enabledKeys.includes(job.sourceBoard)) return false;
@@ -908,8 +955,13 @@ export const jobIngestionService = {
           return false;
         return true;
       })
-      .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt))
-      .slice(0, safeLimit);
+      .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
+    const result = available.slice(0, safeLimit);
+    Object.defineProperty(result, "retrievalStats", {
+      enumerable: false,
+      value: { activeCatalogCount: available.length, eligibleCount: available.length, candidateCap: safeLimit, lexicalCandidateCount: 0 },
+    });
+    return result;
   },
 
   async searchJobs({
@@ -957,7 +1009,7 @@ export const jobIngestionService = {
           .sort({ postedDateKnown: -1, postedAt: -1, _id: 1 })
           .skip(skip)
           .limit(limit)
-          .select("-embedding")
+          .select("-embedding -rawPayload")
           .lean(),
         Job.countDocuments(filter),
       ]);

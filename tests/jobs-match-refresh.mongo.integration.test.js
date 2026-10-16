@@ -11,7 +11,6 @@ import { Profile } from "../src/models/Profile.js";
 import { MatchRefresh } from "../src/models/MatchRefresh.js";
 import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
 import { CacheKeys } from "../src/shared/cache.js";
-import { userRepository } from "../src/repositories/userRepository.js";
 import { profileController } from "../src/controllers/profileController.js";
 import { jobController } from "../src/controllers/jobController.js";
 import { persistMatchesBulk } from "../src/ai/graphs/discoveryGraph.js";
@@ -86,6 +85,37 @@ test("saving preferences increments profileVersion so old match cache keys canno
   assert.ok(updated.profileVersion > user.profileVersion);
   assert.notEqual(CacheKeys.response(String(user._id), "matches", updated.profileVersion), oldKey);
   await Promise.all([User.deleteOne({ _id: user._id }), Profile.deleteOne({ userId: user._id })]);
+});
+
+test("confirming a suggested target role changes only targetRoles and preserves the other preferences", async () => {
+  const user = await makeUser();
+  configureMatchRefreshQueue({ add: async () => ({ id: "role-confirmation-refresh" }) });
+  await Profile.create({
+    userId: user._id,
+    preferences: {
+      targetRoles: ["software engierer"],
+      preferredLocations: ["Kerala"],
+      remotePreference: "any",
+      minimumSalaryUsd: 0,
+    },
+  });
+  const response = {
+    statusCode: 0,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  await profileController.confirmTargetRoles(
+    { user: user.toObject(), body: { targetRoles: ["Software Engineer"] } },
+    response,
+    (error) => { throw error; },
+  );
+  const saved = await Profile.findOne({ userId: user._id }).lean();
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(saved.preferences.targetRoles, ["Software Engineer"]);
+  assert.deepEqual(saved.preferences.preferredLocations, ["Kerala"]);
+  assert.equal(saved.preferences.remotePreference, "any");
+  await Promise.all([Profile.deleteOne({ userId: user._id }), User.deleteOne({ _id: user._id })]);
 });
 
 test("refresh requests for the same user and profile version coalesce", async () => {
@@ -207,7 +237,7 @@ test("a user cannot give feedback on another user's match and receives 404", asy
 test("fixture refresh and cached match reads meet the Phase 1 latency targets", async () => {
   const user = await makeUser();
   await jobIngestionService.ensureSources();
-  const profile = await Profile.create({
+  await Profile.create({
     userId: user._id,
     roles: [{ factId: "fixture-role", title: "Backend Engineer", company: "Fixture Co" }],
     skills: [{ factId: "fixture-skill", name: "Node.js" }],

@@ -1,5 +1,7 @@
+import { normalizeRoleForMatching } from "./roleNormalization.js";
+
 /** Deterministic, provider-free job feature extraction and profile matching. */
-export const MATCH_SCORE_VERSION = "lexical-v2";
+export const MATCH_SCORE_VERSION = "lexical-v3";
 export const MATCH_SCORE_WEIGHTS = Object.freeze({
   skills: 40,
   title: 20,
@@ -102,7 +104,7 @@ function roleSimilarity(profile, features, title) {
   const roleTerms = [
     ...(profile.preferences?.targetRoles || []),
     ...(profile.roles || []).map((role) => role.title),
-  ].map(normalize).filter(Boolean);
+  ].map((role) => normalize(normalizeRoleForMatching(role))).filter(Boolean);
   if (!roleTerms.length) return features.occupation ? 0.5 : 0.35;
   const titleText = normalize(title);
   if (roleTerms.some((role) => titleText.includes(role) || role.includes(titleText))) return 1;
@@ -137,7 +139,7 @@ export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
     const end = role.isCurrent || !role.endDate ? now.getTime() : Date.parse(role.endDate);
     return Number.isFinite(start) && Number.isFinite(end) && end >= start ? (end - start) / (365.25 * 86400000) : 0;
   }));
-  const experienceFit = features.experienceYears == null || !profileYears
+  const experienceFit = features.experienceYears === null || features.experienceYears === undefined || !profileYears
     ? 0.55
     : profileYears >= features.experienceYears ? 1 : Math.max(0.25, profileYears / features.experienceYears);
   const pref = profile.preferences || {};
@@ -165,7 +167,7 @@ export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
     skillRatio * weights.skills + titleFit * weights.title + experienceFit * weights.experience +
     locationFit * weights.location + salaryFit * weights.salary + recencyFit * weights.recency,
   );
-  const band = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 40 ? "fair" : "low";
+  const band = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "fair" : "low";
   const reasons = [
     `${overlap.length} of ${Math.max(1, requiredFeatures.length || jobSkills.size)} listed skills match`,
     titleFit >= 0.7 ? "Role title is closely related to your target" : "Role title is a partial fit",

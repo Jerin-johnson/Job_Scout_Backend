@@ -35,4 +35,5 @@ profileRouter.post(
 profileRouter.get("/", profileController.getProfile);
 profileRouter.get("/resumes", profileController.listResumes);
 profileRouter.put("/preferences", csrfProtection, profileController.updatePreferences);
+profileRouter.patch("/preferences/target-roles", csrfProtection, profileController.confirmTargetRoles);
 profileRouter.get("/facts", profileController.getFacts);

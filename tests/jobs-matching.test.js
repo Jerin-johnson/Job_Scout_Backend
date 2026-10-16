@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { extractJobFeatures, scoreJobMatch, MATCH_SCORE_VERSION } from "../src/services/jobs/matching.js";
+import { normalizeRoleForMatching, suggestTargetRoleCorrections } from "../src/services/jobs/roleNormalization.js";
 
 const nurseProfile = {
   skills: ["GNM", "ICU", "BLS", "Patient care", "Nursing"].map((name) => ({ name })),
@@ -81,14 +82,69 @@ test("broad software-engineering targets recognize frontend and backend speciali
   assert.ok(score.reasons.some((reason) => reason.includes("closely related")));
 });
 
-test("band labels include Low instead of dropping below-threshold jobs", () => {
-  const low = scoreJobMatch({ skills: [], roles: [], preferences: {} }, {
-    title: "Unrelated role", requirements: ["rare specialist topic"], rawDescription: "",
+test("score bands reserve Fair for scores of 50 and above", () => {
+  const low = scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
+    title: "Frontend Engineer", requirements: [], rawDescription: "",
     location: "Remote", remoteType: "remote", postedDateKnown: false,
   });
-  assert.ok(["low", "fair"].includes(low.band));
-  if (low.score >= 40) assert.equal(low.band, "fair");
-  else assert.equal(low.band, "low");
+  assert.ok(low.score < 50);
+  assert.equal(low.band, "low");
+  const fair = scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
+    title: "Frontend Engineer", requirements: [], rawDescription: "",
+    location: "Kochi", remoteType: "onsite", postedDateKnown: true, postedAt: new Date(), locationTier: 1,
+  });
+  assert.ok(fair.score >= 50);
+  assert.equal(fair.band, "fair");
+});
+
+test("a typo-shaped target role suggests, but does not silently persist, the canonical role", () => {
+  const profile = { skills: [], roles: [], preferences: { targetRoles: ["software engierer"] } };
+  assert.equal(normalizeRoleForMatching(profile.preferences.targetRoles[0]), "Software Engineer");
+  const [suggestion] = suggestTargetRoleCorrections(profile);
+  assert.deepEqual(suggestion, {
+    source: "preference",
+    index: 0,
+    originalRole: "software engierer",
+    suggestedRole: "Software Engineer",
+    confidence: 0.88,
+    proposedTargetRoles: ["Software Engineer"],
+  });
+  assert.equal(profile.preferences.targetRoles[0], "software engierer");
+});
+
+test("resume role facts prefill target-role suggestions only when the preference is missing", () => {
+  const profile = { skills: [], roles: [{ title: "Backend Engineer" }], preferences: { targetRoles: [] } };
+  assert.equal(suggestTargetRoleCorrections(profile)[0].source, "resume");
+  assert.deepEqual(suggestTargetRoleCorrections(profile)[0].proposedTargetRoles, ["Backend Engineer"]);
+  assert.deepEqual(suggestTargetRoleCorrections({ ...profile, preferences: { targetRoles: ["Accountant"] } }), []);
+});
+
+test("real-profile-shaped typo, missing role facts, and unmatched location still produce explainable scores", () => {
+  const profile = {
+    skills: ["JavaScript", "React"].map((name) => ({ name })),
+    roles: [],
+    preferences: { targetRoles: ["software engierer"], preferredLocations: ["a free-text place not in the catalog"] },
+  };
+  const job = {
+    title: "Platform Engineer",
+    requirements: ["JavaScript", "React", "TypeScript", "Python"],
+    tags: ["TypeScript", "Python"],
+    rawDescription: "",
+    remoteType: "remote",
+    location: "Remote",
+    locationTier: 2,
+    postedDateKnown: false,
+  };
+  const score = scoreJobMatch(profile, job);
+  assert.ok(score.score >= 50, `expected a role suggestion to recover the title match, got ${score.score}`);
+  assert.equal(score.band, "fair");
+  assert.equal(score.hardBlocked, false);
+  const scoreWithoutTypoResolution = Math.round(
+    score.breakdown.skills * 40 + score.breakdown.experience * 15 +
+    score.breakdown.location * 15 + score.breakdown.salary * 5 + score.breakdown.recency * 5,
+  );
+  assert.ok(scoreWithoutTypoResolution < 50, "the typo-shaped profile would have been hidden by the former title score");
+  assert.ok(score.reasons.length >= 2);
 });
 
 test("eligibility remains explicitly unknown and only a known country exclusion hard-blocks", () => {

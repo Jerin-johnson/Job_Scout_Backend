@@ -11,6 +11,7 @@ import { Job } from "../models/Job.js";
 import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
 import { JobReport } from "../models/JobReport.js";
+import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
@@ -75,7 +76,7 @@ export const jobController = {
         profile?.preferences?.targetRoles?.length ||
         profile?.preferences?.preferredLocations?.length,
       );
-      let refresh = await getMatchRefresh(userId, ver);
+      const refresh = await getMatchRefresh(userId, ver);
       let inlineEmptyReason = "";
       // A missing Redis/worker process must not make the user wait for a paid
       // provider or leave Recommended empty. Compute the deterministic result
@@ -104,6 +105,7 @@ export const jobController = {
         sources,
         profileReady: hasProfileFacts,
         otherRolesOnly: matches.length > 0 && matches.every((match) => match.score < 50),
+        roleSuggestions: suggestTargetRoleCorrections(profile || {}),
         emptyReason,
       };
       await set(cacheKey, payload, matches.length ? TTL.RESPONSE : 3);
@@ -217,36 +219,66 @@ export const jobController = {
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
       const profile = await profileRepository.findByUserId(userId);
       const jobs = await jobIngestionService.getCandidateJobs({ profile, limit: 400 });
+      const retrieval = jobs.retrievalStats || { activeCatalogCount: jobs.length, eligibleCount: jobs.length, candidateCap: 400, lexicalCandidateCount: 0 };
       const locations = profile?.preferences?.preferredLocations || [];
       const codes = profile?.preferences?.preferredCountryCodes || [];
       const { locationTierForJob } = await import("../ai/graphs/discoveryGraph.js");
       const bestTier = jobs.length ? Math.min(...jobs.map((job) => locationTierForJob(job, locations, codes))) : null;
-      const tiered = bestTier == null ? [] : jobs.filter((job) => locationTierForJob(job, locations, codes) === bestTier);
-      const scored = tiered.map((job) => scoreJobMatch(profile || {}, { ...job, locationTier: bestTier }));
-      const [catalogSize, stored, refresh] = await Promise.all([
-        Job.countDocuments({ status: "active", expiresAt: { $gt: new Date() } }),
+      const tiered = bestTier === null ? [] : jobs.filter((job) => locationTierForJob(job, locations, codes) === bestTier);
+      const scored = tiered.map((job) => ({ job, ...scoreJobMatch(profile || {}, { ...job, locationTier: bestTier }) }));
+      const [stored, refresh, catalogJobs] = await Promise.all([
         discoveryGraph.getUserMatches(userId),
         getMatchRefresh(userId, req.user.profileVersion || 1),
+        Job.find({ status: "active", expiresAt: { $gt: new Date() } }).select("title features").lean(),
       ]);
       const embedding = (await import("../services/embeddingService.js")).embeddingService.getConfig();
-      res.json({ data: { funnel: {
-        catalogSize,
-        afterStatusDates: jobs.length,
-        afterWorkMode: jobs.length,
+      const availableScores = scored.filter((item) => !item.hardBlocked);
+      const scoreDistribution = Array.from({ length: 10 }, (_, index) => ({
+        range: `${index * 10}-${index * 10 + 9}`,
+        count: 0,
+      }));
+      for (const item of availableScores) scoreDistribution[Math.min(9, Math.floor(item.score / 10))].count += 1;
+      const occupationCounts = new Map();
+      for (const job of catalogJobs) {
+        const family = extractJobFeatures(job).occupation || "other/uncategorized";
+        occupationCounts.set(family, (occupationCounts.get(family) || 0) + 1);
+      }
+      const profileFactCounts = {
+        skills: profile?.skills?.length || 0,
+        roles: profile?.roles?.length || 0,
+        education: profile?.education?.length || 0,
+        targetRoles: profile?.preferences?.targetRoles?.length || 0,
+        preferredLocations: profile?.preferences?.preferredLocations?.length || 0,
+        preferredCountryCodes: profile?.preferences?.preferredCountryCodes?.length || 0,
+      };
+      res.json({ data: {
+        funnel: {
+        catalogSize: retrieval.activeCatalogCount,
+        afterStatusDates: retrieval.activeCatalogCount,
+        afterWorkMode: retrieval.eligibleCount,
+        candidateCap: retrieval.candidateCap,
+        lexicalCandidates: retrieval.lexicalCandidateCount,
         afterLocationTiering: tiered.length,
         candidatesWithEmbeddings: jobs.filter((job) => job.embedding?.length).length,
         profileEmbeddingAvailable: false,
         embeddingProvider: embedding.provider,
         embeddingModel: embedding.model,
         embeddingDimension: embedding.dimension,
-        afterScoreThreshold: scored.filter((item) => item.score >= 50).length,
-        fallbackUnderThreshold: scored.filter((item) => item.score < 50).length,
+        afterScoreThreshold: availableScores.filter((item) => item.score >= 50).length,
+        fallbackUnderThreshold: availableScores.filter((item) => item.score < 50).length,
         written: stored.length,
         returned: stored.length,
         refreshStatus: refresh?.status || "not-queued",
         refreshErrorCode: refresh?.errorCode || "",
         scoreVersion: MATCH_SCORE_VERSION,
-      } } });
+        },
+        profileFactCounts,
+        profileFieldNamesUsed: ["skills[].name", "roles[].title", "roles[].years/startDate/endDate/isCurrent", "preferences.targetRoles[]", "preferences.preferredLocations[]", "preferences.preferredCountryCodes[]", "preferences.remotePreference", "preferences.minimumSalaryUsd"],
+        scoreDistribution,
+        top10: availableScores.sort((a, b) => b.score - a.score).slice(0, 10).map((item) => ({ title: item.job?.title, source: item.job?.sourceBoard, score: item.score, breakdown: item.breakdown, reasons: item.reasons })),
+        occupationFamilies: [...occupationCounts.entries()].sort((a, b) => b[1] - a[1]).map(([family, count]) => ({ family, count })),
+        roleSuggestions: suggestTargetRoleCorrections(profile || {}),
+      } });
     } catch (err) { next(err); }
   },
 

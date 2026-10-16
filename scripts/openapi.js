@@ -138,6 +138,18 @@ async function generateOpenApi() {
           responses: { 200: { description: "Preferences updated and version bumped" } },
         },
       },
+      "/api/v1/profile/preferences/target-roles": {
+        patch: {
+          summary: "Confirm target roles suggested from a typo correction or resume facts",
+          tags: ["Profile"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { type: "object", required: ["targetRoles"], properties: { targetRoles: { type: "array", maxItems: 10, items: { type: "string", minLength: 1, maxLength: 120 } } }, additionalProperties: false } } },
+          },
+          responses: { 200: { description: "Confirmed target roles saved; all other preferences preserved" } },
+        },
+      },
       "/api/v1/profile/facts": {
         get: {
           summary: "List all immutable candidate facts with unique factIds",

@@ -21,6 +21,9 @@ const preferencesSchema = z.object({
   occupationCodes: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   remotePreference: z.enum(["remote", "hybrid", "onsite", "any"]).default("any"),
 });
+const targetRolesSchema = z.object({
+  targetRoles: z.array(z.string().trim().min(1).max(120)).max(10),
+}).strict();
 
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 const resumeUploadRequestSchema = z.object({
@@ -274,6 +277,22 @@ export const profileController = {
       res
         .status(200)
         .json({ data: { profile, profileVersion: updatedUser?.profileVersion || null } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async confirmTargetRoles(req, res, next) {
+    try {
+      const { targetRoles } = targetRolesSchema.parse(req.body);
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const current = await profileRepository.findByUserId(userId);
+      const preferences = { ...(current?.preferences || {}), targetRoles };
+      const profile = await profileRepository.upsertProfile(userId, { preferences });
+      await invalidateCandidateContext(userId);
+      const updatedUser = await userRepository.bumpProfileVersion(userId);
+      if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
+      res.status(200).json({ data: { preferences: profile.preferences, profileVersion: updatedUser?.profileVersion || null } });
     } catch (err) {
       next(err);
     }
