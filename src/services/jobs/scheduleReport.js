@@ -1,4 +1,4 @@
-export function buildJobScheduleReport(sources, repeatableJobs, now = Date.now()) {
+export function buildJobScheduleReport(sources, repeatableJobs, now = Date.now(), worker = { online: false, lastSeenAt: null }) {
   const byName = new Map();
   for (const job of repeatableJobs || []) {
     if (typeof job?.name === "string") byName.set(job.name, job);
@@ -11,6 +11,7 @@ export function buildJobScheduleReport(sources, repeatableJobs, now = Date.now()
     const intervalMatches = scheduled?.every === source.quota.intervalMs;
     return {
       source: source.key,
+      worker: { status: worker?.online ? "online" : "offline", online: Boolean(worker?.online), lastSeenAt: worker?.lastSeenAt || null },
       enabled,
       intervalMs: source.quota?.intervalMs ?? null,
       registrationStatus: !enabled ? "disabled" : scheduled ? (intervalMatches ? "registered" : "interval_mismatch") : "not_registered",

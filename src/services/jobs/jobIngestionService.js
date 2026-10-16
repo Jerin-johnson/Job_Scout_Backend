@@ -3,6 +3,7 @@ import { JobSource } from "../../models/JobSource.js";
 import { Profile } from "../../models/Profile.js";
 import { env } from "../../config/env.js";
 import { isMongoReady } from "../../config/database.js";
+import { getRedisClient, isRedisReady } from "../../config/redis.js";
 import { embeddingService } from "../embeddingService.js";
 import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
@@ -1144,7 +1145,20 @@ export const jobIngestionService = {
           ])
         : [];
     const countByKey = new Map(counts.map(({ _id, count }) => [_id, count]));
+    let worker = { status: "offline", online: false, lastSeenAt: null };
+    if (isRedisReady()) {
+      try {
+        const redis = getRedisClient();
+        const [heartbeat, lastSeenAt] = await Promise.all([
+          redis.get("jobscout:worker:heartbeat"),
+          redis.get("jobscout:worker:last-seen"),
+        ]);
+        const online = Boolean(heartbeat);
+        worker = { status: online ? "online" : "offline", online, lastSeenAt: lastSeenAt ? new Date(lastSeenAt) : null };
+      } catch { /* worker status remains unknown/offline when Redis is unavailable */ }
+    }
     return records.map((source) => ({
+      worker,
       key: source.key,
       displayName: source.displayName,
       enabled: Boolean(source.enabled && source.approved && isSourcePolicyComplete(source)),

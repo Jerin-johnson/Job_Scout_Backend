@@ -17,12 +17,16 @@ export const profileRepository = {
 
   async upsertProfile(userId, profileData) {
     const uid = userId.toString();
+    const updateData = { ...profileData };
+    // An extractor that finds no role entries must not erase previously
+    // source-grounded role history. Explicit profile editing can still clear it.
+    if (Array.isArray(updateData.roles) && updateData.roles.length === 0) delete updateData.roles;
     if (isMongoReady()) {
       return Profile.findOneAndUpdate(
         { userId },
         {
           $set: {
-            ...profileData,
+            ...updateData,
             userId,
           },
           $inc: { version: 1 },
@@ -36,7 +40,7 @@ export const profileRepository = {
       _id: existing?._id || new mongoose.Types.ObjectId().toString(),
       userId: uid,
       ...(existing || {}),
-      ...profileData,
+      ...updateData,
       version: (existing?.version || 0) + 1,
       updatedAt: new Date(),
     };

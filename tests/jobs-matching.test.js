@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractJobFeatures, scoreJobMatch, MATCH_SCORE_VERSION } from "../src/services/jobs/matching.js";
+import { extractJobFeatures, scoreJobMatch, MATCH_SCORE_VERSION, annualComparableAmount } from "../src/services/jobs/matching.js";
 import { normalizeRoleForMatching, suggestTargetRoleCorrections } from "../src/services/jobs/roleNormalization.js";
 
 const nurseProfile = {
@@ -82,19 +82,31 @@ test("broad software-engineering targets recognize frontend and backend speciali
   assert.ok(score.reasons.some((reason) => reason.includes("closely related")));
 });
 
-test("score bands reserve Fair for scores of 50 and above", () => {
+test("score bands follow selected version with lexical-v2 as the default", () => {
+  assert.equal(MATCH_SCORE_VERSION, "lexical-v2");
   const low = scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
     title: "Frontend Engineer", requirements: [], rawDescription: "",
     location: "Remote", remoteType: "remote", postedDateKnown: false,
-  });
+  }, { version: "lexical-v3" });
   assert.ok(low.score < 50);
   assert.equal(low.band, "low");
   const fair = scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
     title: "Frontend Engineer", requirements: [], rawDescription: "",
     location: "Kochi", remoteType: "onsite", postedDateKnown: true, postedAt: new Date(), locationTier: 1,
   });
-  assert.ok(fair.score >= 50);
+  assert.ok(fair.score >= 40);
   assert.equal(fair.band, "fair");
+  assert.equal(scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
+    title: "Frontend Engineer", requirements: [], rawDescription: "",
+    location: "Kochi", remoteType: "onsite", postedDateKnown: true, postedAt: new Date(), locationTier: 1,
+  }, { version: "lexical-v3" }).scoreVersion, "lexical-v3");
+});
+
+test("salary comparison annualizes monthly pay only in the same currency and skips unsupported periods", () => {
+  assert.equal(annualComparableAmount({ amount: 1000, currency: "USD", period: "month" }, "USD"), 12000);
+  assert.equal(annualComparableAmount({ amount: 1000, currency: "INR", period: "month" }, "USD"), null);
+  assert.equal(annualComparableAmount({ amount: 50, currency: "USD", period: "hour" }, "USD"), null);
+  assert.equal(annualComparableAmount({ amount: 50, currency: "USD", period: "unknown" }, "USD"), null);
 });
 
 test("a typo-shaped target role suggests, but does not silently persist, the canonical role", () => {
@@ -135,7 +147,7 @@ test("real-profile-shaped typo, missing role facts, and unmatched location still
     locationTier: 2,
     postedDateKnown: false,
   };
-  const score = scoreJobMatch(profile, job);
+  const score = scoreJobMatch(profile, job, { version: "lexical-v3" });
   assert.ok(score.score >= 50, `expected a role suggestion to recover the title match, got ${score.score}`);
   assert.equal(score.band, "fair");
   assert.equal(score.hardBlocked, false);

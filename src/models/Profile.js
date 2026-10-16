@@ -54,6 +54,9 @@ const ProfileSchema = new mongoose.Schema(
         default: "any",
       },
     },
+    // Additive v1 profile surface. Validation and size bounds live in the
+    // profile controller; optional and intentionally has no prefilled values.
+    careerProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     version: {
       type: Number,
       default: 1,

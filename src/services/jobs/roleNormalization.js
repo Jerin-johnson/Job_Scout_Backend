@@ -1,3 +1,5 @@
+import { ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
+
 const ROLE_CATALOG = [
   { canonical: "Software Engineer", aliases: ["software engineer", "software developer", "software engineering"] },
   { canonical: "Backend Engineer", aliases: ["backend engineer", "back end engineer", "api engineer", "server side engineer"] },
@@ -7,6 +9,7 @@ const ROLE_CATALOG = [
   { canonical: "Accountant", aliases: ["accountant", "accounting", "bookkeeper"] },
   { canonical: "Teacher", aliases: ["teacher", "teaching", "educator", "tutor"] },
   { canonical: "Data Analyst", aliases: ["data analyst", "business analyst", "analytics"] },
+  ...ROLE_SUGGESTIONS.map(({ label, aliases }) => ({ canonical: label, aliases })),
 ];
 
 function normalize(value = "") {

@@ -871,7 +871,7 @@ export const interviewSessionService = {
       fail(404, "NOT_FOUND", "Interview session not found");
     const cacheKeys = [CacheKeys.interviewSession(userId, id)];
     if (session.resumeFileHash)
-      cacheKeys.push(CacheKeys.resumeParse(`${session.resumeFileHash}:facts-v2`));
+      cacheKeys.push(CacheKeys.resumeParse(`${session.resumeFileHash}:facts-v3`));
     await Promise.all(cacheKeys.map((key) => del(key)));
     return { deleted: true };
   },

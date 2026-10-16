@@ -30,6 +30,11 @@ test("resume completion retry is idempotent and another user's upload ID returns
   await Promise.all([Resume.syncIndexes(), Profile.syncIndexes()]);
   const userA = new mongoose.Types.ObjectId();
   const userB = new mongoose.Types.ObjectId();
+  await profileRepository.upsertProfile(userB, {
+    roles: [{ factId: "role-grounded-before", title: "Staff Nurse", company: "North Hospital", achievements: [] }],
+    skills: [],
+    education: [],
+  });
   const uploadId = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
   const foreignKey = `resumes/${userB}/${uploadId}.pdf`;
   const originalMetadata = storageService.getObjectMetadata;
@@ -95,6 +100,8 @@ test("resume completion retry is idempotent and another user's upload ID returns
   }
   assert.equal(parseCalls, 1, "a completed retry does not re-parse the resume");
   assert.equal(await Resume.countDocuments({ userId: userB }), 1, "retries keep one resume record");
+  const preservedProfile = await Profile.findOne({ userId: userB }).lean();
+  assert.equal(preservedProfile.roles.length, 1, "an empty new extraction does not erase grounded role history");
 
   let requestedKey;
   storageService.getObjectMetadata = async ({ key }) => {

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import { userRepository } from "../repositories/userRepository.js";
 import { enqueueMatchRefreshForUser } from "../services/matchRefreshService.js";
+import { COUNTRY_ALIASES, ISO_SUBDIVISION_CODES, PLACE_CATALOG_VERSION, PLACE_SUGGESTIONS, normalizeSuggestionQuery, resolvePlacePair, suggestPlaces, suggestRoles } from "../services/profileSuggestionCatalog.js";
 
 const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),
@@ -24,6 +25,80 @@ const preferencesSchema = z.object({
 const targetRolesSchema = z.object({
   targetRoles: z.array(z.string().trim().min(1).max(120)).max(10),
 }).strict();
+export const careerProfileSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  targetRoles: z.array(z.object({ roleCode: z.string().trim().min(1).max(80).optional(), customRoleLabel: z.string().trim().min(1).max(120).optional(), custom: z.boolean() }).strict().refine((role) => role.roleCode || role.customRoleLabel, "Choose a curated role or enter a custom label")).max(20).default([]),
+  experience: z.object({ confirmedYears: z.number().int().min(0).max(60).nullable().default(null), internshipYears: z.number().min(0).max(60).nullable().default(null), needsConfirmation: z.boolean().default(true), confirmedAt: z.string().datetime().nullable().default(null) }).strict().default({}),
+  homeLocation: z.object({ countryCode: z.string().regex(/^[A-Z]{2}$/).refine((code) => COUNTRY_ALIASES.some((country) => country.code === code)).nullable().default(null), subdivisionCode: z.string().refine((code) => ISO_SUBDIVISION_CODES.has(code)).nullable().default(null), cityCode: z.string().max(100).nullable().default(null), aliasCatalogVersion: z.string().default(PLACE_CATALOG_VERSION), confirmedAt: z.string().datetime().nullable().default(null) }).strict().default({}),
+  targetLocations: z.array(z.object({ countryCode: z.string().regex(/^[A-Z]{2}$/).refine((code) => COUNTRY_ALIASES.some((country) => country.code === code)), subdivisionCode: z.string().refine((code) => ISO_SUBDIVISION_CODES.has(code)).nullable().default(null), cityCode: z.string().max(100).nullable().default(null), aliasCatalogVersion: z.string().default(PLACE_CATALOG_VERSION), confirmedAt: z.string().datetime().nullable().default(null) }).strict()).max(20).default([]),
+  workAuthorization: z.object({ canWorkInHomeCountry: z.boolean().nullable().default(null), sponsorshipOrRelocation: z.object({ enabled: z.boolean().default(false), countryCodes: z.array(z.string().regex(/^[A-Z]{2}$/)).max(20).default([]) }).strict().default({}) }).strict().default({}),
+  workPreferences: z.object({ workMode: z.enum(["any", "remote", "hybrid", "onsite"]).default("any"), employmentTypes: z.array(z.enum(["full_time", "contract", "part_time"])).max(3).default([]), shiftPreference: z.enum(["day", "night", "rotating", "flexible"]).nullable().default(null) }).strict().default({}),
+  compensation: z.object({ minimumAmount: z.number().nonnegative().nullable().default(null), currencyCode: z.string().regex(/^[A-Z]{3}$/).nullable().default(null), period: z.enum(["hourly", "monthly", "annual"]).nullable().default(null) }).strict().default({}),
+  moreDetails: z.object({ educationLevelCode: z.string().max(40).nullable().default(null), languages: z.array(z.object({ languageCode: z.string().regex(/^[a-z]{2}$/), proficiencyCode: z.enum(["beginner", "intermediate", "advanced", "native"]) }).strict()).max(20).default([]), testScores: z.array(z.object({ testCode: z.string().max(30), score: z.string().max(30), testDate: z.string().datetime().nullable().default(null) }).strict()).max(20).default([]), availabilityCode: z.string().max(40).nullable().default(null), noticePeriodDays: z.number().int().min(0).max(365).nullable().default(null), certifications: z.array(z.object({ name: z.string().max(120), issuer: z.string().max(120), countryCode: z.string().regex(/^[A-Z]{2}$/).nullable().default(null), expiresAt: z.string().datetime().nullable().default(null) }).strict()).max(100).default([]) }).strict().default({}),
+}).strict().superRefine((profile, context) => {
+  const locations = [profile.homeLocation, ...profile.targetLocations];
+  for (const [index, location] of locations.entries()) {
+    if (!location.cityCode) continue;
+    const city = PLACE_SUGGESTIONS.find((place) => place.code === location.cityCode);
+    if (!city || city.countryCode !== location.countryCode || (city.subdivisionCode && location.subdivisionCode && city.subdivisionCode !== location.subdivisionCode)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: index === 0 ? ["homeLocation", "cityCode"] : ["targetLocations", index - 1, "cityCode"], message: "Choose a city that matches the selected country and subdivision." });
+    }
+  }
+});
+const careerPatchSchema = z.object({ profileVersion: z.number().int().min(1), careerProfile: careerProfileSchema }).strict();
+
+function educationLevelSuggestion(education = []) {
+  const text = education.map((item) => item.degree || "").join(" ").toLowerCase();
+  if (/ph\.?d|doctorate/.test(text)) return "doctorate";
+  if (/master|m\.?sc|m\.?tech|mba|md\b/.test(text)) return "masters";
+  if (/bachelor|b\.?sc|b\.?tech|b\.?e\b|bca|degree/.test(text)) return "bachelors";
+  if (/diploma|certificate/.test(text)) return "diploma";
+  return null;
+}
+
+function dateMonth(value, now = new Date()) {
+  if (!value) return null;
+  if (/^(present|current|now)$/i.test(value)) return now.getUTCFullYear() * 12 + now.getUTCMonth();
+  const text = String(value).trim();
+  const numeric = text.match(/^(\d{4})(?:[-/.](\d{1,2}))?$/);
+  if (numeric) return Number(numeric[1]) * 12 + (numeric[2] ? Number(numeric[2]) - 1 : 0);
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? new Date(parsed).getUTCFullYear() * 12 + new Date(parsed).getUTCMonth() : null;
+}
+
+function deriveExperience(roles = [], now = new Date()) {
+  const intervals = [];
+  let internshipMonths = 0;
+  let incomplete = roles.length === 0;
+  for (const role of roles) {
+    const start = dateMonth(role.startDate, now);
+    const end = dateMonth(role.endDate || (role.isCurrent ? "present" : ""), now);
+    if (start === null || end === null || end < start) { incomplete = true; continue; }
+    const months = end - start + 1;
+    if (/intern(ship)?/i.test(role.title || "")) internshipMonths += months;
+    else intervals.push([start, end + 1]);
+  }
+  intervals.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const interval of intervals) {
+    const last = merged.at(-1);
+    if (!last || interval[0] > last[1]) merged.push([...interval]);
+    else last[1] = Math.max(last[1], interval[1]);
+  }
+  const months = merged.reduce((sum, [start, end]) => sum + end - start, 0);
+  return {
+    derivedYears: months ? Number((months / 12).toFixed(1)) : null,
+    internshipYears: internshipMonths ? Number((internshipMonths / 12).toFixed(1)) : null,
+    needsConfirmation: incomplete || !roles.length,
+  };
+}
+
+function resolveSuggestionResponse(req, res, version, data) {
+  const etag = `W/"profile-suggestions-${version}-${Buffer.from(JSON.stringify(data)).toString("base64url").slice(0, 20)}"`;
+  res.set("ETag", etag).set("Cache-Control", "private, max-age=300");
+  if (req.get("if-none-match") === etag) return res.status(304).end();
+  return res.status(200).json({ data, catalogVersion: version });
+}
 
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 const resumeUploadRequestSchema = z.object({
@@ -93,6 +168,72 @@ async function processResumeFile({ req, userId, fileBuffer, originalFilename, s3
 }
 
 export const profileController = {
+  async roleSuggestions(req, res, next) {
+    try {
+      const q = z.string().trim().min(2).max(80).parse(req.query.q || "");
+      return resolveSuggestionResponse(req, res, "roles-v1", { suggestions: suggestRoles(q) });
+    } catch (err) { next(err); }
+  },
+
+  async placeSuggestions(req, res, next) {
+    try {
+      const q = z.string().trim().min(2).max(100).parse(req.query.q || "");
+      const pair = resolvePlacePair(q);
+      const suggestions = pair.suggestions || suggestPlaces(q);
+      const ambiguous = new Set(["delhi", "punjab", "hyderabad"]).has(normalizeSuggestionQuery(q));
+      return resolveSuggestionResponse(req, res, PLACE_CATALOG_VERSION, {
+        query: q,
+        needsConfirmation: Boolean(pair.needsConfirmation || ambiguous),
+        confirmationQuestion: pair.needsConfirmation || ambiguous ? "Is this in India?" : null,
+        suggestions,
+      });
+    } catch (err) { next(err); }
+  },
+
+  async getCareerProfile(req, res, next) {
+    try {
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const profile = await profileRepository.findByUserId(userId);
+      const derivedExperience = deriveExperience(profile?.roles || []);
+      const careerProfile = profile?.careerProfile || {
+        schemaVersion: 1, targetRoles: [], experience: { confirmedYears: null, derivedYears: null, internshipYears: null, needsConfirmation: true, confirmedAt: null },
+        homeLocation: { countryCode: null, subdivisionCode: null, cityCode: null, aliasCatalogVersion: PLACE_CATALOG_VERSION, confirmedAt: null },
+        targetLocations: [], workAuthorization: { canWorkInHomeCountry: null, sponsorshipOrRelocation: { enabled: false, countryCodes: [] } },
+        workPreferences: { workMode: "any", employmentTypes: [], shiftPreference: null },
+        compensation: { minimumAmount: null, currencyCode: null, period: null },
+        moreDetails: { educationLevelCode: null, languages: [], testScores: [], availabilityCode: null, noticePeriodDays: null, certifications: [] },
+      };
+      return res.status(200).json({
+        data: {
+          careerProfile,
+          profileVersion: profile?.version || 1,
+          suggestions: {
+            educationLevel: educationLevelSuggestion(profile?.education || []),
+            targetRoles: profile?.preferences?.targetRoles?.length ? profile.preferences.targetRoles : (profile?.roles || []).map((role) => role.title).slice(0, 3),
+            derivedExperience,
+            experienceNeedsConfirmation: !(careerProfile.experience?.confirmedAt && careerProfile.experience?.confirmedYears !== null),
+          },
+        },
+      });
+    } catch (err) { next(err); }
+  },
+
+  async updateCareerProfile(req, res, next) {
+    try {
+      const { careerProfile, profileVersion } = careerPatchSchema.parse(req.body);
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const existing = await profileRepository.findByUserId(userId);
+      if ((existing?.version || 1) !== profileVersion) {
+        return res.status(409).json({ error: { code: "PROFILE_VERSION_CONFLICT", message: "Your profile changed. Refresh and try again.", requestId: req.id } });
+      }
+      const profile = await profileRepository.upsertProfile(userId, { careerProfile });
+      await invalidateCandidateContext(userId);
+      const updatedUser = await userRepository.bumpProfileVersion(userId);
+      if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
+      return res.status(200).json({ data: { careerProfile: profile.careerProfile, profileVersion: profile.version } });
+    } catch (err) { next(err); }
+  },
+
   async createResumeUploadUrl(req, res, next) {
     try {
       const input = resumeUploadRequestSchema.parse(req.body);

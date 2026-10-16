@@ -425,6 +425,20 @@ The existing multipart endpoint below remains available for compatibility and lo
   ```
 - **Response `200 OK`**: Returns updated profile object with bumped version.
 
+#### `GET /api/v1/profile/career-profile`
+
+- **Purpose**: Returns the signed-in user's additive career profile plus unsaved experience, education-level, target-role suggestions derived from existing facts. Nothing is auto-saved and the languages list is empty by default.
+
+#### `PATCH /api/v1/profile/career-profile`
+
+- **Purpose**: Saves a validated career-profile payload using optimistic concurrency.
+- **Request body**: `{ "profileVersion": 2, "careerProfile": { "schemaVersion": 1, "targetRoles": [], "moreDetails": { "languages": [] } } }`; include the full schema payload as returned by GET. A stale version returns `409 PROFILE_VERSION_CONFLICT`.
+
+#### `GET /api/v1/profile/role-suggestions?q=` and `GET /api/v1/profile/place-suggestions?q=`
+
+- **Purpose**: Authenticated, rate-limited, deterministic catalog suggestions. Custom role text remains valid. Place pairs must be consistent; ambiguous places return `needsConfirmation`. Responses include an ETag and private five-minute cache policy.
+- **Place catalog**: `in-place-aliases-v2`; `Remote` and `Anywhere in India` are explicit choices, not inferred from prose.
+
 ---
 
 ### 3.4. AI Router & Streaming Chat (`/api/v1/ai`)

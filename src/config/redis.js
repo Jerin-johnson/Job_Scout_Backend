@@ -52,6 +52,10 @@ export function getRedisClient() {
 
   redisClient.on("ready", () => {
     isRedisConnected = true;
+    checkRedisMaxmemoryPolicy(redisClient).catch((err) => {
+      if (env.NODE_ENV === "production") logger.error({ err: err.message }, "Unable to verify Redis maxmemory-policy; BullMQ requires noeviction");
+      else logger.warn({ err: err.message }, "Unable to verify Redis maxmemory-policy; BullMQ requires noeviction");
+    });
   });
 
   redisClient.on("error", (err) => {
@@ -64,6 +68,18 @@ export function getRedisClient() {
   });
 
   return redisClient;
+}
+
+export async function checkRedisMaxmemoryPolicy(client) {
+  const result = await client.config("GET", "maxmemory-policy");
+  const policy = Array.isArray(result) ? result[1] : result?.["maxmemory-policy"];
+  if (policy !== "noeviction") {
+    if (env.NODE_ENV === "production") logger.error({ policy: policy || "unknown" }, "Redis maxmemory-policy must be noeviction for BullMQ reliability");
+    else logger.warn({ policy: policy || "unknown" }, "Redis maxmemory-policy must be noeviction for BullMQ reliability");
+    return { valid: false, policy: policy || null };
+  }
+  logger.info("Redis maxmemory-policy is noeviction");
+  return { valid: true, policy };
 }
 
 export function isRedisReady() {

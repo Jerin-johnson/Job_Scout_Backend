@@ -17,27 +17,13 @@ import { Profile } from "./models/Profile.js";
 import { enqueueMatchRefreshForUser } from "./services/matchRefreshService.js";
 import { markMatchRefresh } from "./services/matchRefreshService.js";
 import { MATCH_SCORE_VERSION } from "./services/jobs/matching.js";
+import { reconcileJobIngestionSchedules, writeWorkerHeartbeat } from "./services/jobs/repeatSchedule.js";
 
 const activeWorkers = [];
 let ingestionQueue = null;
-
+let heartbeatTimer = null;
 export async function scheduleJobIngestion(queue, sources) {
-  const scheduled = [];
-  for (const source of sources) {
-    if (!source.enabled || !source.approved || !source.quota?.intervalMs) continue;
-    await queue.add(
-      `ingest:${source.key}`,
-      { sourceKey: source.key },
-      {
-        jobId: `scheduled-${source.key}`,
-        repeat: { every: source.quota.intervalMs },
-        removeOnComplete: 100,
-        removeOnFail: 100,
-      },
-    );
-    scheduled.push(source.key);
-  }
-  return scheduled;
+  return reconcileJobIngestionSchedules(queue, sources);
 }
 
 async function waitForRedis(redis, timeoutMs = 5000) {
@@ -65,6 +51,13 @@ async function initializeQueues() {
   }
 
   await jobIngestionService.ensureSources();
+  await writeWorkerHeartbeat(redis);
+  heartbeatTimer = setInterval(() => {
+    writeWorkerHeartbeat(redis).catch((error) => logger.warn({ err: error.message }, "Worker heartbeat write failed"));
+  }, 15_000);
+  heartbeatTimer.unref?.();
+  process.once("SIGINT", () => clearInterval(heartbeatTimer));
+  process.once("SIGTERM", () => clearInterval(heartbeatTimer));
   ingestionQueue = new Queue("job-ingestion", { connection: redis });
   const sourceSchedules = await scheduleJobIngestion(
     ingestionQueue,
@@ -225,6 +218,8 @@ async function startWorker() {
   logger.info(`JobScout background worker service initialized [${env.NODE_ENV}]`);
 
   setupGracefulShutdown(null, async () => {
+    clearInterval(heartbeatTimer);
+    if (isRedisReady()) await getRedisClient().del("jobscout:worker:heartbeat").catch(() => {});
     for (const w of activeWorkers) {
       await w.close();
     }

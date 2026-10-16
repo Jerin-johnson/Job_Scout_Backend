@@ -1,7 +1,8 @@
 import { normalizeRoleForMatching } from "./roleNormalization.js";
+import { env } from "../../config/env.js";
 
 /** Deterministic, provider-free job feature extraction and profile matching. */
-export const MATCH_SCORE_VERSION = "lexical-v3";
+export const MATCH_SCORE_VERSION = env.JOB_MATCH_SCORE_VERSION;
 export const MATCH_SCORE_WEIGHTS = Object.freeze({
   skills: 40,
   title: 20,
@@ -42,6 +43,16 @@ export function canonicalSkill(value) {
 function includesPhrase(text, phrase) {
   const normalizedText = ` ${normalize(text)} `;
   return normalizedText.includes(` ${normalize(phrase)} `);
+}
+
+export function annualComparableAmount({ amount, currency, period }, targetCurrency) {
+  const value = Number(amount);
+  const code = String(currency || "").toUpperCase();
+  const cadence = String(period || "").toLowerCase();
+  if (!Number.isFinite(value) || value <= 0 || !targetCurrency || code !== String(targetCurrency).toUpperCase()) return null;
+  if (cadence === "year" || cadence === "annual") return value;
+  if (cadence === "month" || cadence === "monthly") return value * 12;
+  return null;
 }
 
 export function extractJobFeatures(job = {}) {
@@ -100,11 +111,11 @@ export function extractJobFeatures(job = {}) {
   };
 }
 
-function roleSimilarity(profile, features, title) {
+function roleSimilarity(profile, features, title, version) {
   const roleTerms = [
     ...(profile.preferences?.targetRoles || []),
     ...(profile.roles || []).map((role) => role.title),
-  ].map((role) => normalize(normalizeRoleForMatching(role))).filter(Boolean);
+  ].map((role) => normalize(version === "lexical-v3" ? normalizeRoleForMatching(role) : role)).filter(Boolean);
   if (!roleTerms.length) return features.occupation ? 0.5 : 0.35;
   const titleText = normalize(title);
   if (roleTerms.some((role) => titleText.includes(role) || role.includes(titleText))) return 1;
@@ -123,7 +134,7 @@ function roleSimilarity(profile, features, title) {
   return best;
 }
 
-export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
+export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_SCORE_VERSION } = {}) {
   const features = job.features?.version === 1 ? job.features : extractJobFeatures(job);
   const profileSkills = new Set((profile.skills || []).map((skill) => canonicalSkill(skill.name)));
   const jobSkills = new Set(features.skills.map(canonicalSkill));
@@ -132,7 +143,7 @@ export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
   const requiredFeatures = features.requiredSkills?.length ? features.requiredSkills.map(canonicalSkill) : required;
   const denominator = Math.max(1, Math.min(7, requiredFeatures.length || jobSkills.size || profileSkills.size));
   const skillRatio = Math.min(1, overlap.length / denominator);
-  const titleFit = roleSimilarity(profile, features, job.title);
+  const titleFit = roleSimilarity(profile, features, job.title, version);
   const profileYears = Math.max(0, ...(profile.roles || []).map((role) => {
     if (Number(role.years) > 0) return Number(role.years);
     const start = Date.parse(role.startDate || "");
@@ -145,8 +156,18 @@ export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
   const pref = profile.preferences || {};
   const tier = job.locationTier || 2;
   const locationFit = Math.max(0.35, 1 - (tier - 1) * 0.15);
-  const salaryMax = Number(job.compensation?.normalizedAnnualMax || job.salaryRange?.max || 0);
-  const salaryFit = !pref.minimumSalaryUsd || !salaryMax ? 0.6 : salaryMax >= pref.minimumSalaryUsd ? 1 : 0.25;
+  const desiredCompensation = profile.careerProfile?.compensation;
+  const targetCurrency = desiredCompensation?.currencyCode || (pref.minimumSalaryUsd > 0 ? "USD" : null);
+  const targetMinimum = desiredCompensation?.minimumAmount ?? pref.minimumSalaryUsd;
+  const targetAnnualMinimum = annualComparableAmount({
+    amount: targetMinimum,
+    currency: targetCurrency,
+    period: desiredCompensation?.period || "annual",
+  }, targetCurrency);
+  const jobSalaryMax = job.compensation?.normalizedAnnualMax && job.compensation?.normalizedCurrency === targetCurrency
+    ? Number(job.compensation.normalizedAnnualMax)
+    : annualComparableAmount({ amount: job.compensation?.max, currency: job.compensation?.currency, period: job.compensation?.payPeriod }, targetCurrency);
+  const salaryFit = !targetAnnualMinimum || !jobSalaryMax ? 0.6 : jobSalaryMax >= targetAnnualMinimum ? 1 : 0.25;
   const ageDays = job.postedDateKnown && job.postedAt
     ? Math.max(0, (now - new Date(job.postedAt)) / 86400000) : 30;
   const recencyFit = job.postedDateKnown ? Math.max(0.1, 1 - ageDays / 60) : 0.35;
@@ -167,7 +188,8 @@ export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
     skillRatio * weights.skills + titleFit * weights.title + experienceFit * weights.experience +
     locationFit * weights.location + salaryFit * weights.salary + recencyFit * weights.recency,
   );
-  const band = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "fair" : "low";
+  const fairThreshold = version === "lexical-v2" ? 40 : 50;
+  const band = score >= 80 ? "strong" : score >= 65 ? "good" : score >= fairThreshold ? "fair" : "low";
   const reasons = [
     `${overlap.length} of ${Math.max(1, requiredFeatures.length || jobSkills.size)} listed skills match`,
     titleFit >= 0.7 ? "Role title is closely related to your target" : "Role title is a partial fit",
@@ -177,7 +199,7 @@ export function scoreJobMatch(profile, job, { now = new Date() } = {}) {
   return {
     score: Math.max(0, Math.min(100, score)), band, reasons,
     matchingSkills: overlap.slice(0, 20), missingSkills: missingRequired,
-    scoreVersion: MATCH_SCORE_VERSION,
+    scoreVersion: version,
     breakdown: { skills: skillRatio, title: titleFit, experience: experienceFit, location: locationFit, salary: salaryFit, recency: recencyFit },
     eligibility,
     hardBlocked,

@@ -19,8 +19,14 @@ try {
   await redis.ping();
   queue = new Queue("job-ingestion", { connection: redis });
   const repeatableJobs = await queue.getRepeatableJobs(0, -1, true);
-  const report = buildJobScheduleReport(sources, repeatableJobs);
-  console.log(JSON.stringify({ checkedAt: new Date().toISOString(), sources: report }, null, 2));
+  const [heartbeat, lastSeenAt] = await Promise.all([
+    redis.get("jobscout:worker:heartbeat"),
+    redis.get("jobscout:worker:last-seen"),
+  ]);
+  const online = Boolean(heartbeat);
+  const worker = { status: online ? "online" : "offline", online, lastSeenAt: lastSeenAt ? new Date(lastSeenAt).toISOString() : null };
+  const report = buildJobScheduleReport(sources, repeatableJobs, Date.now(), worker);
+  console.log(JSON.stringify({ checkedAt: new Date().toISOString(), worker, sources: report }, null, 2));
   if (report.some((source) => source.registrationStatus === "not_registered" || source.registrationStatus === "interval_mismatch")) {
     process.exitCode = 1;
   }

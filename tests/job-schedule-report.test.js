@@ -19,6 +19,7 @@ test("job schedule report distinguishes registered, mismatched, and missing repe
   assert.deepEqual(report, [
     {
       source: "remotive",
+      worker: { status: "offline", online: false, lastSeenAt: null },
       enabled: true,
       intervalMs: 60000,
       registrationStatus: "registered",
@@ -27,6 +28,7 @@ test("job schedule report distinguishes registered, mismatched, and missing repe
     },
     {
       source: "jobicy",
+      worker: { status: "offline", online: false, lastSeenAt: null },
       enabled: true,
       intervalMs: 120000,
       registrationStatus: "interval_mismatch",
@@ -35,6 +37,7 @@ test("job schedule report distinguishes registered, mismatched, and missing repe
     },
     {
       source: "held",
+      worker: { status: "offline", online: false, lastSeenAt: null },
       enabled: false,
       intervalMs: 60000,
       registrationStatus: "disabled",
@@ -42,6 +45,17 @@ test("job schedule report distinguishes registered, mismatched, and missing repe
       nextEligibleFromLastRun: null,
     },
   ]);
+});
+
+test("job schedule report includes worker status and last seen", () => {
+  const seenAt = new Date("2026-10-16T10:00:00Z");
+  const [source] = buildJobScheduleReport(
+    [{ key: "remotive", enabled: true, approved: true, quota: { intervalMs: 60000 } }],
+    [{ name: "ingest:remotive", every: 60000, next: 70000 }],
+    50000,
+    { online: true, lastSeenAt: seenAt },
+  );
+  assert.deepEqual(source.worker, { status: "online", online: true, lastSeenAt: seenAt });
 });
 
 test("missing repeat registration is reported rather than predicted", () => {

@@ -119,6 +119,82 @@
         "responses": { "200": { "description": "Preferences updated and version bumped" } }
       }
     },
+    "/api/v1/profile/career-profile": {
+      "get": {
+        "summary": "Read the authenticated user's additive career profile and unsaved fact-derived suggestions",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Owner career profile, experience and education suggestions" }
+        }
+      },
+      "patch": {
+        "summary": "Save a validated career profile with optimistic concurrency",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["profileVersion", "careerProfile"],
+                "properties": {
+                  "profileVersion": { "type": "integer", "minimum": 1 },
+                  "careerProfile": {
+                    "type": "object",
+                    "description": "Validated career profile v1; language list defaults to empty."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Career profile saved" },
+          "409": { "description": "Profile version conflict" }
+        }
+      }
+    },
+    "/api/v1/profile/role-suggestions": {
+      "get": {
+        "summary": "Search the curated role and synonym catalog",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 2, "maxLength": 80 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Rate-limited role suggestions with ETag" },
+          "304": { "description": "Unchanged response" }
+        }
+      }
+    },
+    "/api/v1/profile/place-suggestions": {
+      "get": {
+        "summary": "Search exact versioned place aliases and validate city/region pairs",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 2, "maxLength": 100 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Place suggestions, ambiguity confirmation, and ETag" },
+          "304": { "description": "Unchanged response" }
+        }
+      }
+    },
     "/api/v1/profile/preferences/target-roles": {
       "patch": {
         "summary": "Confirm target roles suggested from a typo correction or resume facts",

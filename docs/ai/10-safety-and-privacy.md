@@ -6,6 +6,8 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 
 LLM feature calls use server-owned user records and shared quotas; resume and interview lookups are ownership scoped. Interview prompts delimit resume, JD, answer and transcript fields and treat them as untrusted. Chat marks candidate context/history untrusted. Resume facts are grounded to their source. The frontend assistant renderer has raw HTML disabled, suppresses remote images, filters URL schemes and restricts internal links.
 
+Career profile data is stored in the owner's Profile document in MongoDB. Role/location/authorization/compensation/language/test-score/certification fields are not sent to an LLM by the career profile API or suggestion catalog. The API is authenticated and owner-scoped; role/place suggestions are deterministic catalog reads, rate limited, and ETag cacheable. Migration remains read-only until the account owner approves its dry-run report.
+
 Logs use request IDs, model/provider/status and error classes. Do not log raw prompts, answers, resume contents, object keys, presigned URLs, or provider responses. UsageEvent retention is 90 days. Interview consent stores acceptedAt and version. The production personal-data gate is config-driven by provider data-policy class; provider terms remain a legal-review flag, not a conclusion.
 
 Memory routes are authenticated and scoped. **Code gap:** memoryPaused is toggled on the user, but the job-feedback write in jobController does not check it; chat does not retrieve memory. Do not claim pause is an end-to-end write gate until corrected and tested.
