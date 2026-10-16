@@ -32,6 +32,8 @@ Discovery never fetches feeds. BullMQ repeat jobs run source ingestion; the loca
 
 Matching reads `Match` records only. `POST /api/v1/jobs/discover` queues a user/profile-version keyed match refresh; requests coalesce while active, use a 30-second cooldown after completion, and run on the existing BullMQ worker. Profile preference/resume updates and newly indexed jobs queue refreshes for recently changed profiles. Completed refreshes invalidate the match-response cache. If Redis is unavailable, auto-refresh status is recorded as failed and user initiated refresh receives a retryable queue error. No new queue service or database was added.
 
+For development, `npm run jobs:schedule:report` reads MongoDB source records and BullMQ repeatable jobs in Redis and prints each source's registration status and actual next scheduled timestamp. It is read-only and does not start the worker or create schedules. A missing schedule is reported as `not_registered`; start the existing worker to register repeat jobs. `JOBS_RECENT_FALLBACK_LIMIT` caps the recent-candidate filler (default 100; 0–400) without reducing the separate lexical candidate pool.
+
 The admin source panel shows cap, use/remaining, current active indexed count, last and next run times, run state, latency, fetched/new/updated/duplicate/error counts, and coverage from the last full sync. Query quotas are reserved atomically in MongoDB; paid overage is not possible. `npm run jobs:ingest:source -- remotive` (or another approved source key) is a local diagnostic CLI and refuses production. There is no user-facing ingest endpoint.
 
 ## Normalized records and dedupe

@@ -4,7 +4,7 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 
 ## As built (verified in code)
 
-Approved sources ingest in the worker; discovery reads indexed Mongo only. Feature extraction is deterministic (src/services/jobs/matching.js), with title tokens and skill/occupation/license/experience/work-mode hints. Candidate query filters source/status/expiry and profile eligibility, ranks lexical matches, then fills the remaining cap with recent candidates; maximum 400. The cap is after filters, not the count remaining after status/date checks. Scoring weights, real-profile diagnostics and explain evidence are in [the matching report](../JOB_MATCHING.md).
+Approved sources ingest in the worker; discovery reads indexed Mongo only. Feature extraction is deterministic (src/services/jobs/matching.js), with title tokens and skill/occupation/license/experience/work-mode hints. Candidate query filters source/status/expiry and profile eligibility, ranks lexical matches, then fills with at most 100 recent fallback candidates by default (`JOBS_RECENT_FALLBACK_LIMIT`); total candidate cap remains 400. The cap is after filters, not the count remaining after status/date checks. Scoring weights, real-profile diagnostics and explain evidence are in [the matching report](../JOB_MATCHING.md).
 
 Score version is lexical-v3. Location tiers affect ranking; known country ineligibility and a missing required license can hard-block. Reasons are template generated. Match refresh/cache keys include profile and score versions. No LLM or vector rank is used in the matching hot path.
 

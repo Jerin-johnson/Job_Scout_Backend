@@ -127,6 +127,7 @@ const envSchema = z.object({
     .string()
     .transform((val) => val === "true")
     .default("true"),
+  JOBS_RECENT_FALLBACK_LIMIT: z.coerce.number().int().min(0).max(400).default(100),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

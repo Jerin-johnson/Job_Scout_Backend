@@ -130,3 +130,35 @@ test("lexical retrieval retains a relevant older role ahead of 420 newer partial
   assert.match(JSON.stringify(explain.queryPlanner.winningPlan), /job_candidate_skills_recent/);
   assert.ok(explain.executionStats.totalDocsExamined <= explain.executionStats.nReturned * 3);
 });
+
+test("recent fallback is config-capped and omits large/private payload fields", async () => {
+  const now = Date.now();
+  await Job.insertMany(
+    Array.from({ length: 130 }, (_, index) => ({
+      contentHash: `fallback-${index}`,
+      identityKey: `retrieval-test:fallback-${index}`,
+      title: `Unclassified role ${index}`,
+      company: `Employer ${index}`,
+      sourceBoard: "retrieval-test",
+      sourceJobId: `fallback-${index}`,
+      rawDescription: "A large description that must not be hydrated for recent filler.",
+      embedding: Array(32).fill(0.25),
+      status: "active",
+      expiresAt: new Date(now + 86400000),
+      postedAt: new Date(now - index * 1000),
+      postedDateKnown: true,
+    })),
+  );
+
+  const candidates = await jobIngestionService.getCandidateJobs({
+    profile: { skills: [], roles: [], preferences: { targetRoles: [], remotePreference: "any" } },
+    limit: 400,
+  });
+  assert.equal(candidates.length, 100);
+  assert.equal(candidates.retrievalStats.lexicalCandidateCount, 0);
+  for (const job of candidates) {
+    assert.equal(Object.hasOwn(job, "rawDescription"), false);
+    assert.equal(Object.hasOwn(job, "embedding"), false);
+    assert.equal(Object.hasOwn(job, "rawPayload"), false);
+  }
+});

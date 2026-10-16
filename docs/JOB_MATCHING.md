@@ -60,6 +60,14 @@ The old aggregation examined 848 documents and 849 keys to return 20 lexical row
 
 The earlier version of this report incorrectly said the fallback examined zero documents and summed only the lexical branches. That was wrong: fallback projects full job fields that are not covered by `job_candidate_recent_feed`, so MongoDB fetches 380 documents. The 400 final rows are produced by 20 relevance-ranked lexical rows plus 380 recency rows; the explain counters are per independent query and sum to 403 documents examined and 462 keys examined. This is 1.01 examined documents per returned candidate, within the 3x target. The three fallback index scans returned 375, 6 and 1 rows, examined 378, 7 and 2 keys, then `SORT_MERGE` combined them before the FETCH and projection. No query values or job IDs are included here because query terms derive from a user's profile.
 
+### Recent fallback cap and payload reduction
+
+The recent-only filler is capped at 100 by default (`JOBS_RECENT_FALLBACK_LIMIT`, integer range 0–400). It uses a dedicated projection that excludes `rawDescription`, `embedding`, `embeddingMetadata`, and any raw payload. The overall candidate cap remains 400. Lexical candidates remain separately ranked and are not counted against the recent fallback cap until filling the remaining slots.
+
+Before this change, the local dev profile-shaped query returned 400 candidate documents (20 lexical + 380 recent); serialized candidate JSON was 15,866,759 bytes total, including 15,098,195 bytes for fallback rows. After the change, the same query returned 120 documents (20 lexical + 100 recent); serialized candidate JSON was 912,903 bytes total, including 144,339 bytes for fallback rows. This is a reduction of about 94.2% for the serialized candidate documents (not a measured HTTP response body).
+
+The old branch explains examined 403 documents / 462 keys across the separate role, skill and fallback operations. After the cap, the same profile-shaped path examined 123 documents / 179 keys in total: role and skill branches remained at 1 and 22 docs examined, while the recent fallback examined 100 documents / 104 keys. At the 100-row fallback limit, the bounded recent query examined one document per returned fallback candidate. All measurements were read-only against the local development catalog; no profile terms or job identifiers were emitted.
+
 Winning plan and execution-stage outline for each branch (MongoDB 8 `executionStats`, profile values omitted):
 
 The redacted full MongoDB explain trees, including winning/rejected plans and execution stages, are in [JOB_MATCHING_EXPLAIN.json](./JOB_MATCHING_EXPLAIN.json). Profile-derived literals, job IDs, filters, and index bounds are removed; execution counters and plan structure are retained.

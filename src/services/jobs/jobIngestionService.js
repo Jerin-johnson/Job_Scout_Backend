@@ -874,6 +874,8 @@ export const jobIngestionService = {
       ].slice(0, 64);
       const safeSelect =
         "title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation occupationCodes embedding embeddingMetadata contentHash features featuresVersion";
+      const recentFallbackSelect =
+        "title company location remoteType salaryRange compensation requirements tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown expiresAt structuredLocation occupationCodes contentHash features featuresVersion";
       const base = { ...filter };
       const existingAnd = Array.isArray(base.$and) ? base.$and : [];
       delete base.$and;
@@ -964,7 +966,8 @@ export const jobIngestionService = {
         .slice(0, safeLimit)
         .map(({ job }) => job);
       const remaining = Math.max(0, safeLimit - lexical.length);
-      const recent = remaining
+      const recentFallbackLimit = Math.min(remaining, env.JOBS_RECENT_FALLBACK_LIMIT);
+      const recent = recentFallbackLimit
         ? await Job.find({
             ...recentQuery,
             ...(lexical.length
@@ -972,8 +975,8 @@ export const jobIngestionService = {
               : {}),
           })
             .sort({ postedAt: -1, _id: 1 })
-            .limit(remaining)
-            .select(safeSelect)
+            .limit(recentFallbackLimit)
+            .select(recentFallbackSelect)
             .lean()
         : [];
       const combined = new Map(lexical.map((job) => [String(job._id), job]));
@@ -1008,7 +1011,7 @@ export const jobIngestionService = {
         return true;
       })
       .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
-    const result = available.slice(0, safeLimit);
+    const result = available.slice(0, Math.min(safeLimit, env.JOBS_RECENT_FALLBACK_LIMIT));
     Object.defineProperty(result, "retrievalStats", {
       enumerable: false,
       value: {
