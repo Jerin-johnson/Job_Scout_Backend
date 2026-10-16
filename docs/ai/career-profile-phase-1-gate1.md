@@ -35,9 +35,21 @@ Keep the existing `roles`, `skills`, `education`, and `preferences` fields intac
     "aliasCatalogVersion": "in-place-aliases-v1",
     "confirmedAt": null
   },
+  "targetLocations": [
+    {
+      "countryCode": "IN",
+      "subdivisionCode": null,
+      "cityCode": null,
+      "aliasCatalogVersion": "in-place-aliases-v1",
+      "confirmedAt": null
+    }
+  ],
   "workAuthorization": {
-    "homeCountryOnly": true,
-    "sponsorshipOrRelocationCountryCodes": []
+    "canWorkInHomeCountry": null,
+    "sponsorshipOrRelocation": {
+      "enabled": false,
+      "countryCodes": []
+    }
   },
   "workPreferences": {
     "workMode": "any",
@@ -51,17 +63,21 @@ Keep the existing `roles`, `skills`, `education`, and `preferences` fields intac
   },
   "moreDetails": {
     "educationLevelCode": null,
-    "languages": [],
-    "testScores": [],
+    "languages": [{ "languageCode": "en", "proficiencyCode": "advanced" }],
+    "testScores": [{ "testCode": "IELTS", "score": "", "testDate": null }],
     "availabilityCode": null,
     "noticePeriodDays": null,
-    "certifications": []
+    "certifications": [
+      { "name": "", "issuer": "", "countryCode": null, "expiresAt": null }
+    ]
   },
   "updatedAt": null
 }
 ```
 
-`roleCode` is a stable internal canonical ID; custom roles retain their user-provided label, are explicitly marked custom, and remain eligible for token/synonym matching. Country uses ISO 3166-1 alpha-2, currency uses ISO 4217, and state/province uses ISO 3166-2. City codes are stable internal slugs from the small versioned alias map, not a new external dataset. The ISO 3166-2:2020 standard remains current after its 2025 review ([ISO standard record](https://www.iso.org/standard/72483.html)).
+`roleCode` is a stable internal canonical ID; custom roles retain their user-provided label, are explicitly marked custom, and remain eligible for token/synonym matching. Country uses ISO 3166-1 alpha-2, currency uses ISO 4217, and state/province uses ISO 3166-2. City codes are stable internal slugs from the small versioned alias map, not a new external dataset. `homeLocation` is separate from `targetLocations`; matching a legacy preferred-location string must never infer where the user lives. Validate the exact subdivision identifiers against the maintained ISO collection before Gate 2; do not invent codes from labels. ISO 3166-2:2020 remains the current standard after its 2025 review ([ISO standard record](https://www.iso.org/standard/72483.html)).
+
+Validation proposal: at most 20 target roles, 20 target locations, 20 destination countries, 20 languages, 20 test scores, and 100 certifications; bounded strings (role labels 120 chars, issuer/name 120 chars); experience 0–60 years and notice 0–365 days. `workMode` is `any|remote|hybrid|onsite`, employment types are `full_time|contract|part_time`, shift is `day|night|rotating|flexible|null`, compensation period is `hourly|monthly|annual|null`. ISO currency mismatch skips salary scoring. Use ISO 639-1 language codes and explicit proficiency codes. Test score remains user-entered text plus date; do not infer or normalize exam bands.
 
 Sensitive fields (home city, work authorization, licenses/certifications, notice period, and test scores) are stored only in the profile service. They are excluded from AI prompts and logs. The later possibility of allow-listing safe fields such as role, seniority, years, and country for chat remains an open decision pending provider terms review.
 
@@ -69,8 +85,8 @@ Sensitive fields (home city, work authorization, licenses/certifications, notice
 
 Add authenticated, owner-scoped endpoints without changing the existing preferences contract:
 
-- `GET /api/v1/profile/career-profile` returns `careerProfile`, a non-mutating set of legacy-field migration suggestions, and the current profile version. It never persists suggestions.
-- `PATCH /api/v1/profile/career-profile` validates a partial update, requires the current `profileVersion`, and saves only explicitly confirmed selections. Return the updated profile and incremented version.
+- `GET /api/v1/profile/career-profile` returns `{ data: { careerProfile, legacySuggestions, profileVersion } }`. Suggestions are computed only for exact alias matches and never persisted.
+- `PATCH /api/v1/profile/career-profile` accepts `{ profileVersion, careerProfile }`, validates a partial update, and saves only explicitly confirmed selections. Return `{ data: { careerProfile, profileVersion } }`; stale profile versions return `409` so edits are not overwritten.
 - A user confirmation of an alias or USD-to-INR conversion is an explicit field-level action in the patch. A mismatch in currencies skips salary-fit scoring; no automatic currency conversion or exchange-rate service is proposed.
 
 The old endpoints and legacy preferences remain readable for compatibility. New fields do not silently overwrite `minimumSalaryUsd`, `targetRoles`, or `preferredLocations`.
@@ -85,7 +101,7 @@ The local development MongoDB has one profile. The preview resolved that only pr
 | Role-history facts | 0 | Do not infer years or fresher status. Show experience as needing confirmation; a user-confirmed fresher can set 0 years and internships separately. |
 | Skills | 43 | Preserve existing source facts; do not duplicate them into the new profile fields. |
 | Education facts | 1 | Preserve existing source fact; ask for education level only under More details. |
-| Legacy preferred-location strings | 1 | Retain unchanged and show a one-tap suggestion only on exact alias match. |
+| Legacy preferred-location strings | 1 | Retain unchanged and offer a one-tap `targetLocations` suggestion only on exact alias match; never set `homeLocation` from this field. |
 | Preferred country codes | 0 | No home or target country is inferred. |
 | Positive legacy USD minimum | No | No currency-conversion prompt is needed for this sample. |
 | Role dates requiring confirmation | 0 | No role-history dates were present to derive in this sample. |
