@@ -169,6 +169,19 @@ test("eligibility remains explicitly unknown and only a known country exclusion 
   assert.equal(excluded.hardBlocked, true);
 });
 
+test("v4 eligibility contribution is neutral until both the profile country and job eligibility evidence exist", () => {
+  const profileWithoutCountry = { skills: [], roles: [{ title: "Engineer" }], preferences: { targetRoles: ["Engineer"] } };
+  const unknownJob = { title: "Engineer", rawDescription: "", location: "Remote", remoteType: "remote", locationTier: 2, eligibility: { countries: [], remoteScope: "unknown", confidence: 0.2, evidence: "" } };
+  const neutral = scoreJobMatch(profileWithoutCountry, unknownJob, { version: "lexical-v4" });
+  assert.equal(neutral.breakdown.eligibility, 0);
+  assert.equal(neutral.eligibility, "unknown");
+  const profileWithCountry = { ...profileWithoutCountry, preferences: { targetRoles: ["Engineer"], preferredCountryCodes: ["IN"] } };
+  const noJobEvidence = scoreJobMatch(profileWithCountry, unknownJob, { version: "lexical-v4" });
+  assert.equal(noJobEvidence.breakdown.eligibility, 0);
+  const evidenceUnknown = scoreJobMatch(profileWithCountry, { ...unknownJob, eligibility: { ...unknownJob.eligibility, evidence: "Remote, work authorization varies by region" } }, { version: "lexical-v4" });
+  assert.equal(evidenceUnknown.breakdown.eligibility, -2);
+});
+
 test("15 role-family fixtures prefer the matching occupation over an unrelated AI Trainer role", () => {
   const fixtures = [
     ["Staff Nurse", ["GNM", "ICU"], "ICU Staff Nurse"],
