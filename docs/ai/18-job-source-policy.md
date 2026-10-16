@@ -1,6 +1,6 @@
 # Job source policy and coverage
 
-Last verified against commit `Phase 3 working tree` on 2026-10-16.
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 
@@ -8,7 +8,9 @@ Source registry records require a terms/legal reference, attribution text and UR
 
 Remote OK, Remotive and Jobicy are enabled under their current policies. Greenhouse, Lever and Ashby public APIs have adapters but source-level ingest remains disabled by default; company slugs must be verified individually and approved. The current implementation supports admin review for submitted Greenhouse, Lever and Ashby URLs. No unverified company slugs are seeded. Ashby requires `isListed === true`.
 
-Adzuna India is implemented behind a disabled registry record, fixture-tested only, quota-limited to 25 requests/minute, 250/day, 1,000/week and 2,500/month by default. Source approval/enablement is guarded until licensing, required attribution badge and storage/display review attestations are present. Read the terms checklist in [Phase 3 job quality](17-phase3-job-quality.md). SmartRecruiters and Recruitee were not added because public anonymous endpoints/terms could not be verified. LinkedIn, Naukri, Foundit, Indeed and Glassdoor are never scraped. Their external search buttons only open the respective job-search websites.
+Adzuna India is blocked on license approval; it is not enabled or queried. Its published defaults are 25 requests/minute, 250/day, 1,000/week and 2,500/month. The official terms limit commercial organizations' API use outside the stated publishing/research purpose to a 14-day validation trial, require written consent/license for ongoing work, and require a linked attribution badge at least 116x23 pixels when ads are displayed. Keep it disabled pending written approval. SmartRecruiters and Recruitee were not added because public anonymous endpoints/terms could not be verified. LinkedIn, Naukri, Foundit, Indeed and Glassdoor are never scraped. Their external search buttons only open the respective job-search websites.
+
+Greenhouse, Lever and Ashby adapters remain off unless both the environment flag and reviewed source/company registry approvals allow them. `npm run jobs:ats:validate -- <input.csv> <verified.json>` validates a bounded company list and checks known public board endpoints sequentially. It does not approve companies or start ingestion. `npm run jobs:ats:import -- <verified.json>` inserts only valid rows as pending admin review and refuses production/non-loopback databases. The CSV template is `docs/templates/ats-companies.csv`.
 
 ## Target design (not built yet)
 

@@ -4,7 +4,7 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 
 ## As built (verified in code)
 
-Pages below summarize the backend at this commit. Each page separates executable behavior from not-yet-built decisions. Source references use repository-relative paths and line numbers. Phase 3 is documented in [job quality and supply](17-phase3-job-quality.md) and ADRs 0008–0011; its local-only report/measurement commands are `npm run jobs:eligibility:report`, `npm run jobs:eligibility:apply`, `npm run eval:jobs-phase3`, `npm run jobs:local-profile-report`, and `npm run jobs:local-measure`.
+Pages below summarize the backend at this commit. Each page separates executable behavior from not-yet-built decisions. Source references use repository-relative paths and line numbers. Phase 3 is documented in [job quality and supply](17-phase3-job-quality.md) and ADRs 0008–0012; its local-only report/measurement commands are `npm run jobs:eligibility:report`, `npm run jobs:eligibility:apply`, `npm run eval:jobs-phase3`, `npm run jobs:local-profile-report`, `npm run jobs:local-measure`, `npm run jobs:occupation:accuracy`, and `npm run jobs:discovery:explain`.
 
 ## Target design (not built yet)
 

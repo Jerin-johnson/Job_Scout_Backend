@@ -1,12 +1,12 @@
 # 11 — Evaluation
 
-Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16.
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 
 Run npm test for unit and MongoDB-memory-server integration tests. Job coverage includes 15 role-family fixtures, a realistic profile with no role facts and free-text location, typo suggestion confirmation, and 421-job capped retrieval where an older relevant job is retained. Interview fixtures are in evals/interviewFixtures.js and tests/interview.test.js covers modes, evaluator expectations, injection delimiters and output schema. Resume extraction and frontend markdown security have fixture/unit tests.
 
-The active matching version defaults to lexical-v2. Run `npm run eval:match-versions` for v2/v3 and `npm run eval:jobs-phase3` for v2/v3/v4 plus explicit US-only eligibility pairs. Phase 3 never changes v2/v3 weights or thresholds. See [Phase 3 comparison](17-phase3-job-quality.md) and `docs/JOB_MATCHING.md` for the saved profile report. Existing classification accuracy is preliminary: 86.7% aggregate precision among classified jobs in a prior sample, not a validated per-family estimate. Re-run/replace it with a manually labeled local sample before making population-wide claims. Prompts other than interview sessions lack central versions. No consolidated chat-generation quality dataset or human-rated score baseline exists in this checkout.
+The active matching version defaults to lexical-v2. Run `npm run eval:match-versions` for v2/v3 and `npm run eval:jobs-phase3` for v2/v3/v4 plus explicit US-only and India-first eligibility/persona controls. Phase 3 never changes v2/v3 weights or thresholds. V4 is not shippable: all 15 existing fixtures still regress after the eligibility-neutrality correction; the regression is dominated by fixed weight reallocation (not a country-eligibility penalty), and the HR fixture also has occupation coverage gaps. Existing US-only and new India-first controls pass, but do not compensate for regressions. See [Phase 3 comparison](17-phase3-job-quality.md) and `docs/JOB_MATCHING.md` for the saved profile report. Existing classification accuracy is preliminary: 86.7% aggregate precision among classified jobs in a prior sample, not a validated per-family estimate. Re-run/replace it with a manually labeled local sample before making population-wide claims. Prompts other than interview sessions lack central versions. No consolidated chat-generation quality dataset or human-rated score baseline exists in this checkout.
 
 ## Target design (not built yet)
 

@@ -4,7 +4,7 @@ Last verified against commit `Phase 3 working tree` on 2026-10-16.
 
 ## As built (verified in code)
 
-`src/services/jobs/eligibility.js` extracts country, region, remote scope, authorization/sponsorship signals, confidence and a shortened evidence phrase using deterministic patterns. Unknown stays unknown. Catalog requests hide explicit mismatches by default and support `showAnyway`. No personal profile data is sent to an LLM or written to eligibility logs. Backfill is additive and resumable; unset `eligibility.version` to make a row eligible for a later re-evaluation.
+`src/services/jobs/eligibility.js` extracts country, region, remote scope, authorization/sponsorship signals, confidence and a shortened evidence phrase using deterministic patterns. The region groups are versioned in `eligibilityRegions.js`. Unknown stays unknown. Catalog requests hide explicit mismatches by default and support `showAnyway`. No personal profile data is sent to an LLM or written to eligibility logs. Backfill is additive and resumable; unset `eligibility.version` to make a row eligible for a later re-evaluation. The local v2 backfill updated 806 records after a dry run; unknown scope reduced from 65 to 39, with no production database access.
 
 ## Decision
 

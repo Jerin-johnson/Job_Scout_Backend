@@ -1,6 +1,6 @@
 # 13 — Failure modes and runbooks
 
-Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16.
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 
@@ -22,6 +22,8 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 | Salary conversion unavailable                   | ECB refresh failed or the stored rate is stale/missing.                                       | Keep original pay visible, show rate date when available, and use the last saved rate; never fetch per request.       |
 | ATS board not ingested                           | Source is disabled/unapproved, company request is pending, or per-source quota is exhausted.  | Review the exact board and source terms, then approve both company and source separately.                             |
 | Adzuna blocked                                    | License/attribution/storage gates are incomplete.                                             | Leave disabled; review the checklist in `17-phase3-job-quality.md` before asking for activation.                      |
+| Local profile preview unavailable                 | The configured MongoDB endpoint is unreachable or is not loopback.                            | Use `npm run jobs:match:preview -- scripts/fixtures/match-preview.json` against a local development database only.   |
+| Local eligibility report unavailable              | Local MongoDB is stopped or sandbox/network access denies loopback.                           | Start the local DB and rerun `npm run jobs:eligibility:report`; never substitute production credentials.             |
 
 ## Target design (not built yet)
 
