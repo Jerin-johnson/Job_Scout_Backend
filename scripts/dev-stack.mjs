@@ -12,6 +12,11 @@ const children = [
     env: { ...process.env, PORT: "4001" },
     stdio: "inherit",
   }),
+  spawn(process.execPath, ["--watch", "src/worker.js"], {
+    cwd: backendRoot,
+    env: { ...process.env },
+    stdio: "inherit",
+  }),
   spawn(process.execPath, [frontendNext, "dev", "--hostname", "localhost", "--port", "3000"], {
     cwd: frontendRoot,
     env: {
@@ -48,4 +53,6 @@ for (const child of children) {
   });
 }
 
-console.log("JobScout local stack: API http://localhost:4001, web http://localhost:3000");
+console.log(
+  "JobScout local stack: API http://localhost:4001, worker (BullMQ), web http://localhost:3000",
+);

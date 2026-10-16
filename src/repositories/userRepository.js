@@ -74,6 +74,13 @@ export const userRepository = {
     return null;
   },
 
+  async bumpProfileVersion(id) {
+    if (isMongoReady())
+      return User.findByIdAndUpdate(id, { $inc: { profileVersion: 1 } }, { new: true }).lean();
+    const current = await this.findById(id);
+    return current ? this.update(id, { profileVersion: (current.profileVersion || 1) + 1 }) : null;
+  },
+
   async recordFailedLogin(id, currentAttempts) {
     const attempts = currentAttempts + 1;
     const lockUntil = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;

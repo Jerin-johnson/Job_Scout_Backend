@@ -10,6 +10,13 @@ import { Queue, Worker } from "bullmq";
 import { applicationRepository } from "./repositories/applicationRepository.js";
 import { userRepository } from "./repositories/userRepository.js";
 import { assertValidAIConfiguration } from "./config/aiStartupValidation.js";
+import { discoveryGraph } from "./ai/graphs/discoveryGraph.js";
+import { User } from "./models/User.js";
+import { CacheKeys, del } from "./shared/cache.js";
+import { Profile } from "./models/Profile.js";
+import { enqueueMatchRefreshForUser } from "./services/matchRefreshService.js";
+import { markMatchRefresh } from "./services/matchRefreshService.js";
+import { MATCH_SCORE_VERSION } from "./services/jobs/matching.js";
 
 const activeWorkers = [];
 let ingestionQueue = null;
@@ -59,7 +66,10 @@ async function initializeQueues() {
 
   await jobIngestionService.ensureSources();
   ingestionQueue = new Queue("job-ingestion", { connection: redis });
-  const sourceSchedules = await scheduleJobIngestion(ingestionQueue, await jobIngestionService.sourceBudgets());
+  const sourceSchedules = await scheduleJobIngestion(
+    ingestionQueue,
+    await jobIngestionService.sourceBudgets(),
+  );
   logger.info({ sources: sourceSchedules }, "Scheduled approved job source ingestion");
 
   // 1. Ingestion Worker
@@ -70,12 +80,77 @@ async function initializeQueues() {
       const result = job.data?.sourceKey
         ? await jobIngestionService.ingestSource(job.data.sourceKey)
         : await jobIngestionService.ingestAll();
+      const added = result.created ?? result.ingested ?? 0;
+      if (added > 0) {
+        let refreshed = 0;
+        const recentProfiles = Profile.find({
+          updatedAt: { $gte: new Date(Date.now() - 30 * 86400000) },
+        })
+          .select("userId")
+          .lean()
+          .cursor();
+        for await (const profile of recentProfiles) {
+          const user = await User.findById(profile.userId)
+            .select("profileVersion isDeleted")
+            .lean();
+          if (
+            user &&
+            !user.isDeleted &&
+            (await enqueueMatchRefreshForUser(profile.userId, user.profileVersion || 1))
+          )
+            refreshed += 1;
+        }
+        logger.info({ refreshed }, "Queued match refreshes after new catalog jobs arrived");
+      }
       return { ingested: result.created ?? result.ingested, source: job.data?.sourceKey || "all" };
     },
     {
       connection: redis,
       concurrency: 2,
     },
+  );
+
+  const matchWorker = new Worker(
+    "job-matches",
+    async (job) => {
+      const { userId, profileVersion, attemptId } = job.data;
+      const user = await User.findOne({ _id: userId, isDeleted: false }).lean();
+      if (!user || user.profileVersion !== profileVersion) {
+        await markMatchRefresh(attemptId, {
+          status: "done",
+          completedAt: new Date(),
+          resultCount: 0,
+          nextAllowedAt: new Date(Date.now() + 30_000),
+        });
+        return { skipped: true, reason: "profile_version_changed" };
+      }
+      await markMatchRefresh(attemptId, { status: "running", startedAt: new Date() });
+      try {
+        const result = await discoveryGraph.runDiscovery(user, {
+          requestId: job.id,
+          quotaAccepted: true,
+          broaden: Boolean(job.data.broaden),
+        });
+        await markMatchRefresh(attemptId, {
+          status: "done",
+          completedAt: new Date(),
+          resultCount: result.matches?.length || 0,
+          emptyReason: result.emptyReason || "",
+          broadenActions: result.broadenActions || [],
+          nextAllowedAt: new Date(Date.now() + 30_000),
+        });
+        await del(CacheKeys.response(userId, `matches:${MATCH_SCORE_VERSION}`, profileVersion));
+        return { resultCount: result.matches?.length || 0 };
+      } catch (error) {
+        await markMatchRefresh(attemptId, {
+          status: "failed",
+          completedAt: new Date(),
+          errorCode: error.code || "MATCH_REFRESH_FAILED",
+        });
+        throw error;
+      }
+    },
+    { connection: redis, concurrency: 2 },
   );
 
   // 2. Email Digest Worker
@@ -134,7 +209,7 @@ async function initializeQueues() {
     logger.error({ jobId: job?.id, err: err.message }, "Job ingestion task failed");
   });
 
-  activeWorkers.push(ingestionWorker, digestWorker, reminderWorker);
+  activeWorkers.push(ingestionWorker, matchWorker, digestWorker, reminderWorker);
 }
 
 async function startWorker() {

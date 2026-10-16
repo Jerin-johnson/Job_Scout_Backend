@@ -37,7 +37,9 @@ docker compose up -d
 ```
 
 The API is published at `http://localhost:4001`; the frontend runs at `http://localhost:3000`.
-With MongoDB/Redis running and both projects installed, `npm run dev:stack` starts the API and frontend together.
+With MongoDB/Redis running and both projects installed, `npm run dev:stack` starts the API, BullMQ worker, and frontend together. The worker must stay running with Redis available for scheduled job-source ingestion and asynchronous match refreshes.
+
+To test one approved source locally, run `npm run jobs:ingest:source -- remotive` (or `remoteok` / `jobicy`); the CLI refuses to run when `NODE_ENV=production`. To load 180 synthetic India-first and global sample roles into a development Mongo database, run `npm run jobs:seed:dev -- --confirm-dev-fixtures`. The fixtures are labeled development data and the command refuses to run in production.
 
 ### 4. Running the Services
 
@@ -65,3 +67,5 @@ npm run openapi
 
 - Run `npm run smoke` to test health, security headers, structured error handling, auth, AI routing, and webhook idempotency.
 - CI automatically checks formatting (`npm run format`), linting (`npm run lint`), and builds the production Docker container.
+
+Job matching and catalog discovery behavior, scoring, cost assumptions, and the verified OneDrive build workaround are documented in [`docs/JOB_MATCHING.md`](docs/JOB_MATCHING.md).

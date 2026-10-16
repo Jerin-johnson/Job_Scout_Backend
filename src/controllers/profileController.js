@@ -7,12 +7,17 @@ import { invalidateCandidateContext } from "../ai/candidateContext.js";
 import { storageService } from "../services/storageService.js";
 import { z } from "zod";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
+import { userRepository } from "../repositories/userRepository.js";
+import { enqueueMatchRefreshForUser } from "../services/matchRefreshService.js";
 
 const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),
   minimumSalaryUsd: z.number().min(0).default(0),
   preferredLocations: z.array(z.string()).default([]),
-  preferredCountryCodes: z.array(z.string().regex(/^[A-Za-z]{2}$/)).max(30).default([]),
+  preferredCountryCodes: z
+    .array(z.string().regex(/^[A-Za-z]{2}$/))
+    .max(30)
+    .default([]),
   occupationCodes: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   remotePreference: z.enum(["remote", "hybrid", "onsite", "any"]).default("any"),
 });
@@ -264,7 +269,11 @@ export const profileController = {
 
       const profile = await profileRepository.upsertProfile(userId, { preferences });
       await invalidateCandidateContext(userId);
-      res.status(200).json({ data: { profile } });
+      const updatedUser = await userRepository.bumpProfileVersion(userId);
+      if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
+      res
+        .status(200)
+        .json({ data: { profile, profileVersion: updatedUser?.profileVersion || null } });
     } catch (err) {
       next(err);
     }

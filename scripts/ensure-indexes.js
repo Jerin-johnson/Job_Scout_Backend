@@ -7,6 +7,7 @@ import { User } from "../src/models/User.js";
 import { Application } from "../src/models/Application.js";
 import { Job } from "../src/models/Job.js";
 import { JobSource } from "../src/models/JobSource.js";
+import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
 
 async function ensureIndexes() {
   logger.info("Starting index synchronization on MongoDB Atlas...");
@@ -56,6 +57,12 @@ async function ensureIndexes() {
       })),
     );
   }
+
+  // contentHash is a change fingerprint, not a globally unique identity. Older
+  // releases created a unique contentHash_1 index that rejected legitimate
+  // same-content postings from a second source. Drop only that obsolete unique
+  // index; source identity remains enforced by Job.identityKey.
+  await dropObsoleteUniqueContentHashIndex();
 
   await Promise.all([
     InterviewSession.createIndexes(),

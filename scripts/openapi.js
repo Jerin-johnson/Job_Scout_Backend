@@ -201,10 +201,18 @@ async function generateOpenApi() {
       // Jobs & Discovery
       "/api/v1/jobs/matches": {
         get: {
-          summary: "Get precomputed top job matches with L1 cache",
+          summary: "Get precomputed profile recommendations and refresh state",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           responses: { 200: { description: "List of scored job matches" } },
+        },
+      },
+      "/api/v1/jobs/matches/refresh": {
+        get: {
+          summary: "Get the signed-in user's match refresh state",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Queued, running, completed, or failed refresh state" } },
         },
       },
       "/api/v1/jobs/catalog": {
@@ -231,10 +239,11 @@ async function generateOpenApi() {
       },
       "/api/v1/jobs/discover": {
         post: {
-          summary: "Trigger on-demand discovery pipeline",
+          summary: "Queue a coalesced asynchronous match refresh",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
-          responses: { 200: { description: "Discovery results" } },
+          requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { broaden: { type: "boolean", description: "Temporarily relax work mode, country, occupation, and salary filters for this refresh" } }, additionalProperties: false } } } },
+          responses: { 202: { description: "Refresh queued; poll /matches/refresh" } },
         },
       },
       "/api/v1/jobs/{id}/feedback": {
@@ -760,17 +769,6 @@ async function generateOpenApi() {
             200: { description: "Paginated admin audit history" },
             403: { description: "Admin role required" },
             503: { description: "MongoDB unavailable" },
-          },
-        },
-      },
-      "/api/v1/admin/jobs/ingest": {
-        post: {
-          summary: "Run enabled job ingestion adapters (admin only)",
-          tags: ["Admin"],
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: { description: "Source ingestion summary" },
-            403: { description: "Admin role required" },
           },
         },
       },

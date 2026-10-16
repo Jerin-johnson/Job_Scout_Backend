@@ -14,6 +14,7 @@ import { PLANS, ROLES } from "../shared/constants/plans.js";
 import { z } from "zod";
 import mongoose from "mongoose";
 import { billingService } from "../services/billingService.js";
+import { JobReport } from "../models/JobReport.js";
 
 async function audit(req, action, metadata = {}) {
   if (!isMongoReady()) return;
@@ -27,6 +28,17 @@ async function audit(req, action, metadata = {}) {
 }
 
 export const adminController = {
+  async listJobReports(req, res, next) {
+    try {
+      const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
+      const [reports, total] = await Promise.all([
+        JobReport.find({ status: "pending" }).populate("jobId", "title company sourceBoard sourceUrl").select("jobId reason status createdAt updatedAt").sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+        JobReport.countDocuments({ status: "pending" }),
+      ]);
+      res.json({ data: { reports, total, page, limit, pages: Math.ceil(total / limit) } });
+    } catch (err) { next(err); }
+  },
   /**
    * GET /api/v1/admin/metrics
    * Returns system telemetry, router tier distribution, and cost guardrail status
@@ -600,26 +612,6 @@ export const adminController = {
     }
   },
 
-  async ingestJobs(req, res, next) {
-    try {
-      const result = await jobIngestionService.ingestAll();
-      await audit(req, "admin.jobs.ingest", {
-        ingested: result.ingested,
-        embedded: result.embedded,
-      });
-      res.status(200).json({
-        data: {
-          ingested: result.ingested,
-          embedded: result.embedded,
-          sources: result.sources || [],
-          results: result.results || [],
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-
   async listJobSources(req, res, next) {
     try {
       const sources = await jobIngestionService.sourceBudgets();
@@ -633,7 +625,9 @@ export const adminController = {
     try {
       const enabled = z.object({ enabled: z.boolean() }).parse(req.body).enabled;
       const sources = await jobIngestionService.setSourceEnabled(req.params.key, enabled);
-      await audit(req, enabled ? "admin.jobs.source.enable" : "admin.jobs.source.disable", { source: req.params.key });
+      await audit(req, enabled ? "admin.jobs.source.enable" : "admin.jobs.source.disable", {
+        source: req.params.key,
+      });
       res.status(200).json({ data: { sources } });
     } catch (err) {
       next(err);

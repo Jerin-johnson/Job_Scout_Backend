@@ -519,14 +519,18 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 #### `GET /api/v1/jobs/matches`
 
-- **Purpose**: Retrieves top job opportunities ranked by vector cosine similarity and rule filters.
-- **Caching**: L1 Redis response cache (60 seconds TTL).
+- **Purpose**: Retrieves precomputed recommendations and the user's asynchronous refresh state. This read never runs ingestion or discovery.
+- **Caching**: Versioned response cache (60 seconds TTL); preference or resume updates increment `profileVersion`, and a completed refresh invalidates that version's cache.
 - **Response `200 OK`**:
   ```json
   {
     "data": {
       "totalMatches": 10,
       "fromCache": false,
+      "refresh": { "status": "done", "resultCount": 10 },
+      "sources": [{ "key": "remotive", "displayName": "Remotive", "indexedCount": 120 }],
+      "profileReady": true,
+      "emptyReason": "",
       "matches": [
         {
           "jobId": "job_c5c37c0a87",
@@ -534,6 +538,8 @@ Returns the authenticated user's currently selectable chat models. The list is c
           "company": "Acme",
           "location": "Remote",
           "score": 92.5,
+          "locationTier": 3,
+          "locationLabel": "No jobs in Kochi yet. Showing remote roles; confirm location eligibility before applying.",
           "rationale": "Strong alignment with candidate's distributed systems and caching background.",
           "matchingSkills": ["Node.js", "Redis", "Distributed Systems"],
           "missingSkills": ["GraphQL"]
@@ -545,12 +551,18 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 #### `POST /api/v1/jobs/discover`
 
-- **Purpose**: Manually triggers Graph A discovery cycle. Gated by `match_jobs` quota.
-- **Response `200 OK`**: Returns new matches generated.
+- **Purpose**: Queues a coalesced refresh for the current user and `profileVersion`. Gated by `match_jobs` quota. Matching is processed by the existing BullMQ worker; it never triggers feed ingestion.
+- **Request**: Optional `{ "broaden": true }` temporarily relaxes work-mode, country, occupation, and salary filters for one refresh; it does not change saved preferences.
+- **Response `202 Accepted`**: Returns the refresh state. Poll `GET /api/v1/jobs/matches/refresh` or read `refresh` from `GET /api/v1/jobs/matches` for `queued`, `running`, `done`, or `failed`.
+
+#### `GET /api/v1/jobs/matches/refresh`
+
+- **Purpose**: Reads the signed-in user's latest refresh state for their current profile version.
+- **Response `200 OK`**: `{ "data": { "refresh": { "status": "running" } } }` (or `null` if no refresh has been requested).
 
 #### `GET /api/v1/jobs/catalog`
 
-- **Purpose**: Searches active, non-expired listings indexed from approved, enabled feeds (currently Remote OK, Remotive, and Jobicy). The catalog is not the whole internet.
+- **Purpose**: Searches active, non-expired listings indexed from approved, enabled feeds (currently Remote OK, Remotive, and Jobicy). The catalog is not the whole internet. Source metadata includes `indexedCount` for each enabled feed.
 - **Query**: Optional `q`, `location`, `countryCode` (two-letter code), `source`, `remoteType` (`remote|hybrid|onsite`), `page` (default 1), `limit` (default 20, max 50).
 - **Response**: `{ "data": { "jobs": [], "total": 0, "page": 1, "limit": 20, "pages": 0, "sources": [] } }`. Each result includes `jobId`, role/company, source board, source attribution, posted date, and original listing URL where available.
 
@@ -885,13 +897,12 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 - `GET /api/v1/admin/users?q=&page=&limit=` returns active accounts with name, email, role, plan, and creation date. Requires admin role and MongoDB.
 - `GET /api/v1/admin/jobs?q=&source=&page=&limit=` returns indexed job inventory.
-- `GET /api/v1/admin/jobs/sources` lists source approval, daily budget/use, health, and metrics. `PATCH /api/v1/admin/jobs/sources/:key` accepts `{ "enabled": true|false }` and only toggles a source that passed the verified policy gate.
+- `GET /api/v1/admin/jobs/sources` lists source approval, daily budget/use, active indexed count, last/next run, health, and fetched/new/updated/duplicate/error metrics. `PATCH /api/v1/admin/jobs/sources/:key` accepts `{ "enabled": true|false }` and only toggles a source that passed the verified policy gate.
 - `GET /api/v1/admin/audit?page=&limit=` returns recent admin audit events with the acting account name/email.
-- `POST /api/v1/admin/jobs/ingest` runs enabled adapters and returns fetched/embedded counts and source names. Requires admin role and CSRF protection.
 - `PATCH /api/v1/admin/users/:id` updates a user's plan or role. Super-admin only; active Razorpay subscriptions cannot be overwritten locally.
 - `GET /api/v1/admin/billing/overview`, `/billing/subscriptions`, and `/billing/payments` expose currency-grouped revenue and Razorpay ledger data to super-admins only.
 - `POST /api/v1/admin/billing/subscriptions/:id/cancel` schedules period-end cancellation; `POST /api/v1/admin/billing/payments/:paymentId/refund` submits the refundable balance. Both require super-admin access and CSRF protection.
-- Admin reads and ingestion are written to `AuditLog` when MongoDB is available.
+- Source ingestion is worker/CLI-only. For local diagnostics, run `npm run jobs:ingest:source -- remotive` from the backend; it refuses production. Admin reads and source enablement changes are written to `AuditLog` when MongoDB is available.
 
 ---
 

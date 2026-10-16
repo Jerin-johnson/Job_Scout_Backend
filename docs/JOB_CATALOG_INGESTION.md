@@ -28,15 +28,19 @@ These are conservative app-side caps, not provider guarantees. Registry counters
 
 ## Demand and scheduled ingestion
 
-Discovery never fetches feeds. BullMQ repeat jobs run source ingestion. Role/location terms are aggregated from profile preferences in MongoDB with a minimum count of three, so no individual preference or user ID is exposed to the source query planner. The term list is cached in existing Redis for six hours; if aggregation is unavailable, ingestion falls back to a broad feed fetch. Remotive uses its documented `search` parameter and Jobicy uses its documented `tag` filter for demand scans. A full unfiltered sync is still performed at least every 24 hours (and resumed across pages) for stale detection and coverage; source daily quotas remain the hard ceiling. Remote OK currently has no demand query in its feed adapter, so its daily request remains broad.
+Discovery never fetches feeds. BullMQ repeat jobs run source ingestion; the local `dev:stack` starts the API, worker, and web app together. Role/location terms are aggregated from profile preferences in MongoDB with a minimum count of three, so no individual preference or user ID is exposed to the source query planner. The term list is cached in existing Redis for six hours; if aggregation is unavailable, ingestion falls back to a broad feed fetch. Remotive uses its documented `search` parameter and Jobicy uses its documented `tag` filter for demand scans. A full unfiltered sync is still performed at least every 24 hours (and resumed across pages) for stale detection and coverage; source daily quotas remain the hard ceiling. Remote OK currently has no demand query in its feed adapter, so its daily request remains broad.
 
-The admin source panel shows cap, use/remaining, run state, latency, fetched/new/updated/duplicate/error counts, and coverage from the last full sync. Query quotas are reserved atomically in MongoDB; paid overage is not possible.
+Matching reads `Match` records only. `POST /api/v1/jobs/discover` queues a user/profile-version keyed match refresh; requests coalesce while active, use a 30-second cooldown after completion, and run on the existing BullMQ worker. Profile preference/resume updates and newly indexed jobs queue refreshes for recently changed profiles. Completed refreshes invalidate the match-response cache. If Redis is unavailable, auto-refresh status is recorded as failed and user initiated refresh receives a retryable queue error. No new queue service or database was added.
+
+The admin source panel shows cap, use/remaining, current active indexed count, last and next run times, run state, latency, fetched/new/updated/duplicate/error counts, and coverage from the last full sync. Query quotas are reserved atomically in MongoDB; paid overage is not possible. `npm run jobs:ingest:source -- remotive` (or another approved source key) is a local diagnostic CLI and refuses production. There is no user-facing ingest endpoint.
 
 ## Normalized records and dedupe
 
 New fields are additive: `identityKey`, `sourceJobId`, `canonicalUrl`, `structuredLocation`, `compensation`, `provenance`, `status`, `firstSeenAt`, `lastSeenAt`, `sourceExpiresAt`, `sourceCheckedAt`, `occupationCodes`, `recordHash`, and `embeddingMetadata`. Existing `salaryRange`, `sourceBoard`, `sourceUrl`, and other legacy fields remain populated for compatibility. Unknown salary/currency/location information remains unknown; the system does not invent USD conversions.
 
 Identity is `(source, sourceJobId)`, then `(source, canonicalUrl)`, then `(source, normalized company/title/location)`. Embedding similarity is never used to merge records. `recordHash` detects any matching-relevant catalog field changes; `contentHash` covers the text actually sent to the embedding model. Descriptions are converted to bounded plain text (24,000 characters maximum). No whole raw feed payload is persisted.
+
+Older deployments may still have a globally unique `contentHash_1` index. Run `npm run ensure-indexes` once after upgrading; it drops only that obsolete unique index and recreates `contentHash` as a non-unique lookup index. This prevents matching content from different feeds from rejecting writes while preserving source-specific `identityKey` uniqueness. No documents are deleted or merged.
 
 Existing vectors missing provider/model/dimension metadata are labeled `legacy/unknown` at read time and are not deleted or silently re-embedded. A future re-embedding operation would need to:
 
@@ -48,7 +52,9 @@ Existing vectors missing provider/model/dimension metadata are labeled `legacy/u
 
 ## Indexes and retrieval
 
-The candidate path applies active/expiry, country or eligible-country/worldwide, work mode, occupation family, optional location, and known USD annual salary filters before returning at most 400 candidates. The discovery graph requests at most 300 and scores deterministically; it does not call ingestion or an LLM. Unknown salary is retained rather than incorrectly excluding a potentially suitable job. Legacy salary fields are used as a fallback when new compensation metadata is absent.
+The candidate path applies active/expiry, country or eligible-country/worldwide, work mode, occupation family, and known USD annual salary filters before returning at most 400 candidates. Free-text preferred location is not a hard filter. Matches are ranked through four available-supply tiers: exact/alias location, regional/state/country, remote eligible or unknown eligibility, then worldwide remote. Unknown eligibility is explicitly labeled for the user to verify; jobs explicitly excluding a selected country are filtered when country data is available. The discovery graph requests at most 300 and scores deterministically; it does not call ingestion or an LLM. Mongo match persistence uses one unordered `bulkWrite` for up to ten results instead of one upsert per result (10 round trips down to 1). Unknown salary is retained rather than incorrectly excluding a potentially suitable job. Legacy salary fields are used as a fallback when new compensation metadata is absent.
+
+Recommended cards show a provisional 0–100 score only from the existing deterministic score: Strong (80+), Good (65–79), Fair (50–64); scores below 50 are hidden. Matched skills are listed. This is explicitly an interim estimate, not the Phase 3 explainable score engine. Source and posted-date labels are shown for each card. Feed adapters preserve source publication dates; for legacy records without a known date, records within five minutes of `createdAt` are treated as potentially default-generated and shown as “Posted date unavailable.”
 
 Indexes include:
 
@@ -106,6 +112,6 @@ MongoDB storage, indexes, Redis memory, and worker compute are on existing infra
 
 ## Tests and known limitations
 
-Tests cover source normalization fixtures, source-identity fallback, bounded retries/timeouts, policy gate, exact quota cap, aggregated demand, restart-safe cursors after a worker failure, Mongo migration/rollback preserving vectors, query index usability, and discovery read-only behavior. The final test results are reported with this delivery.
+Tests cover source normalization fixtures, source-identity fallback, bounded retries/timeouts, policy gate, exact quota cap, aggregated demand, restart-safe cursors after a worker failure, Mongo migration/rollback preserving vectors, query index usability, location fallback, profile-version cache invalidation, match queue coalescing, bulk idempotent writes, match ownership 404, and discovery read-only behavior.
 
 Known limits: Remote OK/Remotive do not provide reliable country codes in every feed item; unknown location eligibility is retained and shown as unknown. Jobicy occupation tags are source category labels, not a universal SOC/ESCO taxonomy. Currency conversion is not inferred. Jobicy demand terms use title/content tag search; provider location slugs are not yet used because their taxonomy must be discovered/verified. Candidate ranking remains capped and deterministic, not a promise of complete web coverage.

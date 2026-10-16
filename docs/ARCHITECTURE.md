@@ -10,7 +10,7 @@ A single production Docker image powers two independently scalable processes:
    - Handles REST API requests, auth cookies, file uploads, billing webhooks, and Server-Sent Events (SSE) streaming for chat and LangGraph workflow progress.
    - Uses non-blocking asynchronous event loops, connection pooling to MongoDB Atlas, and Redis for caching and rate limiting.
 2. **Background Worker Process (`src/worker.js`)**:
-   - Dedicated BullMQ worker consuming scheduled discovery tasks (`ingestJobs`, `dailyMatch`), thread summarization, memory extraction, delayed follow-up reminders, and email digest dispatches via Resend.
+   - Dedicated BullMQ worker consuming scheduled job-source ingestion and asynchronous user/profile-version keyed match refreshes, thread summarization, memory extraction, delayed follow-up reminders, and email digest dispatches via Resend.
    - Can be scaled to $N$ replicas horizontally without affecting API request latencies.
 
 ```mermaid
@@ -82,6 +82,7 @@ All stateful graph executions utilize `@langchain/langgraph-checkpoint-mongodb`,
 ### Graph A: Catalog Ingestion and Discovery
 
 1. **Scheduled fetch**: BullMQ worker runs enabled, approved source registry entries; current feeds are Remote OK, Remotive, and Jobicy. User discovery requests never fetch listings.
+2. **Match refresh**: the HTTP API queues a coalesced `job-matches` task. The worker reads a bounded indexed candidate set, applies deterministic location fallback and scoring, and bulk-upserts the results. Preference and resume updates bump the user `profileVersion` so the old match cache cannot be reused.
 2. **Normalize and deduplicate**: Identity is `(source, sourceJobId)`, then source canonical URL, then normalized company/title/location. Embedding similarity is not used for dedupe.
 3. **Embed only changed text**: New/changed job text is embedded in batches; unchanged content reuses its vector, and cache keys include provider/model/dimension.
 4. **Bounded retrieval**: Mongo applies active/expiry and available structured location/work-mode/salary/occupation filters, then caps candidates before deterministic vector and skill scoring.

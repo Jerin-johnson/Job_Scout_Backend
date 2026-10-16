@@ -7,32 +7,41 @@ import { get, set, CacheKeys, TTL } from "../shared/cache.js";
 import { computeSha256, encryptText } from "../shared/utils/crypto.js";
 import { profileRepository } from "../repositories/profileRepository.js";
 import { userRepository } from "../repositories/userRepository.js";
+import { enqueueMatchRefreshForUser } from "./matchRefreshService.js";
 import { storageService } from "./storageService.js";
 import { logger } from "../shared/utils/logger.js";
 
 export const extractedFactsSchema = z.object({
   // Strict structured output requires every object property. Represent unknown
   // scalar values as null and absent collections as empty arrays.
-  roles: z.array(z.object({
-    title: z.string().min(1),
-    company: z.string().min(1),
-    startDate: z.string().nullable(),
-    endDate: z.string().nullable(),
-    isCurrent: z.boolean(),
-    achievements: z.array(z.object({
-      bullet: z.string().min(1),
-      metrics: z.string().nullable(),
-    })),
-  })),
-  skills: z.array(z.object({
-    name: z.string().min(1),
-    category: z.string().nullable(),
-  })),
-  education: z.array(z.object({
-    degree: z.string().min(1),
-    institution: z.string().nullable(),
-    graduationYear: z.number().nullable(),
-  })),
+  roles: z.array(
+    z.object({
+      title: z.string().min(1),
+      company: z.string().min(1),
+      startDate: z.string().nullable(),
+      endDate: z.string().nullable(),
+      isCurrent: z.boolean(),
+      achievements: z.array(
+        z.object({
+          bullet: z.string().min(1),
+          metrics: z.string().nullable(),
+        }),
+      ),
+    }),
+  ),
+  skills: z.array(
+    z.object({
+      name: z.string().min(1),
+      category: z.string().nullable(),
+    }),
+  ),
+  education: z.array(
+    z.object({
+      degree: z.string().min(1),
+      institution: z.string().nullable(),
+      graduationYear: z.number().nullable(),
+    }),
+  ),
 });
 
 function comparableText(value) {
@@ -222,9 +231,8 @@ export const resumeParserService = {
     });
 
     const profile = await profileRepository.upsertProfile(userId, facts);
-    const updatedUser = await userRepository.update(userId, {
-      profileVersion: (profile.version || 1) + 1,
-    });
+    const updatedUser = await userRepository.bumpProfileVersion(userId);
+    if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
 
     return {
       profile,
