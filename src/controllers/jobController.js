@@ -12,6 +12,7 @@ import { getMatchRefresh, requestMatchRefresh } from "../services/matchRefreshSe
 import { profileRepository } from "../repositories/profileRepository.js";
 import { MATCH_SCORE_VERSION, scoreJobMatch, extractJobFeatures } from "../services/jobs/matching.js";
 import { Job } from "../models/Job.js";
+import { JobDetail } from "../models/JobDetail.js";
 import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
@@ -138,19 +139,23 @@ export const jobController = {
     try {
       const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
       const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+      const cursor = String(req.query.cursor || "").slice(0, 512);
       const filters = {
         q: String(req.query.q || "").trim(),
         location: String(req.query.location || "").trim(),
         countryCode: String(req.query.countryCode || "").trim(),
         source: String(req.query.source || "").trim(),
         remoteType: String(req.query.remoteType || "").trim(),
+        occupation: String(req.query.occupation || "").trim(),
+        eligibility: String(req.query.eligibility || "").trim(),
+        postedWithinDays: Math.min(365, Math.max(0, Number.parseInt(req.query.postedWithinDays, 10) || 0)),
         minimumSalaryInr: req.query.minimumSalaryInr === undefined ? null : Number(req.query.minimumSalaryInr),
         showAnyway: req.query.showAnyway === "true",
       };
       const userId = req.user._id || req.user.id;
       const hiddenJobIds = await HiddenJob.distinct("jobId", { userId });
       const profile = await profileRepository.findByUserId(userId);
-      const result = await jobIngestionService.searchJobs({ ...filters, eligibilityCountryCodes: profileApplicantCountries(profile || {}), page, limit, excludeJobIds: hiddenJobIds });
+      const result = await jobIngestionService.searchJobs({ ...filters, eligibilityCountryCodes: profileApplicantCountries(profile || {}), page, cursor, limit, excludeJobIds: hiddenJobIds });
       if (["admin", "super_admin"].includes(req.user.role)) {
         const sourceBudgets = await jobIngestionService.sourceBudgets();
         result.worker = sourceBudgets[0]?.worker || { online: false, status: "offline", lastSeenAt: null };
@@ -195,8 +200,10 @@ export const jobController = {
   async getJobDetails(req, res, next) {
     try {
       if (!mongoose.isValidObjectId(req.params.id)) return res.sendStatus(404);
-      const job = await Job.findOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }).select("-embedding -rawPayload").lean();
+      let job = await Job.findOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }).select("-embedding -rawPayload").lean();
       if (!job) return res.sendStatus(404);
+      const detail = await JobDetail.findOne({ jobId: job._id, expiresAt: { $gt: new Date() } }).select("description requirements").lean();
+      if (detail) job = { ...job, rawDescription: detail.description, requirements: detail.requirements };
       const userId = req.user._id || req.user.id;
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;

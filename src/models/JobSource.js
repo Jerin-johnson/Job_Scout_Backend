@@ -8,9 +8,12 @@ const JobSourceSchema = new mongoose.Schema(
     enabled: { type: Boolean, default: false, index: true },
     approved: { type: Boolean, default: false },
     termsUrl: { type: String, required: true },
+    termsReference: { type: String, default: "" },
     attributionText: { type: String, required: true },
     attributionUrl: { type: String, required: true },
     retentionDays: { type: Number, required: true, min: 1 },
+    retentionRule: { type: String, default: "" },
+    quotaPolicy: { type: String, default: "" },
     staleAfterDays: { type: Number, required: true, min: 1 },
     quota: {
       requestsPerDay: { type: Number, required: true, min: 1 },

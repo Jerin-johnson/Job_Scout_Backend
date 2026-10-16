@@ -22,6 +22,18 @@ test("source identity uses source IDs first, then URL, then normalized company-t
   );
 });
 
+test("canonical URL group identity ignores tracking; entity keys preserve distinct roles and reposts", () => {
+  const adapter = new BaseJobAdapter({ key: "test" });
+  const urlA = adapter.generateGroupKey({ canonicalUrl: "HTTPS://WWW.Example.com/jobs/1/?utm_source=feed#apply", title: "Engineer", company: "A" });
+  const urlB = adapter.generateGroupKey({ canonicalUrl: "https://example.com/jobs/1/", title: "Different title", company: "B" });
+  assert.equal(urlA, urlB);
+  const first = adapter.generateGroupKey({ company: "Acme", title: "Nurse", location: "Delhi, IN", postedAt: "2026-10-01T00:00:00.000Z" });
+  const repost = adapter.generateGroupKey({ company: "Acme", title: "Nurse", location: "Delhi, IN", postedAt: "2026-10-22T00:00:00.000Z" });
+  const anotherRole = adapter.generateGroupKey({ company: "Acme", title: "Accountant", location: "Delhi, IN", postedAt: "2026-10-01T00:00:00.000Z" });
+  assert.notEqual(first, repost);
+  assert.notEqual(first, anotherRole);
+});
+
 test("Remote OK normalizes stable ID, canonical link, and transparent source attribution", () => {
   const job = normalizeRemoteOkJob({ id: 123, position: "Backend Engineer", company: "Acme", url: "https://remoteok.com/l/123", tags: ["Node"], description: "<p>Build APIs</p>" });
   assert.equal(job.sourceJobId, "123");
@@ -55,11 +67,17 @@ test("source descriptions discard active HTML and bound stored text", () => {
 });
 
 test("only approved source policies with full terms metadata are eligible", () => {
-  assert.deepEqual(SOURCE_POLICIES.filter((source) => source.approved && source.enabled).map(({ key }) => key), ["remoteok", "remotive", "jobicy"]);
+  assert.deepEqual(SOURCE_POLICIES.filter((source) => source.approved && source.enabled).map(({ key }) => key), ["remoteok"]);
   assert.ok(SOURCE_POLICIES.filter((source) => ["greenhouse", "lever", "ashby", "adzuna-india"].includes(source.key)).every((source) => !source.approved && !source.enabled));
   assert.ok(SOURCE_POLICIES.every(isSourcePolicyComplete));
   assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "adzuna-india")), false);
   assert.equal(isSourceActivationAllowed({ key: "adzuna-india", commercialLicenseReference: "license", attributionBadgeVerified: true, storageDisplayTermsReviewed: true }), true);
+  assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "remotive")), false);
+  assert.equal(isSourceActivationAllowed({ key: "remotive" }), false);
+  assert.equal(isSourceActivationAllowed({ key: "remotive", writtenRedistributionPermissionReference: "signed permission" }), true);
+  assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "jobicy")), false);
+  assert.equal(isSourceActivationAllowed({ key: "jobicy" }), false);
+  assert.equal(isSourceActivationAllowed({ key: "jobicy", writtenRedistributionPermissionReference: "signed permission" }), true);
   assert.equal(isSourcePolicyComplete({ key: "new", approved: false, enabled: false, quota: { requestsPerDay: 1 } }), false);
 });
 

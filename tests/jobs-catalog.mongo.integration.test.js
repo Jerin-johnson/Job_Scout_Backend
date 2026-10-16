@@ -47,8 +47,11 @@ function makeSource(key, overrides = {}) {
     enabled: true,
     approved: true,
     termsUrl: "https://example.test/terms",
+    termsReference: "https://example.test/terms",
     attributionText: key,
     attributionUrl: "https://example.test/",
+    retentionRule: "Delete inactive listings after 30 days.",
+    quotaPolicy: "10 requests per day.",
     retentionDays: 30,
     staleAfterDays: 14,
     quota: { requestsPerDay: 10, intervalMs: 60000, timeoutMs: 10000, maxRetries: 0 },
@@ -246,7 +249,7 @@ test("public catalog excludes disabled or unapproved source records", async () =
   assert.equal(result.jobs.length, 0);
   assert.deepEqual(
     result.sources.map((source) => source.key),
-    ["remoteok", "remotive", "jobicy"],
+    ["remoteok"],
   );
   await Job.deleteOne({ identityKey: "hidden-source-identity-key" });
   await JobSource.deleteOne({ key });
@@ -258,9 +261,9 @@ test("catalog hides explicitly ineligible jobs by default and showAnyway reveals
   const ids = ["us-only", "worldwide", "unknown"].map(() => new mongoose.Types.ObjectId());
   const expiresAt = new Date(Date.now() + 86400000);
   await Job.collection.insertMany([
-    { _id: ids[0], identityKey: "elig-us", contentHash: "elig-us", title: "US Nurse", company: "A", location: "Remote", rawDescription: "US only", sourceBoard: key, sourceUrl: "https://example.test/us", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: ["US"], remoteScope: "country" } },
-    { _id: ids[1], identityKey: "elig-world", contentHash: "elig-world", title: "Global Nurse", company: "B", location: "Remote", rawDescription: "Worldwide", sourceBoard: key, sourceUrl: "https://example.test/world", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "worldwide" } },
-    { _id: ids[2], identityKey: "elig-unknown", contentHash: "elig-unknown", title: "Unclear Nurse", company: "C", location: "Remote", rawDescription: "Remote", sourceBoard: key, sourceUrl: "https://example.test/unknown", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "unknown" } },
+    { _id: ids[0], identityKey: "elig-us", contentHash: "elig-us", title: "US Nurse", company: "A", location: "Remote", rawDescription: "US only", features: { titleTokens: ["us", "nurse"], companyTokens: ["a"] }, sourceBoard: key, sourceUrl: "https://example.test/us", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: ["US"], remoteScope: "country" } },
+    { _id: ids[1], identityKey: "elig-world", contentHash: "elig-world", title: "Global Nurse", company: "B", location: "Remote", rawDescription: "Worldwide", features: { titleTokens: ["global", "nurse"], companyTokens: ["b"] }, sourceBoard: key, sourceUrl: "https://example.test/world", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "worldwide" } },
+    { _id: ids[2], identityKey: "elig-unknown", contentHash: "elig-unknown", title: "Unclear Nurse", company: "C", location: "Remote", rawDescription: "Remote", features: { titleTokens: ["unclear", "nurse"], companyTokens: ["c"] }, sourceBoard: key, sourceUrl: "https://example.test/unknown", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "unknown" } },
   ]);
   try {
     const defaultResults = await jobIngestionService.searchJobs({ q: "Nurse", eligibilityCountryCodes: ["IN"], page: 1, limit: 10 });
@@ -326,7 +329,7 @@ test("source registry cursors survive a worker failure and resume without rescan
     await JobSource.updateOne({ key }, { $set: { lastRunAt: new Date(0) } });
     const completed = await jobIngestionService.ingestSource(key);
     assert.equal(completed.created, 1);
-    assert.equal(await Job.countDocuments({ identityKey: { $exists: true } }), 1);
+    assert.equal(await Job.countDocuments({ sourceBoard: key, identityKey: { $exists: true } }), 1);
     const storedSource = await JobSource.findOne({ key }).lean();
     assert.equal(storedSource.cursor, null);
     assert.equal(storedSource.metrics.created, 1);

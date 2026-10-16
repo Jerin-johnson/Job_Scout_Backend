@@ -11,6 +11,9 @@ const JobSchema = new mongoose.Schema(
     identityKey: { type: String, index: true, sparse: true },
     sourceJobId: { type: String, index: true, sparse: true },
     canonicalUrl: { type: String, default: "", index: true },
+    groupKey: { type: String, default: "", index: true },
+    canonicalJobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", default: null, index: true },
+    variants: { type: [{ source: String, url: String, seenAt: Date }], default: [] },
     contentUpdatedAt: { type: Date, default: Date.now },
     title: {
       type: String,
@@ -156,6 +159,10 @@ JobSchema.index(
 );
 JobSchema.index({ status: 1, expiresAt: 1, postedAt: -1 }, { name: "job_candidate_active_recent" });
 JobSchema.index(
+  { status: 1, postedAt: -1, _id: 1 },
+  { name: "job_catalog_cursor", partialFilterExpression: { status: "active" } },
+);
+JobSchema.index(
   { status: 1, sourceBoard: 1, postedAt: -1, _id: 1, expiresAt: 1 },
   { name: "job_candidate_recent_feed" },
 );
@@ -164,6 +171,7 @@ JobSchema.index(
   { name: "job_candidate_occupation" },
 );
 JobSchema.index({ sourceBoard: 1, status: 1, expiresAt: 1 }, { name: "job_source_coverage" });
+JobSchema.index({ groupKey: 1, status: 1, expiresAt: 1 }, { name: "job_dedup_group_active" });
 JobSchema.index({ occupation: 1, status: 1, expiresAt: 1 }, { name: "job_candidate_occupation_family" });
 JobSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 JobSchema.index({ "features.skills": 1, status: 1, expiresAt: 1 }, { name: "job_features_skills_active" });
@@ -177,6 +185,10 @@ JobSchema.index(
 JobSchema.index(
   { status: 1, "features.titleTokens": 1, postedAt: -1 },
   { name: "job_candidate_title_recent" },
+);
+JobSchema.index(
+  { status: 1, "features.companyTokens": 1, postedAt: -1 },
+  { name: "job_candidate_company_recent" },
 );
 JobSchema.index(
   { status: 1, occupationCodes: 1, postedAt: -1 },
