@@ -10,11 +10,11 @@ Score version defaults to lexical-v2 and can be selected with `JOB_MATCH_SCORE_V
 
 Fuzzy role suggestions are available only as separate confirmations; role-suggestion APIs use exact curated aliases and free-text roles remain valid. Missing target roles can be suggested from saved role/resume facts. Fair thresholds are version-specific: lexical-v2 40, lexical-v3 50; lexical-v2 remains the active default.
 
-Occupation classification is additive, deterministic and rules-first (`src/services/jobs/occupationClassification.js`). It stores `occupation`, `occupationConfidence`, `normalizedTitle` and `occupationFeaturesVersion` (v6); it intentionally does not overwrite the existing `featuresVersion` used by text features. Discovery remains LLM-free. The classifier's 2026-10-16 local dry run covered 841 jobs and left 19.14% unclassified; see [coverage and migration report](15-classification-and-catalog-coverage.md). Current retrieval/scoring diagnostics and top-20 matches are in [the matching report](../JOB_MATCHING.md).
+Occupation classification is additive, deterministic and rules-first (`src/services/jobs/occupationClassification.js`). It stores `occupation`, `occupationConfidence`, `normalizedTitle` and `occupationFeaturesVersion` (v6); it intentionally does not overwrite the existing `featuresVersion` used by text features. Eligibility is separately parsed with confidence/evidence and remains unknown without evidence. Known country mismatches are hidden by default in catalog search. Discovery remains LLM-free. The classifier's 2026-10-16 local dry run covered 841 jobs and left 19.14% unclassified; see [coverage and migration report](15-classification-and-catalog-coverage.md). Current retrieval/scoring diagnostics and top-20 matches are in [the matching report](../JOB_MATCHING.md).
 
 ## Target design (not built yet)
 
-Improve structured country/work-authorization/occupation coverage at ingestion; add reviewed eligibility filters and score calibration against labeled profiles. Evaluate candidate relevance before changing weights. Keep matching deterministic and avoid per-listing model calls.
+Improve structured country/work-authorization/occupation coverage at ingestion and score calibration against labeled profiles. See [Phase 3 rules, costs and source gates](17-phase3-job-quality.md). Evaluate candidate relevance before changing weights. Keep matching deterministic and avoid per-listing model calls.
 
 **Unverified:** source freshness/coverage outside current indexed feeds and population-wide match quality. Measure with privacy-preserving cohort metrics and representative fixtures.
 ## Scoring version gate

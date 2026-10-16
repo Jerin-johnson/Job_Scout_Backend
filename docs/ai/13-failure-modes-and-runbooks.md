@@ -18,6 +18,10 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 | Stale match result                             | Profile/score version participates in cache; empty match cache TTL is short.                       | Inspect profileVersion, scoreVersion, refresh status and cache health.                                            |
 | Catalog does not refresh                       | Worker source repeats are reconciled at boot; Redis heartbeat TTL is 45 seconds.                 | Run `npm run jobs:schedule:report`; start `npm run worker:dev`; verify Redis `maxmemory-policy noeviction`. |
 | Profile role history unexpectedly empty         | Check the request error and parser path first; deterministic section parsing runs before one structured LLM call, and grounding drops unsupported facts. | Check the facts-v4 content-hash cache and role fixtures; a cache hit avoids a second provider call. Never log resume text. |
+| Job eligibility unclear                         | Rules did not find supported country/scope evidence.                                         | Keep it labeled unclear; verify the listing before applying. Do not infer authorization from remote status.          |
+| Salary conversion unavailable                   | ECB refresh failed or the stored rate is stale/missing.                                       | Keep original pay visible, show rate date when available, and use the last saved rate; never fetch per request.       |
+| ATS board not ingested                           | Source is disabled/unapproved, company request is pending, or per-source quota is exhausted.  | Review the exact board and source terms, then approve both company and source separately.                             |
+| Adzuna blocked                                    | License/attribution/storage gates are incomplete.                                             | Leave disabled; review the checklist in `17-phase3-job-quality.md` before asking for activation.                      |
 
 ## Target design (not built yet)
 

@@ -85,3 +85,5 @@ Defaults and validation below come from `src/config/env.js`; values in `.env.exa
 | `ENABLE_REMOTEOK_INGESTION`, `ENABLE_GREENHOUSE_INGESTION`, `ENABLE_LEVER_INGESTION`, `ENABLE_ASHBY_INGESTION` | Optional                                           | `true` for each in schema and `.env.example`                       | Parsed legacy flags. Runtime source registry/policy controls enablement; verify whether each is consumed before relying on it. |
 
 The frontend has its own `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_SITE_URL` in its sibling `.env.example`; do not place provider keys in the browser environment.
+
+`JOB_EMBEDDINGS_ENABLED` is optional and defaults to `false`; enabling it generates vectors only for newly ingested or materially changed jobs through the shared embedding service.

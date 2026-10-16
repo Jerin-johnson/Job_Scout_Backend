@@ -21,4 +21,6 @@ No stored resume was re-read for this task. The local profile diagnostic used ag
 
 Document a tested end-to-end data export/deletion lifecycle including object versions, encrypted resume text, extracted facts, caches, embeddings, backups and audit receipts. Retain only fields required by the approved source terms. No deletion or re-embedding migration was run as part of this work.
 
-**Unverified:** AWS S3 lifecycle/IAM policy, Mongo backup retention, provider retention for configured AI credentials, and whether every deployed export/deletion path covers `careerProfile` and `resumeAiConsent`.
+Job catalog adds deterministic `eligibility` with bounded evidence text and version, daily `FxRate` snapshots, and per-listing `reportCounts` keyed only by reason. Tracked company rows include normalized public careers URL, ATS platform/slug, request status and verification time; requests are pending review before ingestion. ATS source registry holds source quotas, cursors, health and policy. Adzuna activation metadata is a license reference and boolean policy attestations, not provider credentials. Existing job vectors are untouched; legacy vectors remain provider/model/dimension unknown.
+
+**Unverified:** AWS S3 lifecycle/IAM policy, Mongo backup retention, provider retention for configured AI credentials, and whether every deployed export/deletion path covers `careerProfile` and `resumeAiConsent`. Local profile diagnostics are guarded to loopback DBs and emit country/location codes and public job metadata only; do not attach them to application logs.
