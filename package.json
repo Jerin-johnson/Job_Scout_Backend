@@ -28,6 +28,7 @@
     "interview:usage": "node scripts/interview-usage-report.js",
     "eval:interviews": "node scripts/eval-interviews.js",
     "openapi": "node scripts/openapi.js",
+    "docs:check": "node scripts/check-ai-docs.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",

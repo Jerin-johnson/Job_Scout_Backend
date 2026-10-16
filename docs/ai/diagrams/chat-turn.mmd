@@ -1,0 +1,18 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): current flow below
+%% Target design (not built yet): optional read-only tools and consented memory, dashed
+flowchart TD
+  U[User prompt + bounded history] --> C[Chat controller validates and accepts quota]
+  C --> X[Server candidate context]
+  C --> R[Router: Tier 0 then classifier]
+  X --> P[Format prompt and untrusted context]
+  R --> M[Allowlisted model selection]
+  M --> L[streamLLM]
+  P --> L
+  L --> SSE[SSE response + usage ledger]
+  subgraph Target["Target design (not built yet)"]
+    T[Read-only tools + explicit confirmation]
+    Mem[Consented memory retrieval]
+  end
+  T -.-> L
+  Mem -.-> P

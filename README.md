@@ -1,71 +1,12 @@
-# JobScout API (`jobscout-api`)
+# JobScout backend
 
-Production-ready backend API service for **JobScout**, the subscription-based AI job-hunt agent (_Discover &rarr; Evaluate &rarr; Prepare &rarr; Manage_).
+Node.js/Express API and BullMQ worker for the JobScout career workspace. The frontend is a sibling checkout at `../Ai_resume_frontend`.
 
-## Architecture Highlights
+## Quick start
 
-- **Framework**: Node.js 22 LTS + Express.js (ES Modules, pure JavaScript, JSDoc + Zod contracts).
-- **Dual Process Entry**: `server.js` (HTTP REST + SSE) and `worker.js` (BullMQ workers), built from a single Docker image.
-- **AI Router & Cost Guard**: 3-tier routing (Tier 0: exact/semantic cache, slash commands, direct DB; Tier 1: Haiku intent classification; Tier 2: Sonnet LangGraph workflows).
-- **Security**: AES-256-GCM encryption for resume PII, strict SSRF blocking, CSRF defense, rate-limiting, and quota enforcement.
-- **LLM providers**: Gemini is the default provider; Anthropic remains selectable through the shared `invokeLLM` boundary. See [`docs/LLM_PROVIDERS.md`](./docs/LLM_PROVIDERS.md).
-- **Environment and credentials**: See [`docs/ENVIRONMENT_SETUP.md`](./docs/ENVIRONMENT_SETUP.md) for the backend/frontend variables, required secrets, integrations, and setup steps.
-- **Job discovery**: catalog search spans indexed jobs from approved, enabled sources (currently Remote OK, Remotive, and Jobicy); it is not the whole internet. Profile-ranked recommendations are separate and do not trigger ingestion. See [`docs/JOB_CATALOG_INGESTION.md`](./docs/JOB_CATALOG_INGESTION.md).
-- **Product architecture and scaling**: see the repository-level [`ARCHITECTURE_AND_SCALING.md`](../ARCHITECTURE_AND_SCALING.md) for frontend/backend boundaries and the staged scaling plan.
-- **Admin operations**: role-protected metrics, account/job directories, audit entries, and explicit job ingestion are available under `/api/v1/admin`.
-- **Admin setup**: see [`docs/ADMIN_OPERATIONS.md`](./docs/ADMIN_OPERATIONS.md) for secure first-admin provisioning and console operations.
-- **AI mock interviews**: see [`docs/AI_MOCK_INTERVIEWS.md`](./docs/AI_MOCK_INTERVIEWS.md) for the session API, consent, quotas, lifecycle, database indexes, and rollout steps.
+1. Install Node.js 22, MongoDB, and Redis. Copy `.env.example` to `.env` and replace required local placeholders.
+2. Run `npm ci` in this directory and `npm ci` in `../Ai_resume_frontend`.
+3. Run `npm run dev:stack` here to start API (`localhost:4001`), worker, and web (`localhost:3000`).
+4. Run `npm run lint` and `npm test` for static checks and the unit/MongoDB-memory-server test suite.
 
-## Quickstart
-
-### 1. Prerequisites
-
-- Node.js >= 22.0.0
-- Docker & Docker Compose (optional for local Mongo + Redis)
-
-### 2. Setup Environment
-
-```bash
-cp .env.example .env
-npm install
-```
-
-### 3. Local Infrastructure (Docker)
-
-```bash
-docker compose up -d
-```
-
-The API is published at `http://localhost:4001`; the frontend runs at `http://localhost:3000`.
-With MongoDB/Redis running and both projects installed, `npm run dev:stack` starts the API, BullMQ worker, and frontend together. The worker must stay running with Redis available for scheduled job-source ingestion and asynchronous match refreshes.
-
-To test one approved source locally, run `npm run jobs:ingest:source -- remotive` (or `remoteok` / `jobicy`); the CLI refuses to run when `NODE_ENV=production`. To load 180 synthetic India-first and global sample roles into a development Mongo database, run `npm run jobs:seed:dev -- --confirm-dev-fixtures`. The fixtures are labeled development data and the command refuses to run in production.
-
-### 4. Running the Services
-
-```bash
-# Start the API and frontend together (the frontend lives beside this repo).
-npm run dev:stack
-
-# Start API Server in dev watch mode
-npm run dev
-
-# Start Background Worker in dev watch mode
-npm run worker:dev
-
-# Run Smoke Tests
-npm run smoke
-
-# Synchronize Database Indexes
-npm run ensure-indexes
-
-# Generate OpenAPI Specification
-npm run openapi
-```
-
-## Verification & Deployment
-
-- Run `npm run smoke` to test health, security headers, structured error handling, auth, AI routing, and webhook idempotency.
-- CI automatically checks formatting (`npm run format`), linting (`npm run lint`), and builds the production Docker container.
-
-Job matching and catalog discovery behavior, scoring, cost assumptions, and the verified OneDrive build workaround are documented in [`docs/JOB_MATCHING.md`](docs/JOB_MATCHING.md).
+See [AI system documentation](docs/ai/README.md) for implementation details, limits, failure behavior, and target designs. See [local setup](docs/operations/local-setup.md) and [environment variables](docs/operations/environment-variables.md) before configuring integrations. Existing detailed documents under `docs/` are retained; the AI index identifies current verified sources.

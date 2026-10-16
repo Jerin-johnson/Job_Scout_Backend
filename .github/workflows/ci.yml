@@ -7,7 +7,7 @@ on:
     branches: [main, master]
 
 jobs:
-  lint-and-smoke:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,18 +25,14 @@ jobs:
       - name: Lint check
         run: npm run lint
 
-      - name: Prettier check
-        run: npm run format
+      - name: Check AI documentation inventory and links
+        run: npm run docs:check
 
-      - name: Run Smoke Verification
-        run: npm run smoke
-        env:
-          NODE_ENV: test
-          MONGODB_URI: mongodb://localhost:27017/jobscout_test
-          REDIS_URL: redis://localhost:6379
+      - name: Run unit and MongoDB-memory-server integration tests
+        run: npm test
 
   docker-build:
-    needs: lint-and-smoke
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

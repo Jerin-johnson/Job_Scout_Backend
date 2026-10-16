@@ -1,0 +1,12 @@
+%% Last verified against a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16
+%% As built (verified in code): presigned upload then idempotent completion/extraction
+%% Target design (not built yet): audited retention/deletion cascade
+flowchart LR
+  U[Authenticated user] --> P[Request scoped presigned URL]
+  P --> S3[Browser PUT to private S3]
+  S3 --> C[Idempotent completion verifies owner key]
+  C --> X[Extract PDF/DOCX text]
+  X --> L[invokeLLM structured extraction]
+  L --> G[Ground facts against source]
+  G --> E[Encrypt text and save resume/facts]
+  E -. target .-> D[Audited delete across object, DB, cache]
