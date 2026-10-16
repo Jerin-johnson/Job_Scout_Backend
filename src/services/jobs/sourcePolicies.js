@@ -1,5 +1,7 @@
 // Approved source policies. New sources are disabled unless explicitly approved here
 // and then enabled in the Mongo source registry.
+import { env } from "../../config/env.js";
+
 export const SOURCE_POLICIES = Object.freeze([
   {
     key: "remoteok",
@@ -70,6 +72,7 @@ export const SOURCE_POLICIES = Object.freeze([
     staleAfterDays: 1,
     quota: { requestsPerDay: 250, intervalMs: 86400000, timeoutMs: 8000, maxRetries: 1, limits: { perMinute: 25, perDay: 250, perWeek: 1000, perMonth: 2500 } },
     activationRequirements: ["commercial_license_reference", "attribution_badge_verified", "storage_and_display_terms_reviewed"],
+    activationStatus: "blocked_on_license",
     termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
   },
 ]);
@@ -82,6 +85,17 @@ export function isSourcePolicyComplete(policy) {
     Number.isFinite(policy?.quota?.requestsPerDay) && policy.quota.requestsPerDay > 0 &&
     policy?.termsVerifiedAt,
   );
+}
+
+const SOURCE_ENV_FLAGS = Object.freeze({
+  greenhouse: "ENABLE_GREENHOUSE_INGESTION",
+  lever: "ENABLE_LEVER_INGESTION",
+  ashby: "ENABLE_ASHBY_INGESTION",
+});
+
+export function isSourceEnabledByEnvironment(sourceKey, config = env) {
+  const flag = SOURCE_ENV_FLAGS[sourceKey];
+  return flag ? config[flag] === true : true;
 }
 
 // Adzuna's terms require a licensed commercial arrangement/strict display attribution;

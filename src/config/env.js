@@ -4,6 +4,7 @@ import { z } from "zod";
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   JOB_MATCH_SCORE_VERSION: z.enum(["lexical-v2", "lexical-v3"]).default("lexical-v2"),
+  FX_REFERENCE_SOURCE: z.enum(["ecb", "rbi", "fbil"]).default("ecb"),
   PORT: z.coerce.number().default(4001),
   HOST: z.string().default("0.0.0.0"),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
@@ -120,15 +121,15 @@ const envSchema = z.object({
   ENABLE_GREENHOUSE_INGESTION: z
     .string()
     .transform((val) => val === "true")
-    .default("true"),
+    .default("false"),
   ENABLE_LEVER_INGESTION: z
     .string()
     .transform((val) => val === "true")
-    .default("true"),
+    .default("false"),
   ENABLE_ASHBY_INGESTION: z
     .string()
     .transform((val) => val === "true")
-    .default("true"),
+    .default("false"),
   JOBS_RECENT_FALLBACK_LIMIT: z.coerce.number().int().min(0).max(400).default(100),
 });
 

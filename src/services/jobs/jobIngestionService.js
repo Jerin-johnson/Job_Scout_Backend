@@ -7,12 +7,12 @@ import { getRedisClient, isRedisReady } from "../../config/redis.js";
 import { embeddingService } from "../embeddingService.js";
 import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
-import { SOURCE_POLICIES, isSourcePolicyComplete, isSourceActivationAllowed } from "./sourcePolicies.js";
+import { SOURCE_POLICIES, isSourcePolicyComplete, isSourceActivationAllowed, isSourceEnabledByEnvironment } from "./sourcePolicies.js";
 import { extractJobFeatures, canonicalSkill } from "./matching.js";
 import { normalizeRoleForMatching } from "./roleNormalization.js";
 import { classifyJobOccupation } from "./occupationClassification.js";
 import { parseJobEligibility, profileApplicantCountries } from "./eligibility.js";
-import { latestEcbReferenceRates, convertAmount } from "./fxRates.js";
+import { latestReferenceRates, convertAmount } from "./fxRates.js";
 import { PLACE_SUGGESTIONS, ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
@@ -151,9 +151,9 @@ async function listSourceRecords({ enabledOnly = false } = {}) {
     await ensureSourceRecords();
     const query = enabledOnly ? { enabled: true, approved: true } : {};
     const records = await JobSource.find(query).lean();
-    return enabledOnly ? records.filter((source) => isSourcePolicyComplete(source) && isSourceActivationAllowed(source)) : records;
+    return enabledOnly ? records.filter((source) => isSourcePolicyComplete(source) && isSourceActivationAllowed(source) && isSourceEnabledByEnvironment(source.key)) : records;
   }
-  return SOURCE_POLICIES.filter((source) => !enabledOnly || (source.enabled && source.approved && isSourceActivationAllowed(source)));
+  return SOURCE_POLICIES.filter((source) => !enabledOnly || (source.enabled && source.approved && isSourceActivationAllowed(source) && isSourceEnabledByEnvironment(source.key)));
 }
 
 export async function reserveSourceRequest(sourceKey, maxPerDay) {
@@ -381,7 +381,7 @@ export const jobIngestionService = {
     const source = isMongoReady()
       ? await JobSource.findOne({ key: sourceKey, enabled: true, approved: true }).lean()
       : SOURCE_POLICIES.find((item) => item.key === sourceKey && item.enabled && item.approved);
-    if (!source || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source))
+    if (!source || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source) || !isSourceEnabledByEnvironment(sourceKey))
       return { source: sourceKey, skipped: true, reason: "disabled_or_unapproved" };
     if (source.circuit?.openUntil && new Date(source.circuit.openUntil) > new Date()) {
       return { source: sourceKey, skipped: true, reason: "circuit_open" };
@@ -1112,7 +1112,7 @@ export const jobIngestionService = {
     if (["remote", "hybrid", "onsite"].includes(remoteType)) filter.remoteType = remoteType;
     const minimumInr = Number(minimumSalaryInr);
     if (Number.isFinite(minimumInr) && minimumInr > 0) {
-      const rate = await latestEcbReferenceRates().catch(() => null);
+      const rate = await latestReferenceRates().catch(() => null);
       const comparable = [];
       for (const currency of ["INR", "USD", "EUR", "GBP", "CAD", "AUD", "AED", "SAR"]) {
         const requiredAnnual = currency === "INR" ? minimumInr : rate ? convertAmount(minimumInr, "INR", currency, rate.ratesPerEur) : null;
@@ -1253,7 +1253,7 @@ export const jobIngestionService = {
       worker,
       key: source.key,
       displayName: source.displayName,
-      enabled: Boolean(source.enabled && source.approved && isSourcePolicyComplete(source)),
+      enabled: Boolean(source.enabled && source.approved && isSourcePolicyComplete(source) && isSourceEnabledByEnvironment(source.key) && isSourceActivationAllowed(source)),
       approved: Boolean(source.approved),
       quota: source.quota,
       quotaUsed: new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : source.quotaUsed || 0,
@@ -1267,7 +1267,7 @@ export const jobIngestionService = {
       lastSuccessAt: source.lastSuccessAt || null,
       lastRunAt: source.lastRunAt || null,
       nextRunAt:
-        source.enabled && source.quota?.intervalMs
+        source.enabled && isSourceEnabledByEnvironment(source.key) && source.quota?.intervalMs
           ? new Date(
               Math.max(
                 Date.now(),
@@ -1342,6 +1342,12 @@ export const jobIngestionService = {
       throw error;
     }
     const source = await JobSource.findOne({ key: sourceKey }).lean();
+    if (enabled && !isSourceEnabledByEnvironment(sourceKey)) {
+      const error = new Error(`Enable ${sourceKey} ingestion with its backend environment flag before turning it on in admin.`);
+      error.statusCode = 409;
+      error.code = "SOURCE_ENV_DISABLED";
+      throw error;
+    }
     if (!source || !source.approved || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source)) {
       const error = new Error("This source has not passed the approved source policy gate.");
       error.statusCode = 404;

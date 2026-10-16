@@ -18,7 +18,7 @@ import { enqueueMatchRefreshForUser } from "./services/matchRefreshService.js";
 import { markMatchRefresh } from "./services/matchRefreshService.js";
 import { MATCH_SCORE_VERSION } from "./services/jobs/matching.js";
 import { reconcileJobIngestionSchedules, writeWorkerHeartbeat } from "./services/jobs/repeatSchedule.js";
-import { refreshEcbReferenceRates } from "./services/jobs/fxRates.js";
+import { refreshReferenceRates } from "./services/jobs/fxRates.js";
 
 const activeWorkers = [];
 let ingestionQueue = null;
@@ -72,7 +72,7 @@ async function initializeQueues() {
   const ingestionWorker = new Worker(
     "job-ingestion",
     async (job) => {
-      if (job.name === "refresh-fx-rates") return refreshEcbReferenceRates();
+      if (job.name === "refresh-fx-rates") return refreshReferenceRates();
       logger.info({ jobId: job.id }, "Processing job-ingestion queue item");
       const result = job.data?.sourceKey
         ? await jobIngestionService.ingestSource(job.data.sourceKey)
