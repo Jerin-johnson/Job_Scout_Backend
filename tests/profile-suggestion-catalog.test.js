@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ISO_SUBDIVISION_CODES, PLACE_SUGGESTIONS, normalizeSuggestionQuery, resolvePlacePair, suggestPlaces, suggestRoles } from "../src/services/profileSuggestionCatalog.js";
 import { careerProfileSchema } from "../src/controllers/profileController.js";
 import { profileController } from "../src/controllers/profileController.js";
+import { normalizeRoleForMatching } from "../src/services/jobs/roleNormalization.js";
 
 function apiResponse() {
   return {
@@ -19,8 +20,11 @@ function apiResponse() {
 test("role suggestions cover approved India-first and non-IT roles with exact normalized aliases", () => {
   assert.ok(suggestRoles("gnm").some((role) => role.label === "GNM Nurse"));
   assert.ok(suggestRoles("sales representative").some((role) => role.label === "Sales Executive"));
-  assert.ok(suggestRoles("delivery").some((role) => role.label === "Delivery Associate"));
+  assert.ok(suggestRoles("delivery").some((role) => role.label === "Delivery Executive"));
   assert.equal(normalizeSuggestionQuery("  TRICHŪR, Kerala! "), "trichur kerala");
+  assert.ok(suggestRoles("sofware enginer").some((role) => role.label === "Software Engineer"));
+  assert.equal(normalizeRoleForMatching("Business Analyst"), "Business Analyst");
+  assert.equal(normalizeRoleForMatching("Data Analyst"), "Data Analyst");
 });
 
 test("place aliases resolve exact city and consistent Kerala pair without fuzzy matching", () => {
@@ -46,6 +50,9 @@ test("career profile has no language default and validates ISO subdivisions and 
   assert.ok([...new Set(PLACE_SUGGESTIONS.map((place) => place.subdivisionCode).filter(Boolean))].every((code) => ISO_SUBDIVISION_CODES.has(code)));
   assert.equal(careerProfileSchema.safeParse({ homeLocation: { countryCode: "IN", subdivisionCode: "IN-KL", cityCode: "in-kerala-kochi" } }).success, true);
   assert.equal(careerProfileSchema.safeParse({ homeLocation: { countryCode: "US", subdivisionCode: null, cityCode: "in-kerala-kochi" } }).success, false);
+  const newFields = careerProfileSchema.parse({ experience: { isFresher: true }, targetLocations: [{ scope: "anywhere_in_india" }] });
+  assert.equal(newFields.experience.isFresher, true);
+  assert.equal(newFields.targetLocations[0].scope, "anywhere_in_india");
 });
 
 test("suggestion handlers return ETag responses, consistent pair suggestions, and ambiguity prompts", async () => {

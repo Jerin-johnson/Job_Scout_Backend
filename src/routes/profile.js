@@ -21,6 +21,8 @@ profileRouter.post(
   csrfProtection,
   profileController.createResumeUploadUrl,
 );
+profileRouter.get("/resume-ai-consent", profileController.getResumeAiConsent);
+profileRouter.put("/resume-ai-consent", csrfProtection, profileController.acceptResumeAiConsent);
 profileRouter.post(
   "/resume-upload-complete",
   csrfProtection,

@@ -28,9 +28,9 @@ const targetRolesSchema = z.object({
 export const careerProfileSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   targetRoles: z.array(z.object({ roleCode: z.string().trim().min(1).max(80).optional(), customRoleLabel: z.string().trim().min(1).max(120).optional(), custom: z.boolean() }).strict().refine((role) => role.roleCode || role.customRoleLabel, "Choose a curated role or enter a custom label")).max(20).default([]),
-  experience: z.object({ confirmedYears: z.number().int().min(0).max(60).nullable().default(null), internshipYears: z.number().min(0).max(60).nullable().default(null), needsConfirmation: z.boolean().default(true), confirmedAt: z.string().datetime().nullable().default(null) }).strict().default({}),
-  homeLocation: z.object({ countryCode: z.string().regex(/^[A-Z]{2}$/).refine((code) => COUNTRY_ALIASES.some((country) => country.code === code)).nullable().default(null), subdivisionCode: z.string().refine((code) => ISO_SUBDIVISION_CODES.has(code)).nullable().default(null), cityCode: z.string().max(100).nullable().default(null), aliasCatalogVersion: z.string().default(PLACE_CATALOG_VERSION), confirmedAt: z.string().datetime().nullable().default(null) }).strict().default({}),
-  targetLocations: z.array(z.object({ countryCode: z.string().regex(/^[A-Z]{2}$/).refine((code) => COUNTRY_ALIASES.some((country) => country.code === code)), subdivisionCode: z.string().refine((code) => ISO_SUBDIVISION_CODES.has(code)).nullable().default(null), cityCode: z.string().max(100).nullable().default(null), aliasCatalogVersion: z.string().default(PLACE_CATALOG_VERSION), confirmedAt: z.string().datetime().nullable().default(null) }).strict()).max(20).default([]),
+  experience: z.object({ confirmedYears: z.number().int().min(0).max(60).nullable().default(null), internshipYears: z.number().min(0).max(60).nullable().default(null), isFresher: z.boolean().default(false), needsConfirmation: z.boolean().default(true), confirmedAt: z.string().datetime().nullable().default(null) }).strict().default({}),
+  homeLocation: z.object({ scope: z.enum(["city", "country", "anywhere_in_india", "anywhere_world", "remote"]).default("city"), countryCode: z.string().regex(/^[A-Z]{2}$/).refine((code) => COUNTRY_ALIASES.some((country) => country.code === code)).nullable().default(null), subdivisionCode: z.string().refine((code) => ISO_SUBDIVISION_CODES.has(code)).nullable().default(null), cityCode: z.string().max(100).nullable().default(null), aliasCatalogVersion: z.string().default(PLACE_CATALOG_VERSION), confirmedAt: z.string().datetime().nullable().default(null) }).strict().default({}),
+  targetLocations: z.array(z.object({ scope: z.enum(["city", "country", "anywhere_in_india", "anywhere_world", "remote"]).default("city"), countryCode: z.string().regex(/^[A-Z]{2}$/).refine((code) => COUNTRY_ALIASES.some((country) => country.code === code)).nullable().default(null), subdivisionCode: z.string().refine((code) => ISO_SUBDIVISION_CODES.has(code)).nullable().default(null), cityCode: z.string().max(100).nullable().default(null), aliasCatalogVersion: z.string().default(PLACE_CATALOG_VERSION), confirmedAt: z.string().datetime().nullable().default(null) }).strict()).max(20).default([]),
   workAuthorization: z.object({ canWorkInHomeCountry: z.boolean().nullable().default(null), sponsorshipOrRelocation: z.object({ enabled: z.boolean().default(false), countryCodes: z.array(z.string().regex(/^[A-Z]{2}$/)).max(20).default([]) }).strict().default({}) }).strict().default({}),
   workPreferences: z.object({ workMode: z.enum(["any", "remote", "hybrid", "onsite"]).default("any"), employmentTypes: z.array(z.enum(["full_time", "contract", "part_time"])).max(3).default([]), shiftPreference: z.enum(["day", "night", "rotating", "flexible"]).nullable().default(null) }).strict().default({}),
   compensation: z.object({ minimumAmount: z.number().nonnegative().nullable().default(null), currencyCode: z.string().regex(/^[A-Z]{3}$/).nullable().default(null), period: z.enum(["hourly", "monthly", "annual"]).nullable().default(null) }).strict().default({}),
@@ -38,6 +38,10 @@ export const careerProfileSchema = z.object({
 }).strict().superRefine((profile, context) => {
   const locations = [profile.homeLocation, ...profile.targetLocations];
   for (const [index, location] of locations.entries()) {
+    if (["anywhere_in_india", "anywhere_world", "remote"].includes(location.scope)) continue;
+    if (location.scope === "country" && !location.countryCode) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: index === 0 ? ["homeLocation", "countryCode"] : ["targetLocations", index - 1, "countryCode"], message: "Choose a country." });
+    }
     if (!location.cityCode) continue;
     const city = PLACE_SUGGESTIONS.find((place) => place.code === location.cityCode);
     if (!city || city.countryCode !== location.countryCode || (city.subdivisionCode && location.subdivisionCode && city.subdivisionCode !== location.subdivisionCode)) {
@@ -46,6 +50,16 @@ export const careerProfileSchema = z.object({
   }
 });
 const careerPatchSchema = z.object({ profileVersion: z.number().int().min(1), careerProfile: careerProfileSchema }).strict();
+const RESUME_AI_CONSENT_VERSION = "resume-ai-processing-v1";
+
+async function requireResumeAiConsent(userId) {
+  const user = await userRepository.findById(userId);
+  if (user?.resumeAiConsent?.version === RESUME_AI_CONSENT_VERSION && user.resumeAiConsent.acceptedAt) return;
+  const error = new Error("Please review and accept AI resume processing before uploading a resume.");
+  error.statusCode = 403;
+  error.code = "RESUME_AI_CONSENT_REQUIRED";
+  throw error;
+}
 
 function educationLevelSuggestion(education = []) {
   const text = education.map((item) => item.degree || "").join(" ").toLowerCase();
@@ -168,6 +182,24 @@ async function processResumeFile({ req, userId, fileBuffer, originalFilename, s3
 }
 
 export const profileController = {
+  async getResumeAiConsent(req, res, next) {
+    try {
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const user = await userRepository.findById(userId);
+      return res.status(200).json({ data: { accepted: user?.resumeAiConsent?.version === RESUME_AI_CONSENT_VERSION, version: RESUME_AI_CONSENT_VERSION, acceptedAt: user?.resumeAiConsent?.acceptedAt || null } });
+    } catch (err) { next(err); }
+  },
+
+  async acceptResumeAiConsent(req, res, next) {
+    try {
+      const body = z.object({ accepted: z.literal(true), version: z.literal(RESUME_AI_CONSENT_VERSION) }).strict().parse(req.body);
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const acceptedAt = new Date();
+      await userRepository.update(userId, { resumeAiConsent: { acceptedAt, version: body.version } });
+      return res.status(200).json({ data: { accepted: true, version: body.version, acceptedAt } });
+    } catch (err) { next(err); }
+  },
+
   async roleSuggestions(req, res, next) {
     try {
       const q = z.string().trim().min(2).max(80).parse(req.query.q || "");
@@ -205,7 +237,7 @@ export const profileController = {
       };
       return res.status(200).json({
         data: {
-          careerProfile,
+          careerProfile: careerProfileSchema.parse(careerProfile),
           profileVersion: profile?.version || 1,
           suggestions: {
             educationLevel: educationLevelSuggestion(profile?.education || []),
@@ -238,6 +270,7 @@ export const profileController = {
     try {
       const input = resumeUploadRequestSchema.parse(req.body);
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      await requireResumeAiConsent(userId);
       const extension = resumeExtension(input.originalFilename, input.mimeType);
       const uploadId = randomUUID();
       const key = `resumes/${userId}/${uploadId}.${extension}`;
@@ -288,6 +321,7 @@ export const profileController = {
           },
         });
       }
+      await requireResumeAiConsent(userId);
       const metadata = await storageService.getObjectMetadata({ key });
       if (
         !Number.isInteger(metadata.contentLength) ||
@@ -365,6 +399,7 @@ export const profileController = {
       }
 
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      await requireResumeAiConsent(userId);
       const result = await processResumeFile({
         req,
         userId,
