@@ -146,15 +146,30 @@ async function ensureSourceRecords() {
     for (const policy of SOURCE_POLICIES) {
       if (!isSourcePolicyComplete(policy))
         throw new Error(`Incomplete source policy: ${policy.key}`);
-      const { termsReference, retentionRule, quotaPolicy } = policy;
       await JobSource.updateOne(
         { key: policy.key },
         { $setOnInsert: policy },
         { upsert: true },
       );
+      const registryPolicy = {
+        displayName: policy.displayName,
+        adapterModule: policy.adapterModule,
+        termsUrl: policy.termsUrl,
+        termsReference: policy.termsReference,
+        attributionText: policy.attributionText,
+        attributionUrl: policy.attributionUrl,
+        retentionDays: policy.retentionDays,
+        retentionRule: policy.retentionRule,
+        staleAfterDays: policy.staleAfterDays,
+        quotaPolicy: policy.quotaPolicy,
+        quota: policy.quota,
+        termsVerifiedAt: policy.termsVerifiedAt,
+        activationRequirements: policy.activationRequirements || [],
+        activationStatus: policy.activationStatus || "terms_verified",
+      };
       await JobSource.updateOne(
         { key: policy.key },
-        { $set: { termsReference, retentionRule, quotaPolicy } },
+        { $set: registryPolicy },
       );
     }
   })();

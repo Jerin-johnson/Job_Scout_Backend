@@ -14,6 +14,8 @@ const JobSourceSchema = new mongoose.Schema(
     retentionDays: { type: Number, required: true, min: 1 },
     retentionRule: { type: String, default: "" },
     quotaPolicy: { type: String, default: "" },
+    activationRequirements: { type: [String], default: [] },
+    activationStatus: { type: String, default: "terms_verified" },
     staleAfterDays: { type: Number, required: true, min: 1 },
     quota: {
       requestsPerDay: { type: Number, required: true, min: 1 },

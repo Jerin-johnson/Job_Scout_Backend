@@ -39,6 +39,28 @@ after(async () => {
   await mongo?.stop();
 });
 
+test("source registry refresh updates verified policy metadata without overriding operator enablement or metrics", async () => {
+  await JobSource.create(makeSource("jobicy", {
+    enabled: true,
+    approved: true,
+    termsUrl: "https://jobicy.com/terms-and-conditions",
+    termsReference: "stale-reference",
+    metrics: { fetched: 17 },
+  }));
+  try {
+    await jobIngestionService.ensureSources();
+    const source = await JobSource.findOne({ key: "jobicy" }).lean();
+    assert.equal(source.termsUrl, "https://jobicy.com/jobs-rss-feed");
+    assert.equal(source.termsReference, "https://jobicy.com/jobs-rss-feed");
+    assert.equal(source.activationStatus, "approved_api_terms_default_disabled");
+    assert.equal(source.enabled, true, "operator enablement is preserved");
+    assert.equal(source.approved, true, "operator approval is preserved");
+    assert.equal(source.metrics.fetched, 17, "run metrics are preserved");
+  } finally {
+    await JobSource.deleteOne({ key: "jobicy" });
+  }
+});
+
 function makeSource(key, overrides = {}) {
   return {
     key,
@@ -245,6 +267,9 @@ test("public catalog excludes disabled or unapproved source records", async () =
     postedAt: new Date(),
     expiresAt: new Date(Date.now() + 86400000),
   });
+  // The migration rollback test intentionally disables configured sources;
+  // restore this source's approved fixture state for this independent query test.
+  await JobSource.updateOne({ key: "remoteok" }, { $set: { enabled: true, approved: true } });
   const result = await jobIngestionService.searchJobs({ q: "Hidden" });
   assert.equal(result.jobs.length, 0);
   assert.deepEqual(
