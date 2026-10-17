@@ -68,6 +68,8 @@ test("source descriptions discard active HTML and bound stored text", () => {
 
 test("only approved source policies with full terms metadata are eligible", () => {
   assert.deepEqual(SOURCE_POLICIES.filter((source) => source.approved && source.enabled).map(({ key }) => key), ["remoteok"]);
+  assert.equal(SOURCE_POLICIES.find((source) => source.key === "jobicy").approved, true);
+  assert.equal(SOURCE_POLICIES.find((source) => source.key === "jobicy").enabled, false, "Jobicy stays disabled by default until explicit operator enablement");
   assert.ok(SOURCE_POLICIES.filter((source) => ["greenhouse", "lever", "ashby", "adzuna-india"].includes(source.key)).every((source) => !source.approved && !source.enabled));
   assert.ok(SOURCE_POLICIES.every(isSourcePolicyComplete));
   assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "adzuna-india")), false);
@@ -75,9 +77,7 @@ test("only approved source policies with full terms metadata are eligible", () =
   assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "remotive")), false);
   assert.equal(isSourceActivationAllowed({ key: "remotive" }), false);
   assert.equal(isSourceActivationAllowed({ key: "remotive", writtenRedistributionPermissionReference: "signed permission" }), true);
-  assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "jobicy")), false);
-  assert.equal(isSourceActivationAllowed({ key: "jobicy" }), false);
-  assert.equal(isSourceActivationAllowed({ key: "jobicy", writtenRedistributionPermissionReference: "signed permission" }), true);
+  assert.equal(isSourceActivationAllowed(SOURCE_POLICIES.find((source) => source.key === "jobicy")), true);
   assert.equal(isSourcePolicyComplete({ key: "new", approved: false, enabled: false, quota: { requestsPerDay: 1 } }), false);
 });
 

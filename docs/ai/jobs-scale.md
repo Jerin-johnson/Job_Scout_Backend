@@ -49,7 +49,7 @@ npm run jobs:storage:apply
 ## Ingestion and search behavior
 
 - New/changed operations are normalized once and written unordered in batches. Unchanged hashes are marked seen in batches. Failed/partial runs do not execute the completed-full-sync stale sweep already present in the worker.
-- Source registry records contain terms URL/reference, attribution, retention rule, quota and verification time. Approval and enablement are separate. Remotive and Jobicy are held disabled pending written redistribution permission; the current general terms conflict with building a catalog of their listings. Existing data is not deleted by this change.
+- Source registry records contain terms URL/reference, attribution, retention rule, quota and verification time. Approval and enablement are separate. Remotive remains disabled pending written redistribution permission. Jobicy's current public API guide permits integrations with attribution and caching; it is approved in policy but remains disabled by default until an operator explicitly enables it for measurement/use. Existing data is not deleted by this change.
 - Remote OK's API requires a followed source link and explicit source attribution ([Remote OK API](https://remoteok.com/api)); per-sync yield and country/occupation distribution still require an executed complete local sync.
 - NAV's feed supports incremental pages, ETag/Last-Modified, and requires immediate removal/update when ads become inactive/changed. It requires a JWT consumer token, which was not supplied, so it remains fixture-only/disabled ([NAV feed docs](https://navikt.github.io/pam-stilling-feed/), [NAV API terms](https://arbeidsplassen.nav.no/vilkar-api)).
 - JobStream is public CC0 and keyless on the official data catalog, with current and historic records described ([Arbetsförmedlingen JobStream](https://data.arbetsformedlingen.se/dataservice/jobstream/)). Its stream/snapshot contract is documented in the official code repository; the full current snapshot is approximately hundreds of MB, so it must be streamed and bounded rather than loaded into memory ([JobStream API guide](https://gitlab.com/arbetsformedlingen/job-ads/jobsearch-apis/-/blob/main/docs/GettingStartedJobStreamEN.md)). No full sync was run in this implementation pass; measured yield remains Unverified.
@@ -60,7 +60,7 @@ npm run jobs:storage:apply
 
 ## Honest reach and current limitations
 
-The local catalog contains 806 records (699 Jobicy, 99 Remote OK, four Remotive, and four mock public-board records); this is a point-in-time local DB count, not a full-sync yield, and Remotive/Jobicy are now held from new ingestion pending written permission. Publicly documented feeds do not equal a globally representative catalog. India-relevant free supply remains particularly uncertain because global remote listings often restrict work authorization and official Indian feeds lack a verified public, redistributable full feed in this repository. A precise count of deduplicated free jobs by country cannot be claimed until complete legal feeds are measured. Adzuna India, NCS/NORKA partnerships, hospital groups, and employers remain the likely licensed/partner channels for material India supply. **Current verified free reachable yield: Unverified**; do not describe 806 as globally reachable.
+The local catalog contains 806 records (699 Jobicy, 99 Remote OK, four Remotive, and four mock public-board records); this is a point-in-time local DB count, not a full-sync yield. Remotive is held from new ingestion pending written permission. Jobicy is approved under its current public API guide but disabled by default until explicitly enabled. Publicly documented feeds do not equal a globally representative catalog. India-relevant free supply remains particularly uncertain because global remote listings often restrict work authorization and official Indian feeds lack a verified public, redistributable full feed in this repository. A precise count of deduplicated free jobs by country cannot be claimed until complete legal feeds are measured. Adzuna India, NCS/NORKA partnerships, hospital groups, and employers remain the likely licensed/partner channels for material India supply. **Current verified free reachable yield: Unverified**; do not describe 806 as globally reachable.
 
 ## Scale benchmark
 
@@ -86,7 +86,7 @@ Incremental paid provider and embedding spend is $0 in this design (no LLM or em
 
 ## Before release
 
-1. Obtain written redistribution permission for Remotive/Jobicy or keep them disabled.
+1. Obtain written redistribution permission for Remotive or keep it disabled; explicitly enable Jobicy only for a measured, approved run using the public keyless API and attribution.
 2. Supply/register a NAV consumer token before enabling its adapter.
 3. Confirm France Travail terms/license before implementing an adapter.
 4. The local additive storage copy and synthetic 100k/500k/1M benchmark were run; repeat both on a representative host before setting production capacity. The storage migration is reversible because legacy fields remain.

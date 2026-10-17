@@ -39,19 +39,19 @@ export const SOURCE_POLICIES = Object.freeze([
     key: "jobicy",
     displayName: "Jobicy",
     adapterModule: "jobicyAdapter.js",
-    // Public API access is documented, but the current general terms prohibit
-    // storing/re-distributing Jobicy materials without prior written consent.
-    approved: false,
+    // The current official API guide permits integration use with attribution.
+    // Keep the registry disabled by default; enable only for explicit local
+    // measurement or after the operator approves the source in production.
+    approved: true,
     enabled: false,
-    activationRequirements: ["written_redistribution_permission"],
-    activationStatus: "blocked_on_terms",
-    termsUrl: "https://jobicy.com/terms-and-conditions",
+    activationStatus: "approved_api_terms_default_disabled",
+    termsUrl: "https://jobicy.com/jobs-rss-feed",
     attributionText: "Jobicy",
     attributionUrl: "https://jobicy.com/",
     retentionDays: 14,
     staleAfterDays: 7,
     quota: { requestsPerDay: 24, intervalMs: 3600000, timeoutMs: 15000, maxRetries: 2 },
-    termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
+    termsVerifiedAt: new Date("2026-10-17T00:00:00.000Z"),
   },
   ...["greenhouse", "lever", "ashby"].map((key) => ({
     key,
@@ -115,7 +115,7 @@ export function isSourceEnabledByEnvironment(sourceKey, config = env) {
 // Adzuna's terms require a licensed commercial arrangement/strict display attribution;
 // ordinary admin approval is intentionally insufficient to activate it.
 export function isSourceActivationAllowed(source) {
-  if (["remotive", "jobicy"].includes(source?.key)) return Boolean(source?.writtenRedistributionPermissionReference);
+  if (source?.key === "remotive") return Boolean(source?.writtenRedistributionPermissionReference);
   if (source?.key !== "adzuna-india") return true;
   return Boolean(source?.commercialLicenseReference && source?.attributionBadgeVerified && source?.storageDisplayTermsReviewed);
 }
