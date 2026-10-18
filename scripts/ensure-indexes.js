@@ -46,14 +46,20 @@ async function previewIndexSync(retentionDays) {
         const currentIndexes = await model.collection.indexes().catch(() => []);
         return model.schema.indexes().flatMap(([keys, options]) => {
           const name =
-            options.name || Object.entries(keys).map(([key, direction]) => `${key}_${direction}`).join("_");
-          const current = currentIndexes.find((index) => index.name === name);
-          const sameDefinition =
-            current &&
-            JSON.stringify(current.key) === JSON.stringify(keys) &&
-            Boolean(current.unique) === Boolean(options.unique) &&
-            current.expireAfterSeconds === options.expireAfterSeconds;
-          return sameDefinition ? [] : [{ collection: model.collection.collectionName, name }];
+            options.name ||
+            Object.entries(keys)
+              .map(([key, direction]) => `${key}_${direction}`)
+              .join("_");
+          const matchingIndex = currentIndexes.find(
+            (index) =>
+              JSON.stringify(index.key) === JSON.stringify(keys) &&
+              Boolean(index.unique) === Boolean(options.unique) &&
+              Boolean(index.sparse) === Boolean(options.sparse) &&
+              index.expireAfterSeconds === options.expireAfterSeconds &&
+              JSON.stringify(index.partialFilterExpression || null) ===
+                JSON.stringify(options.partialFilterExpression || null),
+          );
+          return matchingIndex ? [] : [{ collection: model.collection.collectionName, name }];
         });
       }),
     )
