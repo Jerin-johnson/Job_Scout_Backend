@@ -6,6 +6,14 @@ Last verified against commit `feat/data-supply` worktree on 2026-10-18.
 
 Entries below describe changes implemented on the feature branch.
 
+## 2026-10-18 — beta operations readiness
+
+- Corrected worker shutdown registration and made API shutdown await HTTP drain before dependencies close.
+- Added Sentry event scrubbing for request bodies, sensitive fields, and URL query strings.
+- Added authenticated, text-only user feedback with per-user rate limiting, 180-day retention, export, and account-deletion coverage.
+- Documented production configuration review and isolated Compose backup/restore; restore rehearsal remains unverified.
+- Added official-source staging/beta hosting comparison with workload assumptions and Kerala-region checks.
+
 ## 2026-10-18 — `feat/data-supply`
 
 - Added opt-in, count-only job interaction analytics with versioned consent, export/deletion coverage, and a 180-day retention index.

@@ -42,6 +42,16 @@ export const generalApiLimiter = rateLimit({
   },
 });
 
+export const feedbackLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createStore("feedback"),
+  keyGenerator: (req) => `feedback:user:${req.user?._id || req.user?.id || req.ip}`,
+  handler: (req, res) => res.status(429).json({ error: { code: "FEEDBACK_RATE_LIMITED", message: "You have reached the feedback limit. Please try again later.", requestId: req.id || "req_unknown" } }),
+});
+
 /**
  * Strict Auth Limiter: 10 attempts per 15 minutes per IP (login, register, forgot password)
  */

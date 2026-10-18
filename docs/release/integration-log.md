@@ -89,11 +89,17 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 
 - Re-verified registry gates: Jobicy remains disabled by default and requires the ENABLE_JOBICY_INGESTION gate plus approved registry state; Remotive activation requires a written redistribution permission reference. Job cards render linked source attribution from the catalog source metadata. JobStream, NAV, France Travail and ATS sources stay disabled in the source policy.
 - Added owner-reviewed outreach drafts for Fantastic.jobs, NCS, NORKA, and Remotive. No outreach sent and no sources enabled.
-- Validation: existing Jobicy/Remotive gate coverage in 	ests/job-source-adapters.test.js; 
-pm run docs:check is being run.
+- Validation: source-gate adapter tests and `npm run docs:check` passed.
 
 ## Beta readiness item 3 — coverage reporting — 2026-10-18
 
 - Admin coverage now reports active deduplicated inventory by occupation, country, source, remote scope, freshness, eligibility confidence, and target segment gap. Zero-result users are counted only from consented pseudonymous analytics in the 30-day window; this is not a complete per-user eligibility census.
 - Added a responsive admin summary and caution flags for old postings and possible reposts. Link health remains sampled to at most 100 records and one status request/source/day where the adapter supports batch checks.
 - Validation: backend Mongo catalog integration 19/19 passed; frontend tests 47/47 and lint passed. Precise entry-level, verified-employer and all-user eligible counts remain limited by source fields/consent.
+
+## Beta readiness item 6 — operational and feedback hardening — 2026-10-18
+
+- API shutdown now awaits HTTP drain; worker cleanup is registered before signal handling. Added Sentry before-send redaction for payloads, sensitive fields, and URL query strings.
+- Added authenticated text-only feedback at `POST /api/v1/feedback`, five submissions/hour/user, 180-day TTL, export and account-deletion coverage, plus Settings UI and API receipt schema. Feedback body is redacted from request logs.
+- Added production configuration checklist and isolated local Mongo/Redis backup/restore runbook. Health live/readiness already existed. Docker CLI exists but Docker Desktop's Linux engine pipe is unavailable, so compose smoke and backup/restore rehearsal could not run.
+- Validation: backend full suite 197 passed, 0 failed, 1 optional skip; lint 0 errors/2 existing warnings; OpenAPI generated; docs check passed. Frontend full suite 48/48, lint and docs check passed. Feedback UI/API was contract-tested; no live server session was used.

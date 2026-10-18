@@ -8,6 +8,8 @@ Shared invocation, metering, source registry, deterministic job scoring, chat st
 
 The data-supply branch adds a local company-master backfill, review-only ATS candidate harvesting, occupation labeling-sheet scorer, opt-in interaction telemetry, and fixture-only licensed-feed/government-notice scaffolding. No vendor is connected or enabled. The JobStream live measurement is currently unverified due the source endpoint timing out/DNS failure in the available network.
 
+Beta-readiness additions now include a Settings feedback form/API, consented coverage summary, cache invalidation version, health probes, worker/API shutdown cleanup, Sentry event redaction, and hosting/operations documentation. The feedback and redaction behavior has automated coverage; live deployment remains unverified. The Docker daemon was unavailable for compose backup/restore rehearsal.
+
 ## Target design (not built yet)
 
 | Decision                                     | Prerequisite                                                             | Main risk                              | Cost note                                                 | Decision needed                                  |
@@ -23,3 +25,5 @@ The data-supply branch adds a local company-master backfill, review-only ATS can
 No roadmap item is implemented by this documentation. No estimates beyond measured BSON and catalog token rates are asserted.
 
 **Unverified:** roadmap priority, target scale and product decisions. Obtain explicit approval before starting any listed item.
+
+**Owner decisions:** complete the stratified 300-title occupation review; decide whether to download/import GeoNames and O*NET once a verified local package and rollback path are available; select staging host only after measuring Kerala p95 and checking Redis `noeviction`/persistence; run the isolated Compose restore rehearsal; verify deployed Sentry settings.

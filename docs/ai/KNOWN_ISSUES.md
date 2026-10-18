@@ -15,6 +15,11 @@ Known evidence gaps are listed below; they describe validation limits, not sourc
 - ESCO exact-release licensing and import are **Unverified**; no reference dataset was downloaded. GeoNames and O*NET license notes are in `data-supply-strategy.md`.
 - No approved source currently provides a measured India/Kerala nursing catalog target. Current indexed counts are local snapshots, not total market yield.
 - Runtime Redis, worker health, S3 configuration, and production source switches must be verified in the target deployment; this local task did not access production.
+- The 300-row occupation review sheet has no human-corrected labels; it cannot provide per-family precision/recall yet. The independent 100-title fixture is not a substitute for the requested stratified 300-row review.
+- GeoNames and O*NET licenses were reviewed, but no release was downloaded or imported in this run. Local additive import and rollback evidence remain pending.
+- Docker is installed, but the Compose stack health and backup/restore rehearsal are **Unverified** until the owner runs the local stack commands in `docs/operations/backup-restore.md`.
+- Stale listing share has not been measured from the current local catalog. Sampled source link checks and advisory age/repost flags exist; the current sample report is pending.
+- Feedback submission is authenticated, text-only, limited to five submissions/hour/user, included in export/deletion, and retained for up to 180 days. Production Sentry deployment verification remains **Unverified**.
 
 ## Target design (not built yet)
 
