@@ -38,3 +38,11 @@ Max output tokens and retry details are recorded at each callsite and in feature
 Assign stable IDs/immutable versions to all prompts and record them per usage event. Maintain variables, untrusted input sources, schemas, token budgets, defenses, eval links, owner and change history. Use the [new brief template](prompts-and-briefs/brief-template.md).
 
 **Unverified:** prompt history before current Git commits and provider prompt-cache behavior. Check Git history and provider telemetry before defining migration.
+# Job-specific resume-match suggestions
+
+- **Version:** `resume-match-suggestions-v1`.
+- **Code identifier:** `RESUME_MATCH_PROMPT_VERSION`.
+- **Path:** `src/controllers/resumeMatchController.js` through shared `invokeLLM`.
+- **Inputs:** bounded normalized requirements and at most 25 compact candidate facts verified against the selected resume text; no raw resume or complete job description.
+- **Output:** strict schema with requirement, placement, wording, fact ID, and `onlyIfTrue: true`.
+- **Safety and cost:** explicit resume-AI consent, shared quota/metering, paid personal-data-policy model only, untrusted-data delimiters, grounded fact/requirement filtering, and per-report caching. Deterministic matching itself has no LLM call.

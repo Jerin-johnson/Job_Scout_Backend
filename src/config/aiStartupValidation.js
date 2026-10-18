@@ -30,7 +30,7 @@ export function effectiveDataPolicy(provider, config = env) {
 export function personalDataPolicyError(provider, modelId, feature, config = env) {
   const personalDataFeatures = new Set([
     "chat", "resume_parse", "extract", "tailor_resume", "interview_prep",
-    "mock_interview", "mock_interview_trial", "application_chat",
+    "mock_interview", "mock_interview_trial", "application_chat", "resume_match_suggestions",
   ]);
   if (config.NODE_ENV !== "production" || !config.AI_BLOCK_UNPAID_PERSONAL_DATA || !personalDataFeatures.has(feature)) {
     return null;

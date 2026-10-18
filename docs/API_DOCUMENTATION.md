@@ -130,6 +130,10 @@ sequenceDiagram
 
 ## 3. Complete Endpoint Reference
 
+#### `GET /api/v1/jobs/catalog/:id`
+
+Returns one active catalog listing. When ingestion has verified an exact shared `groupKey`, `data.job.alsoListedOn` contains up to 10 alternate source labels and URLs. Source records remain separate; approximate similarity alone never creates a cross-source link.
+
 ### 3.1. Health & Operations
 
 #### `GET /health/live`
@@ -441,6 +445,18 @@ The existing multipart endpoint below remains available for compatibility and lo
 
 ---
 
+### 3.3.1. Job-specific resume matching (`/api/v1/resume-match`)
+
+All endpoints require authentication and CSRF protection for mutations. Reports are scoped to the current user and selected resume. A missing/foreign resource returns 404.
+
+- `POST /reports` accepts `{ resumeId, job }` where `job` is one of `{ type: "catalog", jobId }`, `{ type: "application", applicationId, description? }`, or `{ type: "pasted", title, company?, description }`. Arbitrary URLs are not fetched. The same owner/resume/job/version returns the existing report.
+- `GET /reports` returns up to 100 reports for the current user; `GET /reports/:id` reads one owner-scoped report.
+- `PATCH /reports/:id/ignored-keywords` accepts `{ ignoredKeywords: string[] }` drawn from the report's requirement groups and recalculates its deterministic score.
+- `POST /reports/:id/suggestions` returns cached or newly generated, schema-validated, fact-grounded optional wording suggestions. It requires current resume-AI consent, an allowed personal-data model policy, and quota. A blocked/over-quota suggestion does not remove the deterministic report.
+- `DELETE /reports/:id` removes an owned report.
+
+Reports identify `scoreVersion` (`resume-match-v1`), match groups, requirement checklist, evidence, ATS-readiness checks, resume choices, and creation time. A match score is an estimate and is not an ATS pass probability. See [resume-match research](ai/resume-match-research.md).
+
 ### 3.4. AI Router & Streaming Chat (`/api/v1/ai`)
 
 #### `POST /api/v1/ai/route`
@@ -576,7 +592,7 @@ Returns the authenticated user's currently selectable chat models. The list is c
 
 #### `GET /api/v1/jobs/catalog`
 
-- **Purpose**: Searches active, non-expired listings indexed from approved, enabled feeds (currently Remote OK, Remotive, and Jobicy). The catalog is not the whole internet. Source metadata includes `indexedCount` for each enabled feed.
+- **Purpose**: Searches active, non-expired listings from enabled feeds. Remote OK is visible by default; Jobicy requires the local opt-in flag and Remotive remains blocked pending written redistribution permission. The catalog is not the whole internet. Source metadata includes `indexedCount` for each enabled feed.
 - **Query**: Optional `q`, `location`, `countryCode` (two-letter code), `source`, `remoteType` (`remote|hybrid|onsite`), `page` (default 1), `limit` (default 20, max 50).
 - **Response**: `{ "data": { "jobs": [], "total": 0, "page": 1, "limit": 20, "pages": 0, "sources": [] } }`. Each result includes `jobId`, role/company, source board, source attribution, posted date, and original listing URL where available.
 

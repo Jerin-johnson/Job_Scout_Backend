@@ -124,6 +124,7 @@ export async function invokeLLM({
   modelId = null,
   requestId = null,
   onUsage = null,
+  featureQuotaAccepted = false,
 }) {
   const start = performance.now();
   requestId ||= randomUUID();
@@ -145,7 +146,7 @@ export async function invokeLLM({
     (approximateTokens(messages) * rate.inputUsdPerMillion) +
     (maxTokens * rate.outputUsdPerMillion)
   ) / 1_000_000;
-  if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd });
+  if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd, featureQuotaAccepted });
   else await quotaService.assertAIEnabled();
 
   // 4. Check if live Anthropic key is available or in mock/offline mode

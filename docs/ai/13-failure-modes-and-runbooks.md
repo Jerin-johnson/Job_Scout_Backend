@@ -1,5 +1,12 @@
 # 13 — Failure modes and runbooks
 
+## Resume match failures
+
+- `RESUME_AI_CONSENT_REQUIRED`: the user must accept the current resume-AI processing consent before matching. Deterministic reports still require that consent because decrypted resume text is processed.
+- `RESUME_NOT_FOUND` / `APPLICATION_NOT_FOUND` / `JOB_NOT_FOUND`: owner-scoped or catalog resource lookup failed; responses deliberately do not disclose another user's records.
+- `AI_PERSONAL_DATA_PROVIDER_BLOCKED`: optional suggestions are unavailable because the configured model policy is not permitted for personal resume data. The deterministic report remains available.
+- Suggestions unavailable because quota/provider policy is closed: retry later; the saved report and deterministic score remain intact. Do not paste resume content or provider payloads into application logs.
+
 Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
