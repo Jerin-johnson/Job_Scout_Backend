@@ -8,7 +8,7 @@
 
 ## Commits
 
-Format: `type(scope): subject`. Allowed types: `feat fix docs style refactor perf test build ci chore revert`. Scopes: `jobs resume applications interviews chat profile ai infra docs deps release`. Subject limit: 72 characters, imperative, no trailing period. Breaking changes include `!` after type/scope and a `BREAKING CHANGE:` footer. Merge commits must use this same format, e.g. `chore(release): merge development into main`; `merge: ...` is prohibited. Lint only newly created commits, never old history.
+Format: `type(scope): subject`. Allowed types: `feat fix docs style refactor perf test build ci chore revert`. Scopes: `jobs resume applications interviews chat profile ai infra docs deps release`. Subject limit: 72 characters, imperative, no trailing period. Breaking changes include `!` after type/scope and a `BREAKING CHANGE:` footer. Merge commits must use this same format, e.g. `chore(release): merge development into main`; `merge: ...` is prohibited. Lint only newly created commits after `commit-baseline.txt`; when starting a new branch, set it to the branch point first. Existing history is never rewritten or retroactively linted.
 
 ## Definition of done
 

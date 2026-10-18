@@ -49,3 +49,10 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added a cross-platform branch/commit standard, official-reference summary, GitHub ruleset instructions, hook troubleshooting, and owner-only release checklist in both repositories.
 - Hook install remains intentionally unverified until the owner installs Husky, lint-staged, and commitlint; no package manifest dependencies or lockfiles were changed.
 - Sources accessed 2026-10-18: Husky setup/how-to, lint-staged README, commitlint CI setup, GitHub rulesets and Actions security hardening, Git attributes. See each repository's `docs/engineering/git-standards-research.md` for URLs.
+
+## Hook and CI scaffolding — 2026-10-18
+
+- Added Husky v9 hook scripts, lint-staged and commitlint configs, staged/outgoing secret and forbidden-path scanner, branch/commit validation, CI workflows pinned to full action SHAs, PR templates, CODEOWNERS placeholders, and GitHub branch ruleset docs in both repos.
+- Added `docs/engineering/commit-baseline.txt` to validate only commits introduced after the captured feature-branch baseline (backend `9c2cf309...`, frontend `a2dd0303...`). Existing commit history is untouched.
+- No hook dependencies or lockfiles were edited. Hook state remains unverified until owner installation.
+- Backend lint: 0 errors, 2 existing warnings; docs check passed; secret scan passed. Frontend lint passed, test suite 47/47 passed, docs link check passed, and secret scan passed. Existing whole-repo Prettier check is not a gate because it reports 97 pre-existing formatting differences.

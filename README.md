@@ -12,3 +12,5 @@ Node.js/Express API and BullMQ worker for the JobScout career workspace. The fro
 See [AI system documentation](docs/ai/README.md) for implementation details, limits, failure behavior, and target designs. See [local setup](docs/operations/local-setup.md) and [environment variables](docs/operations/environment-variables.md) before configuring integrations. Existing detailed documents under `docs/` are retained; the AI index identifies current verified sources.
 
 Git branch and commit conventions: [engineering standards](docs/engineering/standards.md). Hooks are unverified until the owner installs them; see [hooks](docs/engineering/hooks.md) and [local setup](docs/operations/local-setup.md).
+
+Engineering standards and local hooks: [standards](docs/engineering/standards.md), [hooks](docs/engineering/hooks.md), [branch protection](docs/engineering/branch-protection.md).

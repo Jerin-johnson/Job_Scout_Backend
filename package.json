@@ -67,7 +67,16 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
-    "format:fix": "prettier --write ."
+    "format:fix": "prettier --write .",
+    "prepare": "node scripts/prepare-hooks.mjs",
+    "verify": "npm run lint && npm test && npm run docs:check",
+    "verify:push": "node scripts/verify.mjs push",
+    "verify:release": "node scripts/verify.mjs release",
+    "scan:secrets": "node scripts/scan-secrets.mjs working",
+    "check:branch-name": "node scripts/check-branch-name.mjs",
+    "stack:up": "node scripts/stack.mjs up",
+    "stack:down": "node scripts/stack.mjs down",
+    "smoke:compose": "node scripts/stack.mjs smoke"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",

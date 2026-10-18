@@ -1,0 +1,6 @@
+branch=$(git branch --show-current)
+if [ "$branch" = "main" ] || [ "$branch" = "development" ]; then
+  npm run verify:release
+else
+  npm run verify:push
+fi
