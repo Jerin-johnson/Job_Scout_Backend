@@ -12,9 +12,12 @@ import { getMatchRefresh, requestMatchRefresh } from "../services/matchRefreshSe
 import { profileRepository } from "../repositories/profileRepository.js";
 import { MATCH_SCORE_VERSION, scoreJobMatch, extractJobFeatures } from "../services/jobs/matching.js";
 import { Job } from "../models/Job.js";
+import { JobDetail } from "../models/JobDetail.js";
+import { JobVector } from "../models/JobVector.js";
 import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
+import { recordInteraction, recordImpressions } from "../services/jobs/interactionEvents.js";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
@@ -138,19 +141,23 @@ export const jobController = {
     try {
       const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
       const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+      const cursor = String(req.query.cursor || "").slice(0, 512);
       const filters = {
         q: String(req.query.q || "").trim(),
         location: String(req.query.location || "").trim(),
         countryCode: String(req.query.countryCode || "").trim(),
         source: String(req.query.source || "").trim(),
         remoteType: String(req.query.remoteType || "").trim(),
+        occupation: String(req.query.occupation || "").trim(),
+        eligibility: String(req.query.eligibility || "").trim(),
+        postedWithinDays: Math.min(365, Math.max(0, Number.parseInt(req.query.postedWithinDays, 10) || 0)),
         minimumSalaryInr: req.query.minimumSalaryInr === undefined ? null : Number(req.query.minimumSalaryInr),
         showAnyway: req.query.showAnyway === "true",
       };
       const userId = req.user._id || req.user.id;
       const hiddenJobIds = await HiddenJob.distinct("jobId", { userId });
       const profile = await profileRepository.findByUserId(userId);
-      const result = await jobIngestionService.searchJobs({ ...filters, eligibilityCountryCodes: profileApplicantCountries(profile || {}), page, limit, excludeJobIds: hiddenJobIds });
+      const result = await jobIngestionService.searchJobs({ ...filters, eligibilityCountryCodes: profileApplicantCountries(profile || {}), page, cursor, limit, excludeJobIds: hiddenJobIds });
       if (["admin", "super_admin"].includes(req.user.role)) {
         const sourceBudgets = await jobIngestionService.sourceBudgets();
         result.worker = sourceBudgets[0]?.worker || { online: false, status: "offline", lastSeenAt: null };
@@ -165,8 +172,9 @@ export const jobController = {
           const amountMax = salary?.max ?? salaryRange?.max;
           const currency = salary?.currency || salaryRange?.currency;
           const targetCurrency = profile?.careerProfile?.compensation?.currencyCode || (profileApplicantCountry(profile) === "IN" ? "INR" : currency);
+          const { rawDescription: _rawDescription, requirements: _requirements, provenance: _provenance, ...publicJob } = job;
           const mapped = {
-            ...job,
+            ...publicJob,
             ...(match || {}),
             eligibility: match?.eligibility || classifyEligibility(job, profile || {}).status,
             eligibilityDetails: match?.eligibilityDetails || classifyEligibility(job, profile || {}),
@@ -185,6 +193,9 @@ export const jobController = {
           return mapped;
         });
         if (req.query.sort === "best-match") result.jobs.sort((a, b) => b.score - a.score);
+        const analyticsConsented = req.user.jobAnalyticsConsent?.version === "job-analytics-v1";
+        await recordImpressions(userId, result.jobs, analyticsConsented);
+        if (result.jobs.length === 0) await recordInteraction({ userId, consented: analyticsConsented, event: "zero_result", source: filters.source || "mixed", occupation: filters.occupation || "unknown", country: filters.countryCode || "unknown" });
       }
       res.status(200).json({ data: result });
     } catch (err) {
@@ -195,9 +206,26 @@ export const jobController = {
   async getJobDetails(req, res, next) {
     try {
       if (!mongoose.isValidObjectId(req.params.id)) return res.sendStatus(404);
-      const job = await Job.findOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }).select("-embedding -rawPayload").lean();
+      let job = await Job.findOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }).select("-embedding -rawPayload").lean();
       if (!job) return res.sendStatus(404);
+      const canonicalJob = job.canonicalJobId
+        ? await Job.findOne({ _id: job.canonicalJobId, status: "active", expiresAt: { $gt: new Date() } })
+            .select("sourceBoard sourceUrl canonicalUrl variants")
+            .lean()
+        : job;
+      const variantLinks = [
+        ...(canonicalJob?._id && String(canonicalJob._id) !== String(job._id)
+          ? [{ source: canonicalJob.sourceBoard, url: canonicalJob.sourceUrl || canonicalJob.canonicalUrl || "" }]
+          : []),
+        ...(canonicalJob?.variants || []),
+      ];
+      const alsoListedOn = variantLinks
+        .filter((variant) => variant.source !== job.sourceBoard || variant.url !== (job.sourceUrl || job.canonicalUrl || ""))
+        .slice(0, 10);
+      const detail = await JobDetail.findOne({ jobId: job._id, expiresAt: { $gt: new Date() } }).select("description requirements provenance").lean();
+      if (detail) job = { ...job, rawDescription: detail.description, requirements: detail.requirements, provenance: detail.provenance };
       const userId = req.user._id || req.user.id;
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "click", source: job.sourceBoard, occupation: job.occupation, country: job.structuredLocation?.countryCode });
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;
       const eligibilityDetails = classifyEligibility(job, profile || {});
@@ -228,7 +256,7 @@ export const jobController = {
         const titleSame = job.features?.occupation && features.occupation === job.features.occupation ? 3 : 0;
         return { ...item, _similarity: shared + titleSame };
       }).sort((a, b) => b._similarity - a._similarity).slice(0, 3).map(({ _similarity, ...item }) => item);
-      res.json({ data: { job: { ...job, eligibility: match?.eligibility || eligibilityDetails.status, eligibilityDetails: match?.eligibilityDetails || eligibilityDetails, riskFlags: getJobRiskFlags(job), salaryDisplay }, match, similarJobs, companyInfoProvided: Boolean(job.companyDescription || job.companyWebsite || job.industry) } });
+      res.json({ data: { job: { ...job, alsoListedOn, eligibility: match?.eligibility || eligibilityDetails.status, eligibilityDetails: match?.eligibilityDetails || eligibilityDetails, riskFlags: getJobRiskFlags(job), salaryDisplay }, match, similarJobs, companyInfoProvided: Boolean(job.companyDescription || job.companyWebsite || job.industry) } });
     } catch (err) { next(err); }
   },
 
@@ -237,6 +265,8 @@ export const jobController = {
       if (!mongoose.isValidObjectId(req.params.id)) return res.sendStatus(404);
       const result = await Job.updateOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }, { $inc: { applyClickCount: 1 } });
       if (!result.matchedCount) return res.sendStatus(404);
+      const job = await Job.findById(req.params.id).select("sourceBoard occupation structuredLocation.countryCode").lean();
+      await recordInteraction({ userId: req.user._id || req.user.id, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "apply_click", source: job?.sourceBoard, occupation: job?.occupation, country: job?.structuredLocation?.countryCode });
       res.status(204).end();
     } catch (err) { next(err); }
   },
@@ -248,6 +278,8 @@ export const jobController = {
       if (!job) return res.sendStatus(404);
       const userId = req.user._id || req.user.id;
       await HiddenJob.updateOne({ userId, jobId: job._id }, { $setOnInsert: { userId, jobId: job._id } }, { upsert: true });
+      const details = await Job.findById(job._id).select("sourceBoard occupation structuredLocation.countryCode").lean();
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "hide", source: details?.sourceBoard, occupation: details?.occupation, country: details?.structuredLocation?.countryCode });
       res.status(204).end();
     } catch (err) { next(err); }
   },
@@ -292,6 +324,9 @@ export const jobController = {
         getMatchRefresh(userId, req.user.profileVersion || 1),
         Job.find({ status: "active", expiresAt: { $gt: new Date() } }).select("title features").lean(),
       ]);
+      const candidatesWithEmbeddings = jobs.length
+        ? await JobVector.countDocuments({ jobId: { $in: jobs.map((job) => job._id).filter(Boolean) } })
+        : 0;
       const embedding = (await import("../services/embeddingService.js")).embeddingService.getConfig();
       const availableScores = scored.filter((item) => !item.hardBlocked);
       const scoreDistribution = Array.from({ length: 10 }, (_, index) => ({
@@ -320,7 +355,7 @@ export const jobController = {
         candidateCap: retrieval.candidateCap,
         lexicalCandidates: retrieval.lexicalCandidateCount,
         afterLocationTiering: tiered.length,
-        candidatesWithEmbeddings: jobs.filter((job) => job.embedding?.length).length,
+        candidatesWithEmbeddings,
         profileEmbeddingAvailable: false,
         embeddingProvider: embedding.provider,
         embeddingModel: embedding.model,
@@ -402,6 +437,9 @@ export const jobController = {
           confidence: 0.85,
         });
       }
+
+      const matchedJob = updated.jobId && mongoose.isValidObjectId(updated.jobId) ? await Job.findById(updated.jobId).select("sourceBoard occupation structuredLocation.countryCode").lean() : null;
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "match_feedback", source: matchedJob?.sourceBoard, occupation: matchedJob?.occupation, country: matchedJob?.structuredLocation?.countryCode, scoreBand: updated.scoreBand });
 
       res.status(200).json({
         data: {

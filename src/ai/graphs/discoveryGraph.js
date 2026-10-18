@@ -9,7 +9,7 @@ import { scoreJobMatch, MATCH_SCORE_VERSION, extractJobFeatures } from "../../se
 import { HiddenJob } from "../../models/HiddenJob.js";
 import { PLACE_SUGGESTIONS } from "../../services/profileSuggestionCatalog.js";
 import { profileApplicantCountries } from "../../services/jobs/eligibility.js";
-import { latestEcbReferenceRates } from "../../services/jobs/fxRates.js";
+import { latestReferenceRates } from "../../services/jobs/fxRates.js";
 
 const inMemoryMatches = [];
 
@@ -221,7 +221,7 @@ export const discoveryGraph = {
           : bestTier === 3
             ? `No jobs in ${preferredLocation} yet. Showing remote roles; confirm location eligibility before applying.`
             : `No jobs in ${preferredLocation} yet. Showing global remote roles.`;
-    const fxRates = MATCH_SCORE_VERSION === "lexical-v4" ? await latestEcbReferenceRates().catch(() => null) : null;
+    const fxRates = MATCH_SCORE_VERSION === "lexical-v4" ? await latestReferenceRates().catch(() => null) : null;
     const scoredCandidates = tiered.map((job) => {
       const result = scoreJobMatch(profile, { ...job, locationTier: job.locationTier }, { ratesPerEur: fxRates?.ratesPerEur || null });
       return { job, ...result };

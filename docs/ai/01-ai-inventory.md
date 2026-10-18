@@ -1,6 +1,6 @@
 # 01 — AI call-site inventory
 
-Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16.
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 
@@ -23,6 +23,14 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 | Provider embedding calls src/services/embeddingService.js:115,218      | Direct vendor call inside shared embeddingService; not invokeLLM | configured OpenAI/Voyage model                   | text → numeric vectors                                                | provider call                                         | bounded transient retry                                     | metering and kill switch in enclosing service                |
 
 No direct provider LLM calls were found outside provider adapters and src/ai/llm.js. Embedding SDK calls do not use invokeLLM because it is a chat-model boundary; the dedicated embeddingService applies shared quota/metering. src/ai/router.js is used in chat but does not execute real tools. Matching is deterministic and LLM-free.
+
+## Job-specific resume match (2026-10-17)
+
+`src/controllers/resumeMatchController.js` calls shared `invokeLLM` only for optional `RESUME_MATCH_PROMPT_VERSION` (`resume-match-suggestions-v1`) suggestions. `resume-match-v1` adds a deterministic on-demand match report for a selected resume and a catalog job, owned application, or explicitly pasted description. It does not fetch arbitrary URLs or call an LLM for scoring. Resume term indexes cache by owner, file content hash, and score version; report identity includes the normalized job hash. Optional AI wording suggestions are separately consent/quota/model-policy guarded, and receive only bounded requirements plus facts grounded in the selected resume.
+
+The catalog emits bounded job interaction events only after separate user opt-in. Events are aggregated for the admin coverage endpoint; analytics collection is off by default per user.
+
+Local-only Phase 3 utilities include `jobs:match:preview` (read-only top-20 profile match), `jobs:eligibility:distribution` (read-only country/scope counts), `jobs:bson:measure` (read-only BSON size sampling), and `jobs:ats:validate`/`jobs:ats:import` (bounded public-board verification and pending-only local import). The first three require a loopback Mongo URI; no personal resume text or model prompts are emitted.
 
 ## Target design (not built yet)
 

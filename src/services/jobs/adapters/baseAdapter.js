@@ -17,6 +17,23 @@ export function sourceDescriptionText(value) {
     .slice(0, 24000);
 }
 
+export function normalizeCanonicalJobUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    url.hash = "";
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_[a-z]+|ref|source|tracking|trk|campaign|gh_src)$/i.test(key)) url.searchParams.delete(key);
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    url.searchParams.sort();
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
 export class BaseJobAdapter {
   constructor({ key, displayName, capabilities, intervalMs = 86400000, timeoutMs = 10000, maxRetries = 2 } = {}) {
     this.name = key;
@@ -31,10 +48,19 @@ export class BaseJobAdapter {
 
   generateIdentity({ source = this.name, sourceJobId, canonicalUrl, title, company, location }) {
     const sourceId = String(sourceJobId || "").trim();
-    const url = String(canonicalUrl || "").trim().toLowerCase().replace(/\/$/, "");
+    const url = normalizeCanonicalJobUrl(canonicalUrl);
     const normalize = (value) => String(value || "").normalize("NFKC").toLowerCase().trim().replace(/\s+/g, " ");
     const fallback = `${normalize(company)}|${normalize(title)}|${normalize(location) || "unknown"}`;
     return computeSha256(sourceId ? `${source}:${sourceId}` : url ? `${source}:${url}` : `${source}:${fallback}`);
+  }
+
+  generateGroupKey({ canonicalUrl, company, title, location, employmentType = "", postedAt = null }) {
+    const url = normalizeCanonicalJobUrl(canonicalUrl);
+    if (url) return computeSha256(`canonical:${url}`);
+    const normalize = (value) => String(value || "").normalize("NFKC").toLowerCase().trim().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const postedDay = postedAt ? new Date(postedAt).toISOString().slice(0, 10) : "unknown-date";
+    const entity = [company, title, location, employmentType, postedDay].map(normalize).join("|");
+    return entity.replaceAll("|", "") ? computeSha256(`entity:${entity}`) : "";
   }
 
   generateContentHash(job) {

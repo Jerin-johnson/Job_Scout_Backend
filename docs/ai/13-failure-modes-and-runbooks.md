@@ -1,6 +1,13 @@
 # 13 — Failure modes and runbooks
 
-Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10-16.
+## Resume match failures
+
+- `RESUME_AI_CONSENT_REQUIRED`: the user must accept the current resume-AI processing consent before matching. Deterministic reports still require that consent because decrypted resume text is processed.
+- `RESUME_NOT_FOUND` / `APPLICATION_NOT_FOUND` / `JOB_NOT_FOUND`: owner-scoped or catalog resource lookup failed; responses deliberately do not disclose another user's records.
+- `AI_PERSONAL_DATA_PROVIDER_BLOCKED`: optional suggestions are unavailable because the configured model policy is not permitted for personal resume data. The deterministic report remains available.
+- Suggestions unavailable because quota/provider policy is closed: retry later; the saved report and deterministic score remain intact. Do not paste resume content or provider payloads into application logs.
+
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 
@@ -22,6 +29,8 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 | Salary conversion unavailable                   | ECB refresh failed or the stored rate is stale/missing.                                       | Keep original pay visible, show rate date when available, and use the last saved rate; never fetch per request.       |
 | ATS board not ingested                           | Source is disabled/unapproved, company request is pending, or per-source quota is exhausted.  | Review the exact board and source terms, then approve both company and source separately.                             |
 | Adzuna blocked                                    | License/attribution/storage gates are incomplete.                                             | Leave disabled; review the checklist in `17-phase3-job-quality.md` before asking for activation.                      |
+| Local profile preview unavailable                 | The configured MongoDB endpoint is unreachable or is not loopback.                            | Use `npm run jobs:match:preview -- scripts/fixtures/match-preview.json` against a local development database only.   |
+| Local eligibility report unavailable              | Local MongoDB is stopped or sandbox/network access denies loopback.                           | Start the local DB and rerun `npm run jobs:eligibility:report`; never substitute production credentials.             |
 
 ## Target design (not built yet)
 

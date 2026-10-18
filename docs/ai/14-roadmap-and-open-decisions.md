@@ -6,6 +6,8 @@ Last verified against commit a519e3673d2e02c2ab556d71296db57167544713 on 2026-10
 
 Shared invocation, metering, source registry, deterministic job scoring, chat streaming, resume extraction, interview sessions and a memory API exist as described in pages 01–13. Phase 2 eligibility and INR work is not part of this delivery.
 
+The data-supply branch adds a local company-master backfill, review-only ATS candidate harvesting, occupation labeling-sheet scorer, opt-in interaction telemetry, and fixture-only licensed-feed/government-notice scaffolding. No vendor is connected or enabled. The JobStream live measurement is currently unverified due the source endpoint timing out/DNS failure in the available network.
+
 ## Target design (not built yet)
 
 | Decision                                     | Prerequisite                                                             | Main risk                              | Cost note                                                 | Decision needed                                  |

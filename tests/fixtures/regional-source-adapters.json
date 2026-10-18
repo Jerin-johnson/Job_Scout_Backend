@@ -1,0 +1,35 @@
+{
+  "jobStreamSnapshot": [
+    {
+      "id": "se-1",
+      "headline": "Sjuksköterska",
+      "employer": { "name": "Region Stockholm" },
+      "workplaceAddress": { "municipality": "Stockholm", "country": "Sweden" },
+      "publicationDate": "2026-10-10T08:00:00Z",
+      "modifiedAt": "2026-10-11T08:00:00Z",
+      "description": { "text": "Provide patient care." },
+      "webpageUrl": "https://example.se/jobs/se-1"
+    }
+  ],
+  "jobStreamChanges": [
+    { "eventType": "UPDATED", "timestamp": "2026-10-12T08:00:00Z", "job": { "id": "se-1", "headline": "Staff Nurse", "employer": { "name": "Region Stockholm" }, "webpageUrl": "https://example.se/jobs/se-1" } },
+    { "eventType": "UNPUBLISHED", "timestamp": "2026-10-12T09:00:00Z", "id": "se-2" }
+  ],
+  "nav": {
+    "events": [
+      { "uuid": "no-1", "status": "active", "title": "Sykepleier", "employer": { "name": "Oslo Kommune" }, "location": { "label": "Oslo" }, "applicationUrl": "https://arbeidsplassen.nav.no/stillinger/stilling/no-1", "publicationDate": "2026-10-10T08:00:00Z", "description": "Care for patients." },
+      { "uuid": "no-2", "status": "inactive", "title": "Closed role", "employer": { "name": "Oslo Kommune" }, "applicationUrl": "https://arbeidsplassen.nav.no/stillinger/stilling/no-2" }
+    ],
+    "nextCursor": "nav-cursor-2",
+    "done": false
+  },
+  "franceTravail": {
+    "firstPage": [
+      { "id": "fr-1", "intitule": "Infirmier diplômé", "entreprise": { "nom": "Hôpital Exemple" }, "lieuTravail": { "libelle": "Lyon" }, "dateCreation": "2026-10-10T08:00:00Z", "origineOffre": { "urlOrigine": "https://example.fr/offre/fr-1" }, "description": "Soins aux patients. contact@example.fr +33 1 23 45 67 89", "salaire": { "libelle": "Selon expérience" }, "contact": { "email": "private@example.fr" } },
+      { "id": "fr-closed", "statut": "pourvue", "intitule": "Closed offer", "entreprise": { "nom": "Hôpital Exemple" } }
+    ],
+    "secondPage": [
+      { "id": "fr-2", "intitule": "Comptable", "entreprise": { "nom": "Cabinet Exemple" }, "lieuTravail": { "libelle": "Paris" }, "origineOffre": { "urlOrigine": "https://example.fr/offre/fr-2" } }
+    ]
+  }
+}

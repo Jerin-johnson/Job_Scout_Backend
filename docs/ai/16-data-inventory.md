@@ -1,6 +1,10 @@
 # 16 — AI and matching data inventory
 
-Last verified against commit pending final commit on 2026-10-16.
+## Job-specific resume match additions
+
+`jobMatchReports` stores an owner ID, resume ID and content hash, a job identity/content hash, deterministic score/checklist/evidence snippets, ignored keywords, and optional grounded suggestions. A unique owner/resume/job/version index makes creation idempotent. It does not store decrypted resume text or the full catalog job description; pasted/application descriptions are bounded and are stored only for the report's supported display needs. Reports are deleted with the selected resume and during user privacy erasure. Resume term-index cache is keyed by owner and file hash and removed with resume deletion. Export includes reports and resume metadata but omits encrypted raw resume text.
+
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 
@@ -14,6 +18,7 @@ Last verified against commit pending final commit on 2026-10-16.
 | Job listing | Mongo `Job`, shared catalog; source attribution, normalized fields, title/description/tags and classification metadata | Deterministic candidate retrieval and scoring; no per-job LLM call | Source-specific policy and expiry apply. Current indexed sources are limited and not the whole internet. |
 | Occupation classification | Additive `occupation`, `occupationConfidence`, `normalizedTitle`, `occupationFeaturesVersion` fields on `Job` | Deterministic filters and analysis; no personal profile data | Reversible by unsetting occupation-only fields and version marker; existing job `featuresVersion` is preserved. |
 | Model usage metadata | `UsageEvent` without prompt or resume text | Quota, cost, error and retry monitoring | 90-day application retention setting; verify provider and database backups. |
+| Job interaction events | `InteractionEvent`: event type, bounded source/occupation/country/score band, count, timestamp, and stable pseudonymous actor key; never free text | Aggregate zero-result, click/apply and score-band reports | Opt-in only via `PUT /api/v1/profile/job-analytics-consent`; version `job-analytics-v1`; 180-day TTL; revoking consent deletes the user's prior event rows. Included in export without actor key and removed on account deletion. |
 
 No stored resume was re-read for this task. The local profile diagnostic used aggregate fact counts only; no resume text or profile values were printed. One local profile has 43 skills, 0 role facts, and 1 education fact.
 

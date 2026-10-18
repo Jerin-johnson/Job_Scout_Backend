@@ -1,6 +1,6 @@
 import { normalizeRoleForMatching } from "./roleNormalization.js";
 import { env } from "../../config/env.js";
-import { classifyEligibility } from "./eligibility.js";
+import { classifyEligibility, profileApplicantCountries } from "./eligibility.js";
 import { classifyJobOccupation } from "./occupationClassification.js";
 
 /** Deterministic, provider-free job feature extraction and profile matching. */
@@ -112,6 +112,7 @@ export function extractJobFeatures(job = {}) {
     requiredSkills: [...new Set(requiredSkills)].slice(0, 60),
     preferredSkills: [...new Set(preferredSkills)].slice(0, 60),
     titleTokens: terms(title),
+    companyTokens: terms(job.company || ""),
     occupation,
     experienceYears,
     seniority,
@@ -193,13 +194,26 @@ export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_
     ? Math.max(0, (now - new Date(job.postedAt)) / 86400000) : 30;
   const recencyFit = job.postedDateKnown ? Math.max(0.1, 1 - ageDays / 60) : 0.35;
   const eligibilityDetails = classifyEligibility(job, profile);
-  const preferredCountries = (pref.preferredCountryCodes || []).map((code) => String(code).toUpperCase());
+  const preferredCountries = profileApplicantCountries(profile);
+  const profileHasApplicantCountry = preferredCountries.length > 0;
   const eligibleCountries = (job.structuredLocation?.eligibleCountryCodes || []).map((code) => String(code).toUpperCase());
   const explicitCountry = String(job.structuredLocation?.countryCode || "").toUpperCase();
   const legacyEligibility = !preferredCountries.length ? "unknown"
     : eligibleCountries.some((code) => preferredCountries.includes(code)) || preferredCountries.includes(explicitCountry) || job.structuredLocation?.remoteScope === "worldwide" ? "eligible"
       : eligibleCountries.length ? "excluded" : "unknown";
   const eligibility = eligibilityDetails.status === "unknown" && legacyEligibility !== "unknown" ? legacyEligibility : eligibilityDetails.status === "not_open" ? "excluded" : eligibilityDetails.status;
+  // Unknown eligibility is only informative when both sides can be compared.
+  // A profile without a home/target country should not lose score for missing data.
+  const jobHasEligibilityEvidence = Boolean(
+    job.eligibility?.evidence || job.eligibility?.countries?.length ||
+    (job.eligibility?.remoteScope && job.eligibility.remoteScope !== "unknown") ||
+    job.structuredLocation?.countryCode || job.structuredLocation?.eligibleCountryCodes?.length ||
+    (job.structuredLocation?.remoteScope && job.structuredLocation.remoteScope !== "unknown"),
+  );
+  const eligibilityScore = !profileHasApplicantCountry || !jobHasEligibilityEvidence
+    ? 0
+    : eligibility === "eligible" ? LEXICAL_V4_WEIGHTS.eligibility
+      : eligibility === "unknown" ? -2 : -LEXICAL_V4_WEIGHTS.eligibility;
   const requiredText = (job.requirements || []).join(" ").toLowerCase();
   const requiredLicenses = features.licenses.filter((license) =>
     new RegExp(`(?:${license.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}).{0,24}(?:required|mandatory|must have)`, "i").test(requiredText),
@@ -214,7 +228,7 @@ export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_
   const weights = MATCH_SCORE_WEIGHTS;
   const score = Math.round(
     v4
-      ? skillRatio * LEXICAL_V4_WEIGHTS.skills + titleFit * LEXICAL_V4_WEIGHTS.title + experienceFit * LEXICAL_V4_WEIGHTS.experience + locationFit * LEXICAL_V4_WEIGHTS.location + salaryFit * LEXICAL_V4_WEIGHTS.salary + recencyFit * LEXICAL_V4_WEIGHTS.recency + (occupationFit ? LEXICAL_V4_WEIGHTS.occupation : 0) + (profile.careerProfile?.experience?.isFresher && features.seniority === "entry" ? LEXICAL_V4_WEIGHTS.seniority : 0) + (eligibility === "eligible" ? LEXICAL_V4_WEIGHTS.eligibility : eligibility === "unknown" ? -2 : -LEXICAL_V4_WEIGHTS.eligibility)
+      ? skillRatio * LEXICAL_V4_WEIGHTS.skills + titleFit * LEXICAL_V4_WEIGHTS.title + experienceFit * LEXICAL_V4_WEIGHTS.experience + locationFit * LEXICAL_V4_WEIGHTS.location + salaryFit * LEXICAL_V4_WEIGHTS.salary + recencyFit * LEXICAL_V4_WEIGHTS.recency + (occupationFit ? LEXICAL_V4_WEIGHTS.occupation : 0) + (profile.careerProfile?.experience?.isFresher && features.seniority === "entry" ? LEXICAL_V4_WEIGHTS.seniority : 0) + eligibilityScore
       : skillRatio * weights.skills + titleFit * weights.title + experienceFit * weights.experience + locationFit * weights.location + salaryFit * weights.salary + recencyFit * weights.recency,
   );
   const fairThreshold = version === "lexical-v2" ? 40 : 50;
@@ -231,7 +245,7 @@ export function scoreJobMatch(profile, job, { now = new Date(), version = MATCH_
     matchingSkills: overlap.slice(0, 20), missingSkills: missingRequired,
     scoreVersion: version,
     confidence: v4 ? (profile.roles?.length || confirmedCareerExperience?.isFresher || confirmedCareerExperience?.needsConfirmation === false ? "medium" : "low") : undefined,
-    breakdown: { skills: skillRatio, title: titleFit, experience: experienceFit, location: locationFit, salary: salaryFit, recency: recencyFit },
+    breakdown: { skills: skillRatio, title: titleFit, experience: experienceFit, location: locationFit, salary: salaryFit, recency: recencyFit, ...(v4 ? { occupation: occupationFit ? 1 : 0, seniority: profile.careerProfile?.experience?.isFresher && features.seniority === "entry" ? 1 : 0, eligibility: eligibilityScore } : {}) },
     eligibility,
     eligibilityDetails,
     hardBlocked,

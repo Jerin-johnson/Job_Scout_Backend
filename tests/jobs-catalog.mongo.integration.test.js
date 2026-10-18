@@ -8,11 +8,12 @@ import { jobController } from "../src/controllers/jobController.js";
 import { JobSource } from "../src/models/JobSource.js";
 import { Profile } from "../src/models/Profile.js";
 import { embeddingService } from "../src/services/embeddingService.js";
-import { del, CacheKeys } from "../src/shared/cache.js";
+import { del, CacheKeys, set } from "../src/shared/cache.js";
 import {
   jobIngestionService,
   registerJobAdapterFactory,
   reserveSourceRequest,
+  updateVariantGroups,
 } from "../src/services/jobs/jobIngestionService.js";
 import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
 import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
@@ -39,6 +40,28 @@ after(async () => {
   await mongo?.stop();
 });
 
+test("source registry refresh updates verified policy metadata without overriding operator enablement or metrics", async () => {
+  await JobSource.create(makeSource("jobicy", {
+    enabled: true,
+    approved: true,
+    termsUrl: "https://jobicy.com/terms-and-conditions",
+    termsReference: "stale-reference",
+    metrics: { fetched: 17 },
+  }));
+  try {
+    await jobIngestionService.ensureSources();
+    const source = await JobSource.findOne({ key: "jobicy" }).lean();
+    assert.equal(source.termsUrl, "https://jobicy.com/jobs-rss-feed");
+    assert.equal(source.termsReference, "https://jobicy.com/jobs-rss-feed");
+    assert.equal(source.activationStatus, "approved_api_terms_default_disabled");
+    assert.equal(source.enabled, true, "operator enablement is preserved");
+    assert.equal(source.approved, true, "operator approval is preserved");
+    assert.equal(source.metrics.fetched, 17, "run metrics are preserved");
+  } finally {
+    await JobSource.deleteOne({ key: "jobicy" });
+  }
+});
+
 function makeSource(key, overrides = {}) {
   return {
     key,
@@ -47,8 +70,11 @@ function makeSource(key, overrides = {}) {
     enabled: true,
     approved: true,
     termsUrl: "https://example.test/terms",
+    termsReference: "https://example.test/terms",
     attributionText: key,
     attributionUrl: "https://example.test/",
+    retentionRule: "Delete inactive listings after 30 days.",
+    quotaPolicy: "10 requests per day.",
     retentionDays: 30,
     staleAfterDays: 14,
     quota: { requestsPerDay: 10, intervalMs: 60000, timeoutMs: 10000, maxRetries: 0 },
@@ -70,6 +96,36 @@ test("Mongo quota reservation allows exactly the configured requests and no over
     assert.equal(record.quotaUsed, 1);
   } finally {
     await JobSource.deleteOne({ key: "quota-test" });
+  }
+});
+
+test("cross-source variant grouping prefers an ATS original and bounds alternatives", async () => {
+  const groupKey = "variant-group-fixture";
+  const docs = Array.from({ length: 12 }, (_, index) => ({
+    contentHash: `variant-content-${index}`,
+    identityKey: `variant-identity-${index}`,
+    groupKey,
+    title: "Registered Nurse",
+    company: "Example Health",
+    rawDescription: "Registered Nurse opening",
+    sourceBoard: index === 6 ? "greenhouse" : `aggregator-${index}`,
+    sourceUrl: `https://jobs.example.test/${index}`,
+    status: "active",
+    expiresAt: new Date(Date.now() + 86400000),
+    postedAt: new Date("2026-10-16T00:00:00.000Z"),
+  }));
+  await Job.insertMany(docs);
+  try {
+    await updateVariantGroups([groupKey]);
+    const grouped = await Job.find({ groupKey }).lean();
+    const canonical = grouped.find((job) => job.sourceBoard === "greenhouse");
+    assert.ok(canonical);
+    assert.equal(canonical.canonicalJobId, null);
+    assert.equal(canonical.variants.length, 10);
+    assert.ok(grouped.filter((job) => job._id.toString() !== canonical._id.toString())
+      .every((job) => job.canonicalJobId?.toString() === canonical._id.toString()));
+  } finally {
+    await Job.deleteMany({ groupKey });
   }
 });
 
@@ -242,11 +298,14 @@ test("public catalog excludes disabled or unapproved source records", async () =
     postedAt: new Date(),
     expiresAt: new Date(Date.now() + 86400000),
   });
+  // The migration rollback test intentionally disables configured sources;
+  // restore this source's approved fixture state for this independent query test.
+  await JobSource.updateOne({ key: "remoteok" }, { $set: { enabled: true, approved: true } });
   const result = await jobIngestionService.searchJobs({ q: "Hidden" });
   assert.equal(result.jobs.length, 0);
   assert.deepEqual(
     result.sources.map((source) => source.key),
-    ["remoteok", "remotive", "jobicy"],
+    ["remoteok"],
   );
   await Job.deleteOne({ identityKey: "hidden-source-identity-key" });
   await JobSource.deleteOne({ key });
@@ -258,9 +317,9 @@ test("catalog hides explicitly ineligible jobs by default and showAnyway reveals
   const ids = ["us-only", "worldwide", "unknown"].map(() => new mongoose.Types.ObjectId());
   const expiresAt = new Date(Date.now() + 86400000);
   await Job.collection.insertMany([
-    { _id: ids[0], identityKey: "elig-us", contentHash: "elig-us", title: "US Nurse", company: "A", location: "Remote", rawDescription: "US only", sourceBoard: key, sourceUrl: "https://example.test/us", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: ["US"], remoteScope: "country" } },
-    { _id: ids[1], identityKey: "elig-world", contentHash: "elig-world", title: "Global Nurse", company: "B", location: "Remote", rawDescription: "Worldwide", sourceBoard: key, sourceUrl: "https://example.test/world", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "worldwide" } },
-    { _id: ids[2], identityKey: "elig-unknown", contentHash: "elig-unknown", title: "Unclear Nurse", company: "C", location: "Remote", rawDescription: "Remote", sourceBoard: key, sourceUrl: "https://example.test/unknown", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "unknown" } },
+    { _id: ids[0], identityKey: "elig-us", contentHash: "elig-us", title: "US Nurse", company: "A", location: "Remote", rawDescription: "US only", features: { titleTokens: ["us", "nurse"], companyTokens: ["a"] }, sourceBoard: key, sourceUrl: "https://example.test/us", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: ["US"], remoteScope: "country" } },
+    { _id: ids[1], identityKey: "elig-world", contentHash: "elig-world", title: "Global Nurse", company: "B", location: "Remote", rawDescription: "Worldwide", features: { titleTokens: ["global", "nurse"], companyTokens: ["b"] }, sourceBoard: key, sourceUrl: "https://example.test/world", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "worldwide" } },
+    { _id: ids[2], identityKey: "elig-unknown", contentHash: "elig-unknown", title: "Unclear Nurse", company: "C", location: "Remote", rawDescription: "Remote", features: { titleTokens: ["unclear", "nurse"], companyTokens: ["c"] }, sourceBoard: key, sourceUrl: "https://example.test/unknown", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "unknown" } },
   ]);
   try {
     const defaultResults = await jobIngestionService.searchJobs({ q: "Nurse", eligibilityCountryCodes: ["IN"], page: 1, limit: 10 });
@@ -326,7 +385,7 @@ test("source registry cursors survive a worker failure and resume without rescan
     await JobSource.updateOne({ key }, { $set: { lastRunAt: new Date(0) } });
     const completed = await jobIngestionService.ingestSource(key);
     assert.equal(completed.created, 1);
-    assert.equal(await Job.countDocuments({ identityKey: { $exists: true } }), 1);
+    assert.equal(await Job.countDocuments({ sourceBoard: key, identityKey: { $exists: true } }), 1);
     const storedSource = await JobSource.findOne({ key }).lean();
     assert.equal(storedSource.cursor, null);
     assert.equal(storedSource.metrics.created, 1);
@@ -342,6 +401,72 @@ test("source registry cursors survive a worker failure and resume without rescan
     embeddingService.getEmbeddingsWithMetadata = originalEmbeddings;
     if (priorEmbeddingFlag === undefined) delete process.env.JOB_EMBEDDINGS_ENABLED;
     else process.env.JOB_EMBEDDINGS_ENABLED = priorEmbeddingFlag;
+    unregister();
+    await Job.deleteMany({ sourceBoard: key });
+    await JobSource.deleteOne({ key });
+  }
+});
+
+test("ingestion persists async iterable pages in bounded batches and applies inactive events", async () => {
+  const key = "stream-batch-integration";
+  await JobSource.create(makeSource(key, { lastRunAt: new Date(0), lastFullSyncAt: new Date() }));
+  const expiresAt = new Date(Date.now() + 86400000);
+  await Job.create({
+    contentHash: "stream-closed-hash", identityKey: "stream-closed", sourceJobId: "closed-id",
+    title: "Old role", company: "Example", location: "Remote", rawDescription: "Old",
+    sourceBoard: key, sourceUrl: "https://example.test/closed", status: "active", expiresAt,
+  });
+  const unregister = registerJobAdapterFactory(key, () => {
+    const adapter = new BaseJobAdapter({ key, capabilities: { paging: true } });
+    adapter.fetchPage = async function fetchPage() {
+      async function* jobs() {
+        for (let index = 0; index < 501; index += 1) {
+          yield { title: `Role ${index}`, company: "Example", sourceJobId: `job-${index}`, canonicalUrl: `https://example.test/jobs/${index}`, location: "Remote", rawDescription: "Description", requirements: [] };
+        }
+      }
+      return { jobs: jobs(), inactiveIds: ["closed-id"], cursor: null, done: true };
+    };
+    return adapter;
+  });
+  try {
+    const result = await jobIngestionService.ingestSource(key);
+    assert.equal(result.created, 501);
+    assert.equal(await Job.countDocuments({ sourceBoard: key, status: "active" }), 501);
+    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "closed-id" })).status, "closed");
+  } finally {
+    unregister();
+    await Job.deleteMany({ sourceBoard: key });
+    await JobSource.deleteOne({ key });
+  }
+});
+
+test("ingestion consumes mixed JobStream-style events and closes deleted ads", async () => {
+  const key = "mixed-stream-events-integration";
+  await JobSource.create(makeSource(key, { lastRunAt: new Date(0), lastFullSyncAt: new Date() }));
+  const expiresAt = new Date(Date.now() + 86400000);
+  await Job.create({
+    contentHash: "stream-delete-hash", identityKey: "stream-delete", sourceJobId: "deleted-id",
+    title: "Old role", company: "Example", location: "Remote", rawDescription: "Old",
+    sourceBoard: key, sourceUrl: "https://example.test/deleted", status: "active", expiresAt,
+  });
+  const unregister = registerJobAdapterFactory(key, () => {
+    const adapter = new BaseJobAdapter({ key, capabilities: { streaming: true, deletions: true } });
+    adapter.fetchPage = async function fetchPage() {
+      async function* events() {
+        yield { type: "upsert", sourceJobId: "new-id", job: { title: "New role", company: "Example", sourceJobId: "new-id", canonicalUrl: "https://example.test/new", location: "Remote", rawDescription: "Description", requirements: [] } };
+        yield { type: "delete", sourceJobId: "deleted-id", cursor: "2026-10-17T12:00:00.000Z" };
+      }
+      return { events: events(), cursor: "2026-10-17T12:00:00.000Z", done: true };
+    };
+    return adapter;
+  });
+  try {
+    const result = await jobIngestionService.ingestSource(key);
+    assert.equal(result.created, 1);
+    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "new-id" })).status, "active");
+    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "deleted-id" })).status, "closed");
+    assert.equal((await JobSource.findOne({ key })).cursor, "2026-10-17T12:00:00.000Z", "the completed event window persists its resume cursor");
+  } finally {
     unregister();
     await Job.deleteMany({ sourceBoard: key });
     await JobSource.deleteOne({ key });
@@ -379,6 +504,25 @@ test("recent-first approved-source candidate retrieval can use its compound inde
   assert.match(planText, /job_candidate_recent_feed/);
   assert.match(planText, /IXSCAN/);
   assert.ok(result.executionStats.nReturned <= 400);
+});
+
+test("catalog count cache version avoids stale zero counts after source policy changes", async () => {
+  const priorSource = await JobSource.findOne({ key: "remoteok" }).lean();
+  await JobSource.updateOne({ key: "remoteok" }, { $set: makeSource("remoteok") }, { upsert: true });
+  const id = new mongoose.Types.ObjectId();
+  await Job.create({ _id: id, contentHash: `visible-${id}`, identityKey: `visible-${id}`, title: "Visible catalog fixture", company: "Example", rawDescription: "A test job for the catalog count", sourceBoard: "remoteok", status: "active", expiresAt: new Date(Date.now() + 86400000), postedAt: new Date() });
+  await set("jobs:catalog:active-count:v2:remoteok", 0, 300);
+  try {
+    const result = await jobIngestionService.searchJobs({ limit: 10, showAnyway: true });
+    assert.equal(result.jobs.length, 1);
+    assert.equal(result.total, 1);
+  } finally {
+    await Job.deleteOne({ _id: id });
+    if (priorSource) await JobSource.replaceOne({ _id: priorSource._id }, priorSource);
+    else await JobSource.deleteOne({ key: "remoteok" });
+    await del("jobs:catalog:active-count:v2:remoteok");
+    await del("jobs:catalog:active-count:v3:remoteok");
+  }
 });
 
 test("discovery graph reads the indexed catalog and contains no ingestion call", async () => {

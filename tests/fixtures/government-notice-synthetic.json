@@ -1,0 +1,21 @@
+{
+  "fixtureOnly": true,
+  "source": "synthetic-example",
+  "notice": {
+    "title": "Staff Nurse - Synthetic Public Hospital",
+    "organization": "Example Regional Health Service",
+    "qualification": ["BSc Nursing"],
+    "ageLimit": "18-35",
+    "vacancies": 4,
+    "location": "Example District",
+    "publishedAt": "2026-10-01",
+    "lastDate": "2026-10-31",
+    "applyUrl": "https://example.invalid/apply",
+    "sourceUrl": "https://example.invalid/notice",
+    "evidence": {
+      "title": "Staff Nurse - Synthetic Public Hospital",
+      "vacancies": "Four posts",
+      "lastDate": "Applications close 31 October 2026"
+    }
+  }
+}

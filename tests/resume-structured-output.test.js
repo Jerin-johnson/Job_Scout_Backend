@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { executeModelCall } from "../src/ai/llm.js";
 import { extractedFactsSchema, groundFacts, resumeExtractionPrompt } from "../src/services/resumeParserService.js";
-import { parseExperienceRoles } from "../src/services/resumeRoleParser.js";
+import { getExperienceSectionMetrics, parseExperienceRoles } from "../src/services/resumeRoleParser.js";
 
 test("model invocation omits a null AbortSignal and forwards a real signal", async () => {
   const calls = [];
@@ -104,6 +105,16 @@ test("deterministic parser recovers fresher projects/internships and nursing res
 test("two-column extraction order still recovers exact role facts", () => {
   const text = `EXPERIENCE\nJan 2022 - Present\nSenior Software Engineer\nAcme Technologies\nJune 2019 - Dec 2021\nSoftware Developer\nBeta Solutions\nEDUCATION`;
   assert.deepEqual(parseExperienceRoles(text).map((role) => role.company), ["Acme Technologies", "Beta Solutions"]);
+});
+
+test("generated two-column date-first resume fixture keeps both roles in the experience section", async () => {
+  const text = await readFile(new URL("./fixtures/resume-role-date-column.txt", import.meta.url), "utf8");
+  const roles = parseExperienceRoles(text);
+  assert.equal(getExperienceSectionMetrics(text).dateLineCount, 2);
+  assert.deepEqual(roles.map(({ title, company, startDate, endDate }) => ({ title, company, startDate, endDate })), [
+    { title: "Staff Nurse", company: "Regional General Hospital", startDate: "2021", endDate: "Present" },
+    { title: "Nursing Intern", company: "Coastal Medical Centre", startDate: "2019", endDate: "2021" },
+  ]);
 });
 
 test("resume injection text is serialized as escaped untrusted data", () => {

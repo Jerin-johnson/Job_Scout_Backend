@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../config/env.js";
@@ -193,6 +194,20 @@ export const storageService = {
         "Failed to download file from S3/R2",
       );
       throw storageError("STORAGE_UNAVAILABLE", "Resume file storage is temporarily unavailable.");
+    }
+  },
+
+  async deleteFile({ key }) {
+    if (!env.S3_BUCKET?.trim()) {
+      if (isMockStorageEnabled()) return;
+      throw storageError("STORAGE_NOT_CONFIGURED", "Resume file storage is not configured.");
+    }
+    if (isMockStorageEnabled()) return;
+    try {
+      await getS3Client().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    } catch (err) {
+      logger.error({ errorName: err?.name, errorCode: err?.code }, "Failed to delete stored resume file");
+      throw storageError("STORAGE_UNAVAILABLE", "Resume file could not be removed from storage.");
     }
   },
 };

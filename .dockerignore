@@ -9,3 +9,12 @@ dist
 coverage
 .idea
 .vscode
+node_modules
+.env
+.env.*
+!.env.example
+.mongo-*
+graphify-out
+coverage
+.next
+.next-dev

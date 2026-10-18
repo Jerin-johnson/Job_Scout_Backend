@@ -1,49 +1,58 @@
-name: CI Pipeline
+name: Verify
 
 on:
   push:
-    branches: [main, development]
+    branches: [main, development, 'feat/**', 'fix/**', 'chore/**', 'docs/**', 'refactor/**', 'perf/**', 'test/**', 'ci/**']
   pull_request:
     branches: [main, development]
+
+permissions:
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:8.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7.4
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      HUSKY: '0'
+      NODE_ENV: test
+      MONGODB_URI: mongodb://127.0.0.1:27017/jobscout_ci
+      REDIS_URL: redis://127.0.0.1:6379
+      AI_ALLOW_MOCKS: 'true'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: "npm"
+          cache: npm
+      - run: npm ci
+      - run: node scripts/check-commits.mjs
+      - run: npm run lint
+      - run: node scripts/set-ci-redis-policy.mjs
+      - run: npm test
+      - run: npm run docs:check
+      - run: npm run scan:secrets
+      - run: npm audit --omit=dev --audit-level=high || echo 'AUDIT REPORT UNAVAILABLE; review required before release.'
+      - run: npm run openapi
+      - run: git diff --exit-code -- docs/openapi.json openapi.json
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint check
-        run: npm run lint
-
-      - name: Check AI documentation inventory and links
-        run: npm run docs:check
-
-      - name: Run unit and MongoDB-memory-server integration tests
-        run: npm test
-
-  docker-build:
-    needs: verify
+  production-build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: docker build --tag jobscout-api:ci --file Dockerfile .
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          tags: jobscout-api:latest

@@ -1,4 +1,5 @@
 import { connectMongo, disconnectMongo } from "../src/config/database.js";
+import { env } from "../src/config/env.js";
 import { logger } from "../src/shared/utils/logger.js";
 import { InterviewSession } from "../src/models/InterviewSession.js";
 import { InterviewMessage } from "../src/models/InterviewMessage.js";
@@ -7,11 +8,85 @@ import { User } from "../src/models/User.js";
 import { Application } from "../src/models/Application.js";
 import { Job } from "../src/models/Job.js";
 import { JobSource } from "../src/models/JobSource.js";
+import { JobDetail } from "../src/models/JobDetail.js";
+import { JobVector } from "../src/models/JobVector.js";
 import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
 
+const INDEXED_MODELS = [
+  InterviewSession,
+  InterviewMessage,
+  InterviewReport,
+  Application,
+  Job,
+  JobSource,
+  JobDetail,
+  JobVector,
+];
+
+async function previewIndexSync(retentionDays) {
+  const [sessions, messages, reports, trialSessionUsers, obsoleteIndexes] = await Promise.all([
+    InterviewSession.countDocuments({ retentionExpiresAt: null, pinnedAt: null }),
+    InterviewMessage.countDocuments({ retentionExpiresAt: null }),
+    InterviewReport.countDocuments({ retentionExpiresAt: null }),
+    InterviewSession.distinct("userId", { isFreeTrial: true }),
+    Job.collection.indexes().catch(() => []),
+  ]);
+  const trialUsersToUpdate = trialSessionUsers.length
+    ? await User.countDocuments({
+        _id: { $in: trialSessionUsers },
+        mockInterviewTrialUsedAt: { $exists: false },
+      })
+    : 0;
+  const obsoleteContentHashIndex = obsoleteIndexes.find(
+    (index) => index.unique && index.key?.contentHash === 1 && Object.keys(index.key).length === 1,
+  );
+  const indexesToEnsure = (
+    await Promise.all(
+      INDEXED_MODELS.map(async (model) => {
+        const currentIndexes = await model.collection.indexes().catch(() => []);
+        return model.schema.indexes().flatMap(([keys, options]) => {
+          const name =
+            options.name ||
+            Object.entries(keys)
+              .map(([key, direction]) => `${key}_${direction}`)
+              .join("_");
+          const matchingIndex = currentIndexes.find(
+            (index) =>
+              JSON.stringify(index.key) === JSON.stringify(keys) &&
+              Boolean(index.unique) === Boolean(options.unique) &&
+              Boolean(index.sparse) === Boolean(options.sparse) &&
+              index.expireAfterSeconds === options.expireAfterSeconds &&
+              JSON.stringify(index.partialFilterExpression || null) ===
+                JSON.stringify(options.partialFilterExpression || null),
+          );
+          return matchingIndex ? [] : [{ collection: model.collection.collectionName, name }];
+        });
+      }),
+    )
+  ).flat();
+
+  return {
+    mode: "dry-run",
+    database: "connected database (name omitted)",
+    retentionDays,
+    wouldBackfillRetentionExpiresAt: { sessions, messages, reports },
+    wouldPreserveHistoricalTrialForUsers: trialUsersToUpdate,
+    wouldDropObsoleteUniqueContentHashIndex: obsoleteContentHashIndex?.name || null,
+    indexesToCreateOrReplace: indexesToEnsure,
+    writesPerformed: false,
+  };
+}
+
 async function ensureIndexes() {
-  logger.info("Starting index synchronization on MongoDB Atlas...");
-  const conn = await connectMongo();
+  const dryRun = process.argv.includes("--dry-run");
+  if (dryRun) {
+    const hostname = new URL(env.MONGODB_URI).hostname.toLowerCase();
+    if (env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(hostname)) {
+      throw new Error("--dry-run is restricted to a non-production loopback MongoDB URI.");
+    }
+  }
+  logger.info("Starting index synchronization on MongoDB...");
+  const conn = await connectMongo({ autoIndex: !dryRun && env.NODE_ENV !== "production" });
   if (!conn) {
     logger.warn("Could not connect to MongoDB, skipping index creation in offline mode");
     process.exit(0);
@@ -21,6 +96,13 @@ async function ensureIndexes() {
     1,
     Number.parseInt(process.env.MOCK_INTERVIEW_RETENTION_DAYS || "90", 10) || 90,
   );
+  if (dryRun) {
+    const preview = await previewIndexSync(retentionDays);
+    process.stdout.write(`${JSON.stringify(preview, null, 2)}\n`);
+    await disconnectMongo();
+    return;
+  }
+
   const expiryExpression = {
     $dateAdd: { startDate: "$createdAt", unit: "day", amount: retentionDays },
   };
@@ -71,6 +153,8 @@ async function ensureIndexes() {
     Application.createIndexes(),
     Job.createIndexes(),
     JobSource.createIndexes(),
+    JobDetail.createIndexes(),
+    JobVector.createIndexes(),
   ]);
 
   logger.info("All collection indexes synchronized successfully.");
