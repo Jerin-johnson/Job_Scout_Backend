@@ -25,6 +25,15 @@ const BULK_WRITE_BATCH_SIZE = 500;
 const inMemoryJobs = new Map();
 const adapterFactories = Object.create(null);
 const sourceSeedPromises = new Map();
+const ATS_SOURCE_PRIORITY = new Map([
+  ["greenhouse", 0],
+  ["lever", 0],
+  ["ashby", 0],
+  ["smartrecruiters", 0],
+  ["recruitee", 0],
+  ["workable", 0],
+  ["usajobs", 0],
+]);
 
 export function registerJobAdapterFactory(key, factory) {
   if (!/^[a-z0-9_-]+$/.test(key) || typeof factory !== "function")
@@ -138,6 +147,54 @@ function setContentHash(job, adapter) {
   job.recordHash = adapter.generateRecordHash(job);
 }
 
+/**
+ * Link only exact entity/canonical-URL groups. Similarity vectors are never used
+ * for identity. A source's own ATS posting is preferred as the canonical record.
+ */
+export async function updateVariantGroups(groupKeys) {
+  if (!isMongoReady()) return 0;
+  const keys = [...new Set((groupKeys || []).filter((key) => typeof key === "string" && key))];
+  if (!keys.length) return 0;
+  const candidates = await Job.find({
+    groupKey: { $in: keys },
+    status: "active",
+    expiresAt: { $gt: new Date() },
+  }).select("_id groupKey sourceBoard sourceUrl canonicalUrl firstSeenAt postedAt").lean();
+  const groups = new Map();
+  for (const job of candidates) {
+    const group = groups.get(job.groupKey) || [];
+    group.push(job);
+    groups.set(job.groupKey, group);
+  }
+  const operations = [];
+  for (const group of groups.values()) {
+    const priority = (job) => ATS_SOURCE_PRIORITY.get(job.sourceBoard) ?? 10;
+    group.sort((a, b) => priority(a) - priority(b)
+      || (new Date(b.postedAt || 0).getTime() - new Date(a.postedAt || 0).getTime())
+      || String(a.sourceBoard).localeCompare(String(b.sourceBoard))
+      || String(a._id).localeCompare(String(b._id)));
+    const [canonical, ...variants] = group;
+    const boundedVariants = variants.slice(0, 10).map((variant) => ({
+      source: variant.sourceBoard,
+      url: variant.sourceUrl || variant.canonicalUrl || "",
+      seenAt: variant.firstSeenAt || new Date(),
+    }));
+    for (const job of group) {
+      operations.push({
+        updateOne: {
+          filter: { _id: job._id },
+          update: { $set: {
+            canonicalJobId: job._id.equals(canonical._id) ? null : canonical._id,
+            variants: job._id.equals(canonical._id) ? boundedVariants : [],
+          } },
+        },
+      });
+    }
+  }
+  if (operations.length) await Job.bulkWrite(operations, { ordered: false });
+  return operations.length;
+}
+
 async function ensureSourceRecords() {
   if (!isMongoReady()) return;
   const databaseKey = JobSource.db.name || "default";
@@ -171,6 +228,14 @@ async function ensureSourceRecords() {
         { key: policy.key },
         { $set: registryPolicy },
       );
+      // A local measurement can be enabled with one explicit flag. Production
+      // still requires the persisted admin kill switch and never auto-enables.
+      if (policy.key === "jobicy" && env.NODE_ENV !== "production" && env.ENABLE_JOBICY_INGESTION) {
+        await JobSource.updateOne(
+          { key: policy.key, approved: true },
+          { $set: { enabled: true, runState: "idle" } },
+        );
+      }
     }
   })();
   sourceSeedPromises.set(databaseKey, seedPromise);
@@ -232,16 +297,12 @@ function quotaExceeded(sourceKey) {
   return error;
 }
 
-function countCoverage(jobs) {
-  const countryCounts = {};
-  const occupationCounts = {};
-  for (const job of jobs) {
-    const country = job.structuredLocation?.countryCode || "unknown";
-    const family = job.occupationCodes?.[0] || "unmapped";
-    countryCounts[country] = (countryCounts[country] || 0) + 1;
-    occupationCounts[family] = (occupationCounts[family] || 0) + 1;
+async function* iterateJobs(jobs) {
+  if (jobs && typeof jobs[Symbol.asyncIterator] === "function") {
+    yield* jobs;
+    return;
   }
-  return { countryCounts, occupationCounts };
+  if (Array.isArray(jobs)) yield* jobs;
 }
 
 async function getAggregatedDemandTerms() {
@@ -449,8 +510,8 @@ export const jobIngestionService = {
       etag = null;
       lastModified = null;
     }
-    const seenThisRun = new Set();
-    const coverageRows = [];
+    const coverageCountryCounts = Object.create(null);
+    const coverageOccupationCounts = Object.create(null);
     let statusCheckRequests = 0;
     let fullSyncCompleted = false;
 
@@ -546,6 +607,15 @@ export const jobIngestionService = {
         const page = await adapter.fetchPage({ cursor, etag, lastModified, demandTerm });
         if (page.etag) etag = page.etag;
         if (page.lastModified) lastModified = page.lastModified;
+        const inactiveIds = [...new Set((page.inactiveIds || []).map((id) => String(id).slice(0, 200)).filter(Boolean))].slice(0, 10000);
+        if (inactiveIds.length && isMongoReady()) {
+          const inactiveAt = new Date();
+          const result = await Job.updateMany(
+            { sourceBoard: sourceKey, sourceJobId: { $in: inactiveIds }, status: "active" },
+            { $set: { status: "closed", sourceExpiresAt: inactiveAt, expiresAt: inactiveAt, sourceCheckedAt: inactiveAt } },
+          );
+          updated += result.modifiedCount || 0;
+        }
         if (page.notModified) {
           fullSyncCompleted = !demandTerm;
           if (isMongoReady())
@@ -566,34 +636,42 @@ export const jobIngestionService = {
             );
           break;
         }
-        const normalized = page.jobs.map((job) => cleanNormalizedJob(job, source));
-        coverageRows.push(
-          ...normalized.map(({ structuredLocation, occupationCodes }) => ({
-            structuredLocation,
-            occupationCodes,
-          })),
-        );
+        const processBatch = async (rawJobs) => {
+        const normalized = rawJobs.map((job) => cleanNormalizedJob(job, source));
+        const seenBatch = new Set();
         for (const job of normalized) {
           setContentHash(job, adapter);
-          if (seenThisRun.has(job.identityKey)) {
+          const country = job.structuredLocation?.countryCode || "unknown";
+          const occupation = job.occupationCodes?.[0] || "unmapped";
+          coverageCountryCounts[country] = (coverageCountryCounts[country] || 0) + 1;
+          coverageOccupationCounts[occupation] = (coverageOccupationCounts[occupation] || 0) + 1;
+          if (!job.identityKey || seenBatch.has(job.identityKey)) {
             duplicates += 1;
             continue;
           }
-          seenThisRun.add(job.identityKey);
+          seenBatch.add(job.identityKey);
         }
-        const jobs = normalized.filter(
-          (job) => job.identityKey && seenThisRun.has(job.identityKey),
-        );
         fetched += normalized.length;
-        const uniqueJobs = [...new Map(jobs.map((job) => [job.identityKey, job])).values()];
+        const uniqueJobs = [...new Map(normalized.filter((job) => job.identityKey).map((job) => [job.identityKey, job])).values()];
         const existingDocs =
           isMongoReady() && uniqueJobs.length
             ? await Job.find({ identityKey: { $in: uniqueJobs.map((job) => job.identityKey) } })
-                .select(
-                  "identityKey contentHash recordHash firstSeenAt embedding embeddingMetadata",
-                )
+                .select("identityKey contentHash recordHash firstSeenAt")
                 .lean()
             : [];
+        if (existingDocs.length) {
+          const vectors = await JobVector.find({ jobId: { $in: existingDocs.map((job) => job._id) } })
+            .select("+vector jobId provider model dimension")
+            .lean();
+          const vectorById = new Map(vectors.map((row) => [String(row.jobId), row]));
+          for (const job of existingDocs) {
+            const vector = vectorById.get(String(job._id));
+            if (vector) {
+              job.embedding = vector.vector;
+              job.embeddingMetadata = { provider: vector.provider, model: vector.model, dimension: vector.dimension };
+            }
+          }
+        }
         const existingByIdentity = new Map(existingDocs.map((job) => [job.identityKey, job]));
         const changed = [];
         const unchangedOps = [];
@@ -712,6 +790,7 @@ export const jobIngestionService = {
                 },
               })).filter((operation) => operation.updateOne.filter.jobId);
               if (vectorOps.length) await JobVector.bulkWrite(vectorOps, { ordered: false });
+              await updateVariantGroups(batch.map(({ job }) => job.groupKey));
             }
           } else {
             for (const job of changed)
@@ -721,6 +800,44 @@ export const jobIngestionService = {
               });
           }
         }
+        };
+        let rawBatch = [];
+        let inactiveBatch = [];
+        const flushInactive = async () => {
+          if (!inactiveBatch.length || !isMongoReady()) {
+            inactiveBatch = [];
+            return;
+          }
+          const inactiveAt = new Date();
+          const result = await Job.updateMany(
+            { sourceBoard: sourceKey, sourceJobId: { $in: inactiveBatch }, status: "active" },
+            { $set: { status: "closed", sourceExpiresAt: inactiveAt, expiresAt: inactiveAt, sourceCheckedAt: inactiveAt } },
+          );
+          updated += result.modifiedCount || 0;
+          inactiveBatch = [];
+        };
+        const stream = page.events ? iterateJobs(page.events) : iterateJobs(page.jobs);
+        for await (const item of stream) {
+          if (page.events) {
+            const event = item;
+            if (event?.type === "delete") {
+              const sourceJobId = String(event.sourceJobId || "").slice(0, 200);
+              if (sourceJobId) inactiveBatch.push(sourceJobId);
+              if (inactiveBatch.length >= BULK_WRITE_BATCH_SIZE) await flushInactive();
+              continue;
+            }
+            if (event?.type !== "upsert" || !event.job) continue;
+            rawBatch.push(event.job);
+          } else {
+            rawBatch.push(item);
+          }
+          if (rawBatch.length >= BULK_WRITE_BATCH_SIZE) {
+            await processBatch(rawBatch);
+            rawBatch = [];
+          }
+        }
+        if (rawBatch.length) await processBatch(rawBatch);
+        await flushInactive();
         cursor = page.cursor || null;
         if (isMongoReady())
           await JobSource.updateOne(
@@ -746,7 +863,7 @@ export const jobIngestionService = {
         await sleep(1000);
       }
       const latencyMs = Date.now() - started;
-      const coverage = countCoverage(coverageRows);
+      const coverage = { countryCounts: coverageCountryCounts, occupationCounts: coverageOccupationCounts };
       if (isMongoReady()) {
         if (fullSyncCompleted) {
           const staleBefore = new Date(Date.now() - source.staleAfterDays * 86400000);
@@ -981,9 +1098,9 @@ export const jobIngestionService = {
         ),
       ].slice(0, 64);
       const safeSelect =
-        "title company location remoteType salaryRange compensation requirements tags rawDescription sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation eligibility occupationCodes occupation occupationConfidence embedding embeddingMetadata contentHash features featuresVersion";
+        "title company location remoteType salaryRange compensation tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation eligibility occupationCodes occupation occupationConfidence contentHash features featuresVersion";
       const recentFallbackSelect =
-        "title company location remoteType salaryRange compensation requirements tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown expiresAt structuredLocation eligibility occupation occupationConfidence occupationCodes contentHash features featuresVersion";
+        "title company location remoteType salaryRange compensation tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown expiresAt structuredLocation eligibility occupation occupationConfidence occupationCodes contentHash features featuresVersion";
       const base = { ...filter };
       const existingAnd = Array.isArray(base.$and) ? base.$and : [];
       delete base.$and;
@@ -1055,7 +1172,7 @@ export const jobIngestionService = {
         const titleTokens = new Set(job.features?.titleTokens || []);
         const skills = new Set(job.features?.skills || []);
         const tags = new Set(job.tags || []);
-        const requirements = new Set(job.requirements || []);
+      const requirements = new Set(job.requirements || []);
         return (
           normalizedRoleTerms.filter((term) => titleTokens.has(term)).length * 4 +
           skillTerms.filter((term) => skills.has(term)).length * 2 +

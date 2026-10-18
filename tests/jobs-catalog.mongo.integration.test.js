@@ -13,6 +13,7 @@ import {
   jobIngestionService,
   registerJobAdapterFactory,
   reserveSourceRequest,
+  updateVariantGroups,
 } from "../src/services/jobs/jobIngestionService.js";
 import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
 import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
@@ -95,6 +96,36 @@ test("Mongo quota reservation allows exactly the configured requests and no over
     assert.equal(record.quotaUsed, 1);
   } finally {
     await JobSource.deleteOne({ key: "quota-test" });
+  }
+});
+
+test("cross-source variant grouping prefers an ATS original and bounds alternatives", async () => {
+  const groupKey = "variant-group-fixture";
+  const docs = Array.from({ length: 12 }, (_, index) => ({
+    contentHash: `variant-content-${index}`,
+    identityKey: `variant-identity-${index}`,
+    groupKey,
+    title: "Registered Nurse",
+    company: "Example Health",
+    rawDescription: "Registered Nurse opening",
+    sourceBoard: index === 6 ? "greenhouse" : `aggregator-${index}`,
+    sourceUrl: `https://jobs.example.test/${index}`,
+    status: "active",
+    expiresAt: new Date(Date.now() + 86400000),
+    postedAt: new Date("2026-10-16T00:00:00.000Z"),
+  }));
+  await Job.insertMany(docs);
+  try {
+    await updateVariantGroups([groupKey]);
+    const grouped = await Job.find({ groupKey }).lean();
+    const canonical = grouped.find((job) => job.sourceBoard === "greenhouse");
+    assert.ok(canonical);
+    assert.equal(canonical.canonicalJobId, null);
+    assert.equal(canonical.variants.length, 10);
+    assert.ok(grouped.filter((job) => job._id.toString() !== canonical._id.toString())
+      .every((job) => job.canonicalJobId?.toString() === canonical._id.toString()));
+  } finally {
+    await Job.deleteMany({ groupKey });
   }
 });
 
@@ -370,6 +401,72 @@ test("source registry cursors survive a worker failure and resume without rescan
     embeddingService.getEmbeddingsWithMetadata = originalEmbeddings;
     if (priorEmbeddingFlag === undefined) delete process.env.JOB_EMBEDDINGS_ENABLED;
     else process.env.JOB_EMBEDDINGS_ENABLED = priorEmbeddingFlag;
+    unregister();
+    await Job.deleteMany({ sourceBoard: key });
+    await JobSource.deleteOne({ key });
+  }
+});
+
+test("ingestion persists async iterable pages in bounded batches and applies inactive events", async () => {
+  const key = "stream-batch-integration";
+  await JobSource.create(makeSource(key, { lastRunAt: new Date(0), lastFullSyncAt: new Date() }));
+  const expiresAt = new Date(Date.now() + 86400000);
+  await Job.create({
+    contentHash: "stream-closed-hash", identityKey: "stream-closed", sourceJobId: "closed-id",
+    title: "Old role", company: "Example", location: "Remote", rawDescription: "Old",
+    sourceBoard: key, sourceUrl: "https://example.test/closed", status: "active", expiresAt,
+  });
+  const unregister = registerJobAdapterFactory(key, () => {
+    const adapter = new BaseJobAdapter({ key, capabilities: { paging: true } });
+    adapter.fetchPage = async function fetchPage() {
+      async function* jobs() {
+        for (let index = 0; index < 501; index += 1) {
+          yield { title: `Role ${index}`, company: "Example", sourceJobId: `job-${index}`, canonicalUrl: `https://example.test/jobs/${index}`, location: "Remote", rawDescription: "Description", requirements: [] };
+        }
+      }
+      return { jobs: jobs(), inactiveIds: ["closed-id"], cursor: null, done: true };
+    };
+    return adapter;
+  });
+  try {
+    const result = await jobIngestionService.ingestSource(key);
+    assert.equal(result.created, 501);
+    assert.equal(await Job.countDocuments({ sourceBoard: key, status: "active" }), 501);
+    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "closed-id" })).status, "closed");
+  } finally {
+    unregister();
+    await Job.deleteMany({ sourceBoard: key });
+    await JobSource.deleteOne({ key });
+  }
+});
+
+test("ingestion consumes mixed JobStream-style events and closes deleted ads", async () => {
+  const key = "mixed-stream-events-integration";
+  await JobSource.create(makeSource(key, { lastRunAt: new Date(0), lastFullSyncAt: new Date() }));
+  const expiresAt = new Date(Date.now() + 86400000);
+  await Job.create({
+    contentHash: "stream-delete-hash", identityKey: "stream-delete", sourceJobId: "deleted-id",
+    title: "Old role", company: "Example", location: "Remote", rawDescription: "Old",
+    sourceBoard: key, sourceUrl: "https://example.test/deleted", status: "active", expiresAt,
+  });
+  const unregister = registerJobAdapterFactory(key, () => {
+    const adapter = new BaseJobAdapter({ key, capabilities: { streaming: true, deletions: true } });
+    adapter.fetchPage = async function fetchPage() {
+      async function* events() {
+        yield { type: "upsert", sourceJobId: "new-id", job: { title: "New role", company: "Example", sourceJobId: "new-id", canonicalUrl: "https://example.test/new", location: "Remote", rawDescription: "Description", requirements: [] } };
+        yield { type: "delete", sourceJobId: "deleted-id", cursor: "2026-10-17T12:00:00.000Z" };
+      }
+      return { events: events(), cursor: "2026-10-17T12:00:00.000Z", done: true };
+    };
+    return adapter;
+  });
+  try {
+    const result = await jobIngestionService.ingestSource(key);
+    assert.equal(result.created, 1);
+    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "new-id" })).status, "active");
+    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "deleted-id" })).status, "closed");
+    assert.equal((await JobSource.findOne({ key })).cursor, "2026-10-17T12:00:00.000Z", "the completed event window persists its resume cursor");
+  } finally {
     unregister();
     await Job.deleteMany({ sourceBoard: key });
     await JobSource.deleteOne({ key });

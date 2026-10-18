@@ -19,17 +19,18 @@ try {
     delete fields.embeddingMetadata;
     return calculateObjectSize(fields);
   });
-  const fieldBytes = {};
-  if (sampled[0]) {
-    const fullSize = calculateObjectSize(sampled[0]);
-    for (const field of Object.keys(sampled[0])) {
-      const copy = { ...sampled[0] }; delete copy[field];
-      fieldBytes[field] = fullSize - calculateObjectSize(copy);
+  const fieldByteTotals = {};
+  for (const job of sampled) {
+    const fullSize = calculateObjectSize(job);
+    for (const field of Object.keys(job)) {
+      const copy = { ...job }; delete copy[field];
+      fieldByteTotals[field] = (fieldByteTotals[field] || 0) + fullSize - calculateObjectSize(copy);
     }
   }
+  const fieldBytes = Object.fromEntries(Object.entries(fieldByteTotals).map(([field, totalBytes]) => [field, Math.round(totalBytes / sampled.length)]));
   const stats = await Job.db.db.command({ collStats: collection.name }).catch(() => null);
   const mean = (values) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
   const withVectors = mean(bytesWithEmbeddings);
   const noVectors = mean(bytesWithoutEmbeddings);
-  console.log(JSON.stringify({ mode: "read-only", totalJobs: total, sampleSize: sampled.length, bsonAverageBytesWithLegacyVectors: withVectors, bsonAverageBytesWithoutVectors: noVectors, averageVectorMetadataBytes: mean(sampled.map((job) => calculateObjectSize({ embedding: job.embedding || [], embeddingMetadata: job.embeddingMetadata || {} }))), fieldBytesFirstSample: fieldBytes, storage: stats ? { count: stats.count, size: stats.size, storageSize: stats.storageSize, totalIndexSize: stats.totalIndexSize } : null, extrapolatedDataBytes: { at10k: { withLegacyVectors: withVectors * 10000, embeddingsOffNewRecords: noVectors * 10000 }, at100k: { withLegacyVectors: withVectors * 100000, embeddingsOffNewRecords: noVectors * 100000 }, at1m: { withLegacyVectors: withVectors * 1000000, embeddingsOffNewRecords: noVectors * 1000000 } } }, null, 2));
+  console.log(JSON.stringify({ mode: "read-only", totalJobs: total, sampleSize: sampled.length, bsonAverageBytesWithLegacyVectors: withVectors, bsonAverageBytesWithoutVectors: noVectors, averageVectorMetadataBytes: mean(sampled.map((job) => calculateObjectSize({ embedding: job.embedding || [], embeddingMetadata: job.embeddingMetadata || {} }))), averageFieldBytes: fieldBytes, storage: stats ? { count: stats.count, size: stats.size, storageSize: stats.storageSize, totalIndexSize: stats.totalIndexSize, indexSizes: stats.indexSizes || null } : null, extrapolatedDataBytes: { at10k: { withLegacyVectors: withVectors * 10000, embeddingsOffNewRecords: noVectors * 10000 }, at100k: { withLegacyVectors: withVectors * 100000, embeddingsOffNewRecords: noVectors * 100000 }, at1m: { withLegacyVectors: withVectors * 1000000, embeddingsOffNewRecords: noVectors * 1000000 } } }, null, 2));
 } finally { await disconnectMongo(); }

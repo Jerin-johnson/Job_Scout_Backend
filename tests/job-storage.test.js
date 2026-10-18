@@ -11,8 +11,8 @@ test("job storage separates list-safe data, details, and optional vectors", () =
 });
 
 test("job detail projection keeps compatibility with legacy inline fields", () => {
-  assert.deepEqual(projectJobDetail({ rawDescription: "legacy", requirements: ["old"] }, null), { rawDescription: "legacy", requirements: ["old"] });
-  assert.deepEqual(projectJobDetail({ rawDescription: "legacy", requirements: ["old"] }, { description: "new", requirements: ["new"] }), { rawDescription: "new", requirements: ["new"] });
+  assert.deepEqual(projectJobDetail({ rawDescription: "legacy", requirements: ["old"] }, null), { rawDescription: "legacy", requirements: ["old"], provenance: [] });
+  assert.deepEqual(projectJobDetail({ rawDescription: "legacy", requirements: ["old"] }, { description: "new", requirements: ["new"], provenance: [{ field: "title" }] }), { rawDescription: "new", requirements: ["new"], provenance: [{ field: "title" }] });
 });
 
 test("catalog cursors round trip and malformed cursors fail closed", () => {
