@@ -52,6 +52,7 @@ const envSchema = z.object({
   VOYAGE_EMBEDDING_MODEL: z.string().default("voyage-large-2-instruct"),
   VOYAGE_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(4096).default(1024),
   JOB_EMBEDDINGS_ENABLED: z.string().transform((value) => value === "true").default("false"),
+  JOB_HOT_DOCUMENT_COMPACTION_ENABLED: z.string().transform((value) => value === "true").default("false"),
   AI_ALLOW_MOCKS: z
     .string()
     .transform((value) => value === "true")
@@ -113,11 +114,23 @@ const envSchema = z.object({
   // Job APIs
   ADZUNA_APP_ID: z.string().optional().default(""),
   ADZUNA_APP_KEY: z.string().optional().default(""),
+  JOBSTREAM_SNAPSHOT_URL: z.string().optional().default(""),
+  JOBSTREAM_CHANGES_URL: z.string().optional().default(""),
+  NAV_JOB_FEED_URL: z.string().optional().default(""),
+  NAV_JOB_FEED_TOKEN: z.string().optional().default(""),
+  FRANCE_TRAVAIL_TOKEN_URL: z.string().optional().default(""),
+  FRANCE_TRAVAIL_OFFERS_URL: z.string().optional().default(""),
+  FRANCE_TRAVAIL_CLIENT_ID: z.string().optional().default(""),
+  FRANCE_TRAVAIL_CLIENT_SECRET: z.string().optional().default(""),
   JOOBLE_API_KEY: z.string().optional().default(""),
   ENABLE_REMOTEOK_INGESTION: z
     .string()
     .transform((val) => val === "true")
     .default("true"),
+  ENABLE_JOBICY_INGESTION: z
+    .string()
+    .transform((val) => val === "true")
+    .default("false"),
   ENABLE_GREENHOUSE_INGESTION: z
     .string()
     .transform((val) => val === "true")

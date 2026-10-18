@@ -13,6 +13,7 @@ import { profileRepository } from "../repositories/profileRepository.js";
 import { MATCH_SCORE_VERSION, scoreJobMatch, extractJobFeatures } from "../services/jobs/matching.js";
 import { Job } from "../models/Job.js";
 import { JobDetail } from "../models/JobDetail.js";
+import { JobVector } from "../models/JobVector.js";
 import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
@@ -170,8 +171,9 @@ export const jobController = {
           const amountMax = salary?.max ?? salaryRange?.max;
           const currency = salary?.currency || salaryRange?.currency;
           const targetCurrency = profile?.careerProfile?.compensation?.currencyCode || (profileApplicantCountry(profile) === "IN" ? "INR" : currency);
+          const { rawDescription: _rawDescription, requirements: _requirements, provenance: _provenance, ...publicJob } = job;
           const mapped = {
-            ...job,
+            ...publicJob,
             ...(match || {}),
             eligibility: match?.eligibility || classifyEligibility(job, profile || {}).status,
             eligibilityDetails: match?.eligibilityDetails || classifyEligibility(job, profile || {}),
@@ -202,8 +204,22 @@ export const jobController = {
       if (!mongoose.isValidObjectId(req.params.id)) return res.sendStatus(404);
       let job = await Job.findOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }).select("-embedding -rawPayload").lean();
       if (!job) return res.sendStatus(404);
-      const detail = await JobDetail.findOne({ jobId: job._id, expiresAt: { $gt: new Date() } }).select("description requirements").lean();
-      if (detail) job = { ...job, rawDescription: detail.description, requirements: detail.requirements };
+      const canonicalJob = job.canonicalJobId
+        ? await Job.findOne({ _id: job.canonicalJobId, status: "active", expiresAt: { $gt: new Date() } })
+            .select("sourceBoard sourceUrl canonicalUrl variants")
+            .lean()
+        : job;
+      const variantLinks = [
+        ...(canonicalJob?._id && String(canonicalJob._id) !== String(job._id)
+          ? [{ source: canonicalJob.sourceBoard, url: canonicalJob.sourceUrl || canonicalJob.canonicalUrl || "" }]
+          : []),
+        ...(canonicalJob?.variants || []),
+      ];
+      const alsoListedOn = variantLinks
+        .filter((variant) => variant.source !== job.sourceBoard || variant.url !== (job.sourceUrl || job.canonicalUrl || ""))
+        .slice(0, 10);
+      const detail = await JobDetail.findOne({ jobId: job._id, expiresAt: { $gt: new Date() } }).select("description requirements provenance").lean();
+      if (detail) job = { ...job, rawDescription: detail.description, requirements: detail.requirements, provenance: detail.provenance };
       const userId = req.user._id || req.user.id;
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;
@@ -235,7 +251,7 @@ export const jobController = {
         const titleSame = job.features?.occupation && features.occupation === job.features.occupation ? 3 : 0;
         return { ...item, _similarity: shared + titleSame };
       }).sort((a, b) => b._similarity - a._similarity).slice(0, 3).map(({ _similarity, ...item }) => item);
-      res.json({ data: { job: { ...job, eligibility: match?.eligibility || eligibilityDetails.status, eligibilityDetails: match?.eligibilityDetails || eligibilityDetails, riskFlags: getJobRiskFlags(job), salaryDisplay }, match, similarJobs, companyInfoProvided: Boolean(job.companyDescription || job.companyWebsite || job.industry) } });
+      res.json({ data: { job: { ...job, alsoListedOn, eligibility: match?.eligibility || eligibilityDetails.status, eligibilityDetails: match?.eligibilityDetails || eligibilityDetails, riskFlags: getJobRiskFlags(job), salaryDisplay }, match, similarJobs, companyInfoProvided: Boolean(job.companyDescription || job.companyWebsite || job.industry) } });
     } catch (err) { next(err); }
   },
 
@@ -299,6 +315,9 @@ export const jobController = {
         getMatchRefresh(userId, req.user.profileVersion || 1),
         Job.find({ status: "active", expiresAt: { $gt: new Date() } }).select("title features").lean(),
       ]);
+      const candidatesWithEmbeddings = jobs.length
+        ? await JobVector.countDocuments({ jobId: { $in: jobs.map((job) => job._id).filter(Boolean) } })
+        : 0;
       const embedding = (await import("../services/embeddingService.js")).embeddingService.getConfig();
       const availableScores = scored.filter((item) => !item.hardBlocked);
       const scoreDistribution = Array.from({ length: 10 }, (_, index) => ({
@@ -327,7 +346,7 @@ export const jobController = {
         candidateCap: retrieval.candidateCap,
         lexicalCandidates: retrieval.lexicalCandidateCount,
         afterLocationTiering: tiered.length,
-        candidatesWithEmbeddings: jobs.filter((job) => job.embedding?.length).length,
+        candidatesWithEmbeddings,
         profileEmbeddingAvailable: false,
         embeddingProvider: embedding.provider,
         embeddingModel: embedding.model,

@@ -1,5 +1,9 @@
 # 16 — AI and matching data inventory
 
+## Job-specific resume match additions
+
+`jobMatchReports` stores an owner ID, resume ID and content hash, a job identity/content hash, deterministic score/checklist/evidence snippets, ignored keywords, and optional grounded suggestions. A unique owner/resume/job/version index makes creation idempotent. It does not store decrypted resume text or the full catalog job description; pasted/application descriptions are bounded and are stored only for the report's supported display needs. Reports are deleted with the selected resume and during user privacy erasure. Resume term-index cache is keyed by owner and file hash and removed with resume deletion. Export includes reports and resume metadata but omits encrypted raw resume text.
+
 Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)

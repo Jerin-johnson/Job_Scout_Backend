@@ -43,7 +43,7 @@ flowchart LR
 4. The job content hash covers the text used for matching. Unchanged jobs reuse their stored vector; changed records re-embed only if that matching text changed. New/changed vectors are sent in batches and cached by content hash plus provider/model/dimension.
 5. Discovery only reads active, non-expired Mongo records. It applies structured filters, caps candidates at 300 in the matching graph (400 at service boundary), then scores lexical job/profile features deterministically. It does not compare vectors in the current hot path and does not trigger ingestion.
 
-Current approved sources are Remote OK, Remotive, and Jobicy. Coverage is limited to those sources and their respective terms and update windows; the catalog is not the whole internet. Other sources remain disabled until their terms are reviewed and the owner approves them.
+Remote OK is currently visible by default. Jobicy is approved but hidden by default; local developers can enable it with `ENABLE_JOBICY_INGESTION=true`. Remotive remains hidden until written redistribution permission is recorded. Results show their source attribution and posted date when known. Coverage is limited to the sources currently visible and their terms/update windows; this catalog is not the whole internet.
 
 ## Scaling in stages
 

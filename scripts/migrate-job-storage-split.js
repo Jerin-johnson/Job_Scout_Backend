@@ -15,7 +15,7 @@ function assertLocalMongo() {
 }
 
 export async function migrateJobStorage({ jobModel = Job, detailModel = JobDetail, vectorModel = JobVector, apply = false } = {}) {
-  const projection = "_id rawDescription requirements embedding embeddingMetadata expiresAt";
+  const projection = "_id rawDescription requirements provenance embedding embeddingMetadata expiresAt";
   const progress = jobModel.db.collection("job_storage_split_v1_progress");
   const checkpoint = apply ? await progress.findOne({ _id: "copy" }) : null;
   let scanned = 0, detailsWritten = 0, vectorsWritten = 0, bytesDetail = 0, detailsToCopy = 0, vectorsToCopy = 0, batch = [];
@@ -25,9 +25,9 @@ export async function migrateJobStorage({ jobModel = Job, detailModel = JobDetai
     if (!apply) { batch = []; return; }
     const detailOps = [], vectorOps = [];
     for (const job of batch) {
-      if (job.rawDescription || job.requirements?.length) {
-        const detail = { jobId: job._id, description: job.rawDescription || "", requirements: job.requirements || [], expiresAt: job.expiresAt || new Date(Date.now() + 30 * 86400000) };
-        detailOps.push({ updateOne: { filter: { jobId: job._id }, update: { $setOnInsert: detail }, upsert: true } });
+      if (job.rawDescription || job.requirements?.length || job.provenance?.length) {
+        const detail = { jobId: job._id, description: job.rawDescription || "", requirements: job.requirements || [], provenance: job.provenance || [], expiresAt: job.expiresAt || new Date(Date.now() + 30 * 86400000) };
+        detailOps.push({ updateOne: { filter: { jobId: job._id }, update: { $set: { description: detail.description, requirements: detail.requirements, provenance: detail.provenance, expiresAt: detail.expiresAt } }, upsert: true } });
       }
       if (job.embedding?.length) vectorOps.push({ updateOne: { filter: { jobId: job._id }, update: { $setOnInsert: { jobId: job._id, vector: job.embedding, provider: job.embeddingMetadata?.provider || "legacy", model: job.embeddingMetadata?.model || "unknown", dimension: job.embeddingMetadata?.dimension || job.embedding.length, migratedAt: new Date() } }, upsert: true } });
     }
@@ -36,13 +36,13 @@ export async function migrateJobStorage({ jobModel = Job, detailModel = JobDetai
     await progress.updateOne({ _id: "copy" }, { $set: { lastId, updatedAt: new Date(), version: 1 } }, { upsert: true });
     batch = [];
   };
-  const filter = { $or: [{ rawDescription: { $exists: true, $ne: "" } }, { requirements: { $exists: true, $ne: [] } }, { embedding: { $exists: true, $ne: [] } }] };
+  const filter = { $or: [{ rawDescription: { $exists: true, $ne: "" } }, { requirements: { $exists: true, $ne: [] } }, { provenance: { $exists: true, $ne: [] } }, { embedding: { $exists: true, $ne: [] } }] };
   if (checkpoint?.lastId) filter._id = { $gt: checkpoint.lastId };
   for await (const job of jobModel.find(filter).sort({ _id: 1 }).select(projection).lean().cursor({ batchSize })) {
     scanned += 1;
     if (job.rawDescription || job.requirements?.length) {
       detailsToCopy += 1;
-      bytesDetail += Buffer.byteLength(JSON.stringify({ description: job.rawDescription || "", requirements: job.requirements || [] }));
+      bytesDetail += Buffer.byteLength(JSON.stringify({ description: job.rawDescription || "", requirements: job.requirements || [], provenance: job.provenance || [] }));
     }
     if (job.embedding?.length) vectorsToCopy += 1;
     batch.push(job);

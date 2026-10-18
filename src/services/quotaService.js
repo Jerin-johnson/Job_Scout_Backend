@@ -47,11 +47,12 @@ function counterLimit(plan, feature) {
   if (feature === "chat") return quotas.chatMessagesDaily;
   if (feature === "match_jobs") return quotas.dailyMatches;
   if (feature === "tailor_resume") return quotas.tailoredDocsMonthly;
+  if (feature === "resume_match_suggestions") return quotas.resumeMatchSuggestionsMonthly;
   return 0;
 }
 
 function quotaLimitError(feature, count, limit) {
-  const label = feature === "chat" ? "Daily chat" : feature === "match_jobs" ? "Daily job match" : "Monthly tailored resume";
+  const label = feature === "chat" ? "Daily chat" : feature === "match_jobs" ? "Daily job match" : feature === "resume_match_suggestions" ? "Monthly resume match suggestions" : "Monthly tailored resume";
   const error = new Error(`${label} quota reached (${count}/${limit}).`);
   error.statusCode = 429;
   error.code = "QUOTA_EXCEEDED";
@@ -126,7 +127,7 @@ export const quotaService = {
   /**
    * Check if user has quota for a specific feature before executing LLM/graph
    */
-  async checkQuota(user, feature, { estimatedCostUsd = 0 } = {}) {
+  async checkQuota(user, feature, { estimatedCostUsd = 0, featureQuotaAccepted = false } = {}) {
     // 1. Check Global AI Kill Switch
     await this.assertAIEnabled();
 
@@ -212,6 +213,10 @@ export const quotaService = {
         err.code = "QUOTA_EXCEEDED";
         throw err;
       }
+    } else if (feature === "resume_match_suggestions" && !featureQuotaAccepted) {
+      const count = await this.getCounter(`quota:${userId}:resume-match-suggestions:${month}`);
+      const limit = planConfig.quotas.resumeMatchSuggestionsMonthly;
+      if (count >= limit) throw quotaLimitError(feature, count, limit);
     } else if (
       feature === "interview_prep" ||
       feature === "mock_interview" ||
@@ -258,6 +263,9 @@ export const quotaService = {
     } else if (feature === "chat") {
       key = `quota:${userId}:chat:${day}`;
       ttl = 86400 * 2;
+    } else if (feature === "resume_match_suggestions") {
+      key = `quota:${userId}:resume-match-suggestions:${month}`;
+      ttl = 32 * 86400;
     } else {
       key = `quota:${userId}:${feature}:${day}`;
       ttl = 86400 * 2;

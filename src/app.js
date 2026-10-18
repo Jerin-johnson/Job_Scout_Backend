@@ -18,6 +18,7 @@ import { interviewRouter } from "./routes/interview.js";
 import { billingRouter } from "./routes/billing.js";
 import { adminRouter } from "./routes/admin.js";
 import { privacyRouter } from "./routes/privacy.js";
+import { resumeMatchRouter } from "./routes/resumeMatch.js";
 import { isTrustedWebOrigin } from "./shared/utils/webOrigin.js";
 
 export function createApp() {
@@ -121,6 +122,7 @@ export function createApp() {
 
   // GDPR / DPDP Privacy & Right-to-be-forgotten routes
   app.use("/api/v1/privacy", privacyRouter);
+  app.use("/api/v1/resume-match", resumeMatchRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

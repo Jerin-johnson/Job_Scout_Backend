@@ -9,6 +9,11 @@ import { InterviewMessage } from "../models/InterviewMessage.js";
 import { InterviewReport } from "../models/InterviewReport.js";
 import { InterviewSession } from "../models/InterviewSession.js";
 import { interviewGraph } from "../ai/graphs/interviewGraph.js";
+import { JobMatchReport } from "../models/JobMatchReport.js";
+import { Resume } from "../models/Resume.js";
+import { Profile } from "../models/Profile.js";
+import { Application } from "../models/Application.js";
+import { deleteAllUserResumeData } from "../services/resumeDataLifecycle.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -31,8 +36,14 @@ export const privacyController = {
 
       let documents = [];
       let interviews = [];
+      let resumes = [];
+      let jobMatchReports = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
+        [resumes, jobMatchReports] = await Promise.all([
+          Resume.find({ userId }).select("-encryptedRawText").lean(),
+          JobMatchReport.find({ userId }).lean(),
+        ]);
         interviews = await InterviewSession.find({ userId }).select("-questionPlan").lean();
         const interviewIds = interviews.map((session) => session._id);
         const [messages, reports] = await Promise.all([
@@ -65,6 +76,8 @@ export const privacyController = {
         profile: profile || {},
         applications: applications || [],
         tailoredDocuments: documents,
+        resumes,
+        jobMatchReports,
         agentMemories: memories || [],
         interviews,
       };
@@ -94,6 +107,7 @@ export const privacyController = {
 
       // 1. Purge agent memories
       await longTermMemory.forgetAllMemories(userId);
+      await deleteAllUserResumeData(userId);
 
       // Remove durable interview transcripts/reports and legacy process-local sessions.
       if (isMongoReady()) {
@@ -101,6 +115,9 @@ export const privacyController = {
           InterviewMessage.deleteMany({ userId }),
           InterviewReport.deleteMany({ userId }),
           InterviewSession.deleteMany({ userId }),
+          Profile.deleteOne({ userId }),
+          Document.deleteMany({ userId }),
+          Application.deleteMany({ userId }),
         ]);
       }
       interviewGraph.deleteMockSessionsByUserId(userId);

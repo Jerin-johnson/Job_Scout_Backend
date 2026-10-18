@@ -40,6 +40,8 @@ test("ATS validation rejects redirects and oversized board responses", async () 
 test("ATS ingestion requires its individual environment flag and Adzuna remains license-blocked", () => {
   assert.equal(isSourceEnabledByEnvironment("greenhouse", { ENABLE_GREENHOUSE_INGESTION: false }), false);
   assert.equal(isSourceEnabledByEnvironment("greenhouse", { ENABLE_GREENHOUSE_INGESTION: true }), true);
+  assert.equal(isSourceEnabledByEnvironment("jobicy", { ENABLE_JOBICY_INGESTION: false }), false);
+  assert.equal(isSourceEnabledByEnvironment("jobicy", { ENABLE_JOBICY_INGESTION: true }), true);
   const adzuna = SOURCE_POLICIES.find((source) => source.key === "adzuna-india");
   assert.equal(adzuna.activationStatus, "blocked_on_license");
   assert.equal(isSourceActivationAllowed(adzuna), false);

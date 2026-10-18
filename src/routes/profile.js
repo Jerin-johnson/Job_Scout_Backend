@@ -41,6 +41,7 @@ profileRouter.get("/place-suggestions", generalApiLimiter, profileController.pla
 profileRouter.get("/career-profile", profileController.getCareerProfile);
 profileRouter.patch("/career-profile", csrfProtection, profileController.updateCareerProfile);
 profileRouter.get("/resumes", profileController.listResumes);
+profileRouter.delete("/resumes/:id", csrfProtection, generalApiLimiter, profileController.deleteResume);
 profileRouter.post("/resumes/:id/reread", csrfProtection, generalApiLimiter, profileController.rereadResume);
 profileRouter.put("/preferences", csrfProtection, profileController.updatePreferences);
 profileRouter.patch("/preferences/target-roles", csrfProtection, profileController.confirmTargetRoles);

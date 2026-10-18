@@ -18,6 +18,7 @@ export const PLAN_CONFIG = {
     quotas: {
       dailyMatches: 5,
       tailoredDocsMonthly: 1,
+      resumeMatchSuggestionsMonthly: 2,
       chatMessagesDaily: 20,
       maxMemories: 50,
       dailyUsdBudget: 0.1,
@@ -37,6 +38,7 @@ export const PLAN_CONFIG = {
     quotas: {
       dailyMatches: 50,
       tailoredDocsMonthly: 30,
+      resumeMatchSuggestionsMonthly: 30,
       chatMessagesDaily: 200,
       maxMemories: 300,
       dailyUsdBudget: 1.5,
@@ -56,6 +58,7 @@ export const PLAN_CONFIG = {
     quotas: {
       dailyMatches: 200,
       tailoredDocsMonthly: 500, // fair-use cap
+      resumeMatchSuggestionsMonthly: 100,
       chatMessagesDaily: 1000,
       maxMemories: 1000,
       dailyUsdBudget: 5.0,

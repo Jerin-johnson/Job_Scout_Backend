@@ -10,6 +10,8 @@ import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import { userRepository } from "../repositories/userRepository.js";
 import { enqueueMatchRefreshForUser } from "../services/matchRefreshService.js";
 import { COUNTRY_ALIASES, ISO_SUBDIVISION_CODES, PLACE_CATALOG_VERSION, PLACE_SUGGESTIONS, normalizeSuggestionQuery, resolvePlacePair, suggestPlaces, suggestRoles } from "../services/profileSuggestionCatalog.js";
+import { RESUME_AI_CONSENT_VERSION, requireResumeAiConsent } from "../services/resumeAiConsent.js";
+import { deleteResumeForUser } from "../services/resumeDataLifecycle.js";
 
 const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),
@@ -50,17 +52,6 @@ export const careerProfileSchema = z.object({
   }
 });
 const careerPatchSchema = z.object({ profileVersion: z.number().int().min(1), careerProfile: careerProfileSchema }).strict();
-const RESUME_AI_CONSENT_VERSION = "resume-ai-processing-v1";
-
-async function requireResumeAiConsent(userId) {
-  const user = await userRepository.findById(userId);
-  if (user?.resumeAiConsent?.version === RESUME_AI_CONSENT_VERSION && user.resumeAiConsent.acceptedAt) return;
-  const error = new Error("Please review and accept AI resume processing before uploading a resume.");
-  error.statusCode = 403;
-  error.code = "RESUME_AI_CONSENT_REQUIRED";
-  throw error;
-}
-
 function educationLevelSuggestion(education = []) {
   const text = education.map((item) => item.degree || "").join(" ").toLowerCase();
   if (/ph\.?d|doctorate/.test(text)) return "doctorate";
@@ -270,7 +261,7 @@ export const profileController = {
     try {
       const input = resumeUploadRequestSchema.parse(req.body);
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      await requireResumeAiConsent(userId);
+      await requireResumeAiConsent(userId, userRepository);
       const extension = resumeExtension(input.originalFilename, input.mimeType);
       const uploadId = randomUUID();
       const key = `resumes/${userId}/${uploadId}.${extension}`;
@@ -321,7 +312,7 @@ export const profileController = {
           },
         });
       }
-      await requireResumeAiConsent(userId);
+      await requireResumeAiConsent(userId, userRepository);
       const metadata = await storageService.getObjectMetadata({ key });
       if (
         !Number.isInteger(metadata.contentLength) ||
@@ -386,11 +377,21 @@ export const profileController = {
     }
   },
 
+  async deleteResume(req, res, next) {
+    try {
+      if (!/^[a-f\d]{24}$/i.test(req.params.id)) return res.sendStatus(404);
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const deleted = await deleteResumeForUser({ resumeId: req.params.id, userId });
+      if (!deleted) return res.sendStatus(404);
+      return res.sendStatus(204);
+    } catch (error) { next(error); }
+  },
+
   async rereadResume(req, res, next) {
     try {
       if (!/^[a-f\d]{24}$/i.test(req.params.id)) return res.sendStatus(404);
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      await requireResumeAiConsent(userId);
+      await requireResumeAiConsent(userId, userRepository);
       const resume = await profileRepository.findResumeByIdAndUserId(req.params.id, userId);
       if (!resume) return res.sendStatus(404);
       const fileBuffer = await storageService.getFile({ key: resume.s3Key });
@@ -412,7 +413,7 @@ export const profileController = {
       }
 
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      await requireResumeAiConsent(userId);
+      await requireResumeAiConsent(userId, userRepository);
       const result = await processResumeFile({
         req,
         userId,
