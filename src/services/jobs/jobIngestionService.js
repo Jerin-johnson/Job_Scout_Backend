@@ -35,6 +35,15 @@ const ATS_SOURCE_PRIORITY = new Map([
   ["workable", 0],
   ["usajobs", 0],
 ]);
+const COVERAGE_TARGETS = Object.freeze([
+  { key: "kerala-nursing", label: "Kerala nursing", target: 100, filter: { occupation: "nursing", "structuredLocation.countryCode": "IN", $or: [{ "structuredLocation.region": /kerala/i }, { "structuredLocation.city": /kerala/i }] } },
+  { key: "india-fresher-it", label: "India fresher IT", target: 500, filter: { occupation: "technology", "structuredLocation.countryCode": "IN", tags: { $in: ["fresher", "entry-level", "entry level", "junior"] } } },
+  { key: "india-remote", label: "India remote", target: 500, filter: { $or: [{ "eligibility.countries": "IN" }, { "structuredLocation.eligibleCountryCodes": "IN" }, { "eligibility.remoteScope": "worldwide" }] } },
+  { key: "gulf-nursing", label: "Gulf nursing", target: 100, filter: { occupation: "nursing", "structuredLocation.countryCode": { $in: ["AE", "SA", "QA", "KW", "BH", "OM"] } } },
+  { key: "uk-ireland-nursing", label: "UK and Ireland nursing", target: 250, filter: { occupation: "nursing", "structuredLocation.countryCode": { $in: ["GB", "IE"] } } },
+  { key: "india-government", label: "India government notices", target: 100, filter: { sourceBoard: { $in: ["ncs", "government-india"] }, "structuredLocation.countryCode": "IN" } },
+  { key: "global-remote", label: "Global remote", target: 1000, filter: { $or: [{ remoteType: "remote" }, { "eligibility.remoteScope": { $in: ["worldwide", "region"] } }] } },
+]);
 
 export function registerJobAdapterFactory(key, factory) {
   if (!/^[a-z0-9_-]+$/.test(key) || typeof factory !== "function")
@@ -1505,11 +1514,12 @@ export const jobIngestionService = {
   },
 
   async coverageReport(profile = null) {
-    if (!isMongoReady()) return { totalActive: 0, byOccupation: [], byCountry: [], byRemoteScope: [], bySource: [], unknownEligibilityCount: 0, targetLocations: [] };
-    const active = { status: "active", expiresAt: { $gt: new Date() } };
+    if (!isMongoReady()) return { totalActive: 0, rawActive: 0, byOccupation: [], byCountry: [], byRemoteScope: [], bySource: [], freshness: [], unknownEligibilityCount: 0, unknownEligibilityShare: 0, targetLocations: [], targetGaps: [] };
+    const active = { status: "active", expiresAt: { $gt: new Date() }, canonicalJobId: null };
     const groupBy = async (field) => Job.aggregate([{ $match: active }, { $group: { _id: { $ifNull: [`$${field}`, "unknown"] }, count: { $sum: 1 } } }, { $sort: { count: -1, _id: 1 } }]).option({ maxTimeMS: 2000 });
-    const [totalActive, byOccupation, byCountry, byRemoteScope, bySource, unknownEligibilityCount, byOccupationCountry, unclassifiedBySource] = await Promise.all([
+    const [totalActive, rawActive, byOccupation, byCountry, byRemoteScope, bySource, unknownEligibilityCount, byOccupationCountry, unclassifiedBySource, freshness] = await Promise.all([
       Job.countDocuments(active),
+      Job.countDocuments({ status: "active", expiresAt: { $gt: new Date() } }),
       groupBy("occupation"),
       groupBy("structuredLocation.countryCode"),
       groupBy("eligibility.remoteScope"),
@@ -1517,7 +1527,20 @@ export const jobIngestionService = {
       Job.countDocuments({ ...active, $or: [{ eligibility: { $exists: false } }, { "eligibility.remoteScope": "unknown" }, { "eligibility.confidence": { $lt: 0.5 } }] }),
       Job.aggregate([{ $match: active }, { $group: { _id: { occupation: { $ifNull: ["$occupation", "unclassified"] }, country: { $ifNull: ["$structuredLocation.countryCode", "unknown"] } }, count: { $sum: 1 } } }, { $sort: { count: -1, "_id.occupation": 1 } }]).option({ maxTimeMS: 2000 }),
       Job.aggregate([{ $match: active }, { $group: { _id: "$sourceBoard", total: { $sum: 1 }, unclassified: { $sum: { $cond: [{ $eq: [{ $ifNull: ["$occupation", "unclassified"] }, "unclassified"] }, 1, 0] } } } }, { $sort: { _id: 1 } }]).option({ maxTimeMS: 2000 }),
+      profile ? Promise.resolve([]) : Job.aggregate([
+        { $match: active },
+        { $project: { lastSeenAt: 1, ageMs: { $subtract: [new Date(), { $ifNull: ["$lastSeenAt", new Date(0)] }] } } },
+        { $group: { _id: { $switch: { branches: [{ case: { $eq: ["$lastSeenAt", null] }, then: "unknown" }, { case: { $lte: ["$ageMs", 86400000] }, then: "under_24h" }, { case: { $lte: ["$ageMs", 7 * 86400000] }, then: "1_to_7d" }], default: "over_7d" } }, count: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]).option({ maxTimeMS: 2000 }),
     ]);
+    const targetGaps = profile ? [] : await Promise.all(COVERAGE_TARGETS.map(async (target) => {
+      const count = await Job.countDocuments({ ...active, ...target.filter });
+      const companies = ["kerala-nursing", "gulf-nursing", "uk-ireland-nursing"].includes(target.key)
+        ? await Job.distinct("company", { ...active, ...target.filter }).then((values) => values.filter(Boolean).length)
+        : null;
+      return { key: target.key, label: target.label, target: target.target, activeJobs: count, gap: Math.max(0, target.target - count), progress: target.target ? Number((count / target.target).toFixed(4)) : 0, distinctCompanies: companies, measurement: ["india-fresher-it", "india-remote", "global-remote"].includes(target.key) ? "approximate_field_coverage" : "structured_field_match" };
+    }));
     const locations = [...new Map([
       profile?.careerProfile?.homeLocation,
       ...(profile?.careerProfile?.targetLocations || []),
@@ -1526,7 +1549,7 @@ export const jobIngestionService = {
       countryCode: location.countryCode,
       eligibleCount: await Job.countDocuments({ ...active, $or: [{ "eligibility.countries": location.countryCode }, { "eligibility.remoteScope": "worldwide" }] }),
     })));
-    return { totalActive, byOccupation, byCountry, byRemoteScope, bySource, unknownEligibilityCount, byOccupationCountry, unclassifiedBySource: unclassifiedBySource.map((item) => ({ ...item, unclassifiedShare: item.total ? Number((item.unclassified / item.total).toFixed(4)) : 0 })), targetLocations };
+    return { totalActive, rawActive, byOccupation, byCountry, byRemoteScope, bySource, freshness, unknownEligibilityCount, unknownEligibilityShare: totalActive ? Number((unknownEligibilityCount / totalActive).toFixed(4)) : 0, byOccupationCountry, unclassifiedBySource: unclassifiedBySource.map((item) => ({ ...item, unclassifiedShare: item.total ? Number((item.unclassified / item.total).toFixed(4)) : 0 })), targetLocations, targetGaps };
   },
 
   async publicSources() {

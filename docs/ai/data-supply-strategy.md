@@ -129,3 +129,7 @@ Before employer posting: verify employer domain/registrant authority, moderate q
 ## Target design (not built yet)
 
 The reviewed vendor pilot, partner feeds, employer self-service portal, government notice collection, GeoNames/O*NET/ESCO imports, and source expansion remain proposals. No paid service, external reference dataset, live vendor call, or live government feed was activated.
+
+## Admin coverage reporting — 2026-10-18
+
+The admin coverage endpoint now reports deduplicated active counts, raw active counts, freshness by last-seen age, unknown-eligibility share, source/country/family aggregates, and explicit gaps against the initial segment targets above. Segment counts are structured-field estimates; fresher, authorization, hospital/employer verification, and complete eligibility are not inferred when the corresponding source fields are absent. `usersWithZeroEligibleJobs` is scoped to consented pseudonymous users with a zero-result event in the prior 30 days and is not an all-user census. The production UI presents these caveats.

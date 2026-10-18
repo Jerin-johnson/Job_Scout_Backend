@@ -92,3 +92,8 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Validation: existing Jobicy/Remotive gate coverage in 	ests/job-source-adapters.test.js; 
 pm run docs:check is being run.
 
+## Beta readiness item 3 — coverage reporting — 2026-10-18
+
+- Admin coverage now reports active deduplicated inventory by occupation, country, source, remote scope, freshness, eligibility confidence, and target segment gap. Zero-result users are counted only from consented pseudonymous analytics in the 30-day window; this is not a complete per-user eligibility census.
+- Added a responsive admin summary and caution flags for old postings and possible reposts. Link health remains sampled to at most 100 records and one status request/source/day where the adapter supports batch checks.
+- Validation: backend Mongo catalog integration 19/19 passed; frontend tests 47/47 and lint passed. Precise entry-level, verified-employer and all-user eligible counts remain limited by source fields/consent.
