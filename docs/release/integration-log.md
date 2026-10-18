@@ -73,3 +73,7 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Frontend lint passed, 47/47 tests passed, and docs check passed. Direct OneDrive `next build` failed with EPERM creating `.next`; an isolated clean temporary copy built successfully with all 24 static pages/routes.
 - Local smoke was attempted but is blocked: the reachable local Mongo endpoint returned authorization error code 13, while local Redis was refused. It did not reach hosted services and no write was confirmed. Docker Desktop engine is unavailable, so compose smoke is unverified. Both `npm audit` attempts stopped at registry DNS `ENOTFOUND`.
 - Smoke diagnosis: the unauthenticated smoke registration/login/refresh requests omitted the browser `Origin`; added the trusted local origin to those test requests. The smoke suite remains blocked by local DB/Redis availability and is not marked passed.
+
+## Beta-readiness branch — 2026-10-18
+
+- Created `feat/beta-readiness` from the local main integration commit. This repository remains independent of the frontend history.
