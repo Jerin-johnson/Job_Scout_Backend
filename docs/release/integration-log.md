@@ -103,3 +103,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added authenticated text-only feedback at `POST /api/v1/feedback`, five submissions/hour/user, 180-day TTL, export and account-deletion coverage, plus Settings UI and API receipt schema. Feedback body is redacted from request logs.
 - Added production configuration checklist and isolated local Mongo/Redis backup/restore runbook. Health live/readiness already existed. Docker CLI exists but Docker Desktop's Linux engine pipe is unavailable, so compose smoke and backup/restore rehearsal could not run.
 - Validation: backend full suite 197 passed, 0 failed, 1 optional skip; lint 0 errors/2 existing warnings; OpenAPI generated; docs check passed. Frontend full suite 48/48, lint and docs check passed. Feedback UI/API was contract-tested; no live server session was used.
+
+## Beta readiness final evidence update — 2026-10-18
+
+- Read-only local catalog snapshot: 617 active jobs; 59 (9.56%) have posted dates older than 30 days, and 83 (13.45%) meet the possible-repost date-gap heuristic. Source counts and caveats are in `docs/ai/data-supply-strategy.md`.
+- GeoNames/O*NET license metadata was verified, but bounded dataset transfers did not complete. No reference dataset was imported or left in the workspace, and no import/rollback code was added. The 300-row occupation worksheet still has 0 corrected labels and 33/300 (11.0%) predicted unclassified; precision/recall remain unmeasured.
+- Final backend docs check passed; no application code changed in this evidence update. Frontend production build retried directly under OneDrive and again failed with `EPERM` creating `.next/server/app/dev`. The earlier isolated temporary-copy build had succeeded, but this final retry is not a clean in-place build gate. Docker Desktop's Linux engine remains unavailable; compose smoke and backup/restore rehearsal remain unverified. No hosted service or database was contacted.

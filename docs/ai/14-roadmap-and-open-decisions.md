@@ -26,4 +26,4 @@ No roadmap item is implemented by this documentation. No estimates beyond measur
 
 **Unverified:** roadmap priority, target scale and product decisions. Obtain explicit approval before starting any listed item.
 
-**Owner decisions:** complete the stratified 300-title occupation review; decide whether to download/import GeoNames and O*NET once a verified local package and rollback path are available; select staging host only after measuring Kerala p95 and checking Redis `noeviction`/persistence; run the isolated Compose restore rehearsal; verify deployed Sentry settings.
+**Owner decisions:** complete the stratified 300-title occupation review; re-run the official GeoNames/O*NET download from a stable network and approve an additive import/rollback review before use; select staging host only after measuring Kerala p95 and checking Redis `noeviction`/persistence; run the isolated Compose restore rehearsal; verify deployed Sentry settings.
