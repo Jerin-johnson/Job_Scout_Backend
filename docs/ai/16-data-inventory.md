@@ -1,6 +1,6 @@
 # 16 — AI and matching data inventory
 
-Last verified against commit pending final commit on 2026-10-16.
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)
 

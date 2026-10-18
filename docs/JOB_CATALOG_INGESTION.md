@@ -67,7 +67,7 @@ Indexes include:
 - `job_source_coverage`: source + status + expiry for periodic coverage metrics.
 - Existing `expiresAt` TTL index.
 
-Use `Job.find(filter).sort(...).limit(400).explain("executionStats")` with actual production filters after deployment. The integration test uses a hint to verify the structured compound index exists and is usable. Recheck winning plan and docs examined/returned as the catalog grows.
+Use `npm run jobs:discovery:explain` for a read-only local explain of the active approved-source query. Current local explain: `job_candidate_recent_feed` index, SORT_MERGE, 400 returned, 402 keys examined, 400 documents examined, 59ms. The integration test uses a hint to verify the structured compound index exists and is usable. Recheck winning plan and docs examined/returned as the catalog grows.
 
 ## Migration and rollback
 
@@ -89,11 +89,11 @@ Rollback disables the newly approved source records, restores original content h
 
 ## Measured storage and vector trade-off
 
-Sample BSON sizing used the current schema with a representative 2,000-character description and a 1,536-element numeric vector. The old shape measured 22,896 bytes/job; the additive schema measured 23,738 bytes/job (+842 bytes, about 3.7%). This is logical BSON, not compressed Atlas disk usage. At one million similar jobs that is about 22.1 GiB logical BSON total, including about 19.0 GiB for numeric-array vector values and their BSON array keys. Actual descriptions, compression, indexes, replicas, and storage overhead change the physical bill.
+An earlier representative-document estimate used a 2,000-character description and a 1,536-element numeric vector: 22,896 bytes/job old shape and 23,738 bytes/job additive shape. A current local sample of 100 active records measured 28,160 BSON bytes/job with legacy vectors and 7,664 bytes/job after projecting vectors out; the measured vector array averages 20,410 bytes/job. Mongo reported 23,518,464 logical data bytes, 46,649,344 allocated bytes and 2,940,928 index bytes for 806 documents. These are local logical/allocated Mongo figures, not compressed Atlas billing estimates; real descriptions, indexes, replicas and backups affect production storage.
 
 | Vector representation | BSON vector bytes/job | Vector BSON at 1M jobs | Storage reduction | Expected quality note |
 | --- | ---: | ---: | ---: | --- |
-| Current 1,536 numeric dimensions | 20,411 | 19.01 GiB | baseline | Current compatibility and quality baseline |
+| Current 1,536 numeric dimensions | 20,410 | 19.01 GiB | baseline | Current compatibility and quality baseline |
 | 1,024 dimensions | 13,243 | 12.33 GiB | 33.3% | Usually a moderate trade-off; must evaluate ranking quality |
 | 512 dimensions | 6,563 | 6.11 GiB | 66.7% | Greater storage reduction, more likely to lose nuanced semantic matches |
 | 256 dimensions | 3,235 | 3.01 GiB | 83.3% | Strong compression, highest ranking-quality risk |

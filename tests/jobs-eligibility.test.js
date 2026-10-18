@@ -26,3 +26,15 @@ test("career-profile home, target and permitted relocation destinations are used
   assert.equal(classifyEligibility({ structuredLocation: { countryCode: "US" }, location: "Remote" }, profile).status, "not_open");
   assert.equal(classifyEligibility({ location: "Remote", structuredLocation: { remoteScope: "worldwide" } }, profile).status, "eligible");
 });
+
+test("versioned eligibility parser maps common countries and hiring-region groups to ISO codes", () => {
+  assert.ok(parseJobEligibility({ location: "Remote - India" }).countries.includes("IN"));
+  assert.equal(parseJobEligibility({ location: "Remote in EMEA" }).remoteScope, "EMEA");
+  assert.ok(parseJobEligibility({ location: "Remote in EMEA" }).countries.includes("AE"));
+  assert.equal(parseJobEligibility({ location: "Remote in LATAM" }).remoteScope, "LATAM");
+  assert.equal(parseJobEligibility({ location: "Remote in APAC" }).remoteScope, "APAC");
+  assert.equal(parseJobEligibility({ location: "Remote in EU" }).remoteScope, "EU");
+  assert.equal(parseJobEligibility({ location: "Remote in EMEA" }).version, 2);
+  assert.equal(classifyEligibility({ location: "Remote in EMEA" }, { careerProfile: { homeLocation: { countryCode: "AE" } } }).status, "eligible");
+  assert.equal(classifyEligibility({ location: "Remote in EMEA" }, { careerProfile: { homeLocation: { countryCode: "US" } } }).status, "not_open");
+});

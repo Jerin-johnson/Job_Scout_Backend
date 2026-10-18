@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { convertAmount, isFxRateStale } from "../src/services/jobs/fxRates.js";
+import { convertAmount, isFxRateStale, refreshReferenceRates } from "../src/services/jobs/fxRates.js";
 import { getJobRiskFlags } from "../src/services/jobs/jobRisk.js";
 import { classifyEligibility } from "../src/services/jobs/eligibility.js";
 import { annualComparableAmount, scoreJobMatch } from "../src/services/jobs/matching.js";
@@ -15,6 +15,11 @@ test("ECB rate freshness retains old rates and reports their age", () => {
   assert.equal(isFxRateStale({ date: new Date("2026-10-15T00:00:00Z") }, { now }), false);
   assert.equal(isFxRateStale({ date: new Date("2026-10-01T00:00:00Z") }, { now }), true);
   assert.equal(isFxRateStale(null, { now }), true);
+});
+
+test("RBI and FBIL FX choices fail explicitly until an approved adapter exists", async () => {
+  await assert.rejects(refreshReferenceRates({ source: "rbi" }), { code: "FX_SOURCE_NOT_AVAILABLE" });
+  await assert.rejects(refreshReferenceRates({ source: "fbil" }), { code: "FX_SOURCE_NOT_AVAILABLE" });
 });
 
 test("risk flags are reason codes only and eligibility stays unknown without evidence", () => {

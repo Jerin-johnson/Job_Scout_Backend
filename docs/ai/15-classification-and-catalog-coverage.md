@@ -1,6 +1,6 @@
 # Deterministic role and location coverage
 
-Last verified against commit `8547300` plus the classification v6 worktree changes on 2026-10-16 (local development database only).
+Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17 (local development database only).
 
 ## As built (verified in code)
 
@@ -64,7 +64,7 @@ This is a curated suggestion list, not a full gazetteer. The 15 Kerala records i
 
 ## Local classification backfill
 
-The backfill changes only `occupation`, `occupationConfidence`, `normalizedTitle`, and `occupationFeaturesVersion` (currently version 6). The existing `featuresVersion` field is already used by job text/skill feature extraction (version 1), so it is deliberately not repurposed. It uses a sorted Mongo cursor, bounded batches, and ObjectId resume cursor. Dry run is the default. On the local development catalog, v6 classified 841 jobs: 161 (19.14%) remain unclassified. Families: software 148, sales 192, operations 47, accounting/finance 40, marketing 42, customer support 71, healthcare 18, product 27, design 18, education 17, data 17, security 32, HR 6, administration 2, delivery/logistics 2, transport 1, unclassified 161. Source shares: Jobicy 142/734 (19.35%), RemoteOK 16/99 (16.16%), Remotive 1/4 (25%), mock board 2/4 (50%). The classification command prints counts by family/source and 30 random title samples before apply. Local apply updated 841 records additively; production was not touched.
+The backfill changes only `occupation`, `occupationConfidence`, `normalizedTitle`, and `occupationFeaturesVersion` (currently version 6). The existing `featuresVersion` field is already used by job text/skill feature extraction (version 1), so it is deliberately not repurposed. It uses a sorted Mongo cursor, bounded batches, and ObjectId resume cursor. Dry run is the default. The earlier local v6 apply updated 841 records additively; production was not touched. As of the 2026-10-16 active-catalog snapshot (expired jobs excluded), 806 jobs remain active and 155 (19.23%) are unclassified. Families: sales 184, software 144, customer support 68, operations 46, marketing 38, accounting/finance 37, security 31, product 23, design 18, healthcare 18, education 17, data 16, HR 6, administration 2, delivery/logistics 2, transport 1, unclassified 155. Source shares: Jobicy 136/699 (19.46%), RemoteOK 16/99 (16.16%), Remotive 1/4 (25%), local mock boards 2/4 (50%). The classification command prints counts by family/source and 30 random title samples before apply.
 
 ```powershell
 npm run jobs:occupation:report
@@ -85,27 +85,27 @@ npm run jobs:occupation:apply
 
 ### Hand-labeled precision audit
 
-A fresh random sample of 100 active local listings was manually labeled by primary occupation family after v6 was applied. This is a single, non-stratified sample; small-family estimates are noisy and should not be used as a production eligibility gate. The sample had 25/100 unclassified (25%). Among the 75 auto-classified records, 65 labels matched the manual label (86.7% aggregate precision). Precision by predicted family:
+A prior random sample of 100 active local listings reported 86.7% precision among classified rows. A refreshed, deterministic seed-20261016 100-title sample was manually reviewed against the current active catalog: accuracy was 73% including unclassified predictions. This is a single reviewer and non-stratified sample; family estimates are noisy and must not be used as a production eligibility gate. Refreshed precision by predicted family:
 
 | Predicted family | Correct / labeled | Precision |
 |---|---:|---:|
-| accounting-finance | 3/3 | 100% |
-| administration | 1/1 | 100% |
-| data | 2/2 | 100% |
-| design | 3/3 | 100% |
-| healthcare | 1/2 | 50% |
-| human-resources | 1/2 | 50% |
+| accounting-finance | 1/3 | 33.33% |
+| customer-support | 8/9 | 88.89% |
+| data | 1/1 | 100% |
+| design | 5/5 | 100% |
+| education | 1/1 | 100% |
+| healthcare | 0/1 | 0% |
 | marketing | 3/5 | 60% |
-| operations | 6/6 | 100% |
-| product | 3/3 | 100% |
-| sales | 18/19 | 94.7% |
-| security | 4/4 | 100% |
-| software | 14/17 | 82.4% |
-| customer-support | 6/8 | 75% |
+| operations | 8/9 | 88.89% |
+| product | 1/1 | 100% |
+| sales | 21/21 | 100% |
+| security | 5/5 | 100% |
+| software | 18/18 | 100% |
+| unclassified | 1/21 | 4.76% |
 
-The manual labels were based on job title and source category where available. Technical account, solutions, interpreter, fundraising, and sales-enablement titles are inherently ambiguous; the observed false positives and unclassified cases are why occupation remains a ranking/filter hint only, not an eligibility decision. A larger stratified audit is needed before treating these estimates as stable.
+The manual labels were based on job title and source category where available. Technical account, solutions, implementation, business operations and hybrid titles are ambiguous; reviewed labels are a single-reviewer diagnostic and need an independent second pass before being treated as stable. The low unclassified precision shows that unclassified is often a taxonomy coverage gap rather than an appropriate final class. Occupation remains a ranking/filter hint only, not an eligibility decision. Reproduce the current sample and metrics with `npm run jobs:occupation:accuracy`.
 
-The sample's unclassified share by source was Jobicy 21/88 (23.9%), RemoteOK 3/10 (30%), and mock board 1/2 (50%). The full-catalog source shares above are the more useful coverage measure: Jobicy 142/734 (19.35%), RemoteOK 16/99 (16.16%), Remotive 1/4 (25%), mock board 2/4 (50%).
+Current full-catalog unclassified share by source: Jobicy 136/699 (19.46%), RemoteOK 16/99 (16.16%), Remotive 1/4 (25%), mock board 2/4 (50%).
 
 ## Target design (not built yet)
 

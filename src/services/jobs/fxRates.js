@@ -1,4 +1,5 @@
 import { FxRate } from "../../models/FxRate.js";
+import { env } from "../../config/env.js";
 
 const ECB_SERIES = "https://data-api.ecb.europa.eu/service/data/EXR/D.{currency}.EUR.SP00.A?format=csvdata&lastNObservations=1";
 const CURRENCIES = ["USD", "INR", "GBP", "CAD", "AUD", "AED", "SAR", "EUR"];
@@ -21,10 +22,28 @@ export async function refreshEcbReferenceRates({ fetchImpl = fetch, now = new Da
   return FxRate.findOneAndUpdate({ key: "ecb-reference" }, { $set: { source: SOURCE, date: dates.length ? new Date(dates.at(-1)) : now, ratesPerEur } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean();
 }
 
-export async function latestEcbReferenceRates() {
-  if (FxRate.db.readyState !== 1) return null;
-  return FxRate.findOne({ key: "ecb-reference" }).select("source date ratesPerEur").lean();
+const UNSUPPORTED_FX_SOURCE = {
+  rbi: "RBI stopped publishing the live reference rate on 2018-07-09; FBIL took over on 2018-07-10.",
+  fbil: "FBIL reference-rate usage is fee-liable; configure it only after a license and a supported feed are approved.",
+};
+
+/**
+ * Source boundary for worker refreshes. ECB is the only enabled adapter today;
+ * RBI/FBIL options fail explicitly until their feed and reuse terms are cleared.
+ */
+export async function refreshReferenceRates({ source = env.FX_REFERENCE_SOURCE, ...options } = {}) {
+  if (source === "ecb") return refreshEcbReferenceRates(options);
+  const error = new Error(UNSUPPORTED_FX_SOURCE[source] || "Unsupported FX reference source.");
+  error.code = "FX_SOURCE_NOT_AVAILABLE";
+  throw error;
 }
+
+export async function latestReferenceRates(source = env.FX_REFERENCE_SOURCE) {
+  if (FxRate.db.readyState !== 1) return null;
+  return FxRate.findOne({ key: `${source}-reference` }).select("source date ratesPerEur").lean();
+}
+
+export const latestEcbReferenceRates = () => latestReferenceRates("ecb");
 
 export function isFxRateStale(rate, { now = new Date(), maxAgeDays = 3 } = {}) {
   if (!rate?.date) return true;
