@@ -22,3 +22,11 @@ Updated: 2026-10-18
 ## Release decision
 
 Do not merge `main` until the dependency audit can run successfully and all release gates are green. No production database was accessed or modified. No production migration or index mutation was run.
+
+## Data supply feature branch — 2026-10-18
+
+- Started `feat/data-supply` from `development` in both the backend and frontend repositories after confirming each worktree was clean. The repositories retain separate histories; `main` is untouched.
+- Graphify reports were readable and queried in both repositories (backend: 1,854 nodes; frontend: 996 nodes). Targeted queries covered ingestion/adapters, ATS tools, company storage, classification, job interaction/privacy paths, coverage endpoints, and jobs UI.
+- GitHub workflow review: backend has `.github/workflows/ci.yml` with tests, lint, docs validation, and Docker build configured with `push: false`; no deployment step found. Frontend has no `.github/workflows` directory.
+- Retried `npm audit --omit=dev --audit-level=high` in both repositories; both failed before receiving advisory data because DNS resolution for `registry.npmjs.org` returned `ENOTFOUND`.
+- Local MongoDB read-only classifier sampling succeeded after requesting sandbox network access; the earlier sandboxed attempt was denied at loopback. The sample output was 100 current jobs and is predicted-label distribution only, not ground-truth accuracy.
