@@ -1,5 +1,15 @@
 # Occupation classification: review sample
 
+Last verified against commit `c0da764` plus the current local loopback catalog on 2026-10-18.
+
+## As built (verified in code)
+
+This is a deterministic, source/family-stratified sample of public job titles and current rule-based predictions. It is review material, not a labeled evaluation dataset.
+
+## Target design (not built yet)
+
+An independent human label for every sampled job is still needed before reporting per-family precision or recall.
+
 Generated 2026-10-18 from the local active catalog. This is a deterministic, source/family-stratified review sample, not ground truth. Please label the correct occupation family independently before using it for precision/recall.
 
 | # | Source | Title | Current prediction | Confidence |
