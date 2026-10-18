@@ -64,3 +64,9 @@ For non-trivial changes, understand the request, consult Graphify when useful, i
 - Never commit automatically unless explicitly requested. Never amend, reset, or rewrite history without explicit authorization.
 - Inspect Git status before staging and stage only intended files. Exclude credentials, secrets, local environment files, generated caches, and unintended Graphify artifacts from commits.
 - Review the staged diff before committing. Run relevant tests and checks before recommending a commit, and report failed or skipped checks honestly. Never claim an unrun test passed.
+
+## Git and engineering standards
+
+- Follow `docs/engineering/standards.md`; use conventional commit messages and merge branches with the documented branch model.
+- Tests and smoke are loopback-only; use `tests/test-env.js` and never load hosted MongoDB or Redis URLs for tests.
+- Hooks are unverified until installed by the repository owner. CI and GitHub rulesets are the actual enforcement layer.

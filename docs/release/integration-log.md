@@ -43,3 +43,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Backend smoke is still **Unverified/failed in this environment**: the local Redis and MongoDB loopback connections are denied (`EACCES`), leaving dependent HTTP/LLM checks failing. First attempt also loaded an unavailable hosted Redis hostname from local configuration (`ENOTFOUND`); no external Redis was contacted after switching the test to loopback.
 - `npm audit --omit=dev --audit-level=high` was retried for both repositories; both failed before advisory data due DNS `ENOTFOUND registry.npmjs.org`.
 - Graphify updated from existing reports without semantic LLM analysis: backend 1,940 nodes/4,079 edges/139 communities; frontend 999 nodes/1,894 edges/82 communities. `graphify-out/` remains ignored in both repositories.
+
+## Engineering standards — 2026-10-18
+
+- Added a cross-platform branch/commit standard, official-reference summary, GitHub ruleset instructions, hook troubleshooting, and owner-only release checklist in both repositories.
+- Hook install remains intentionally unverified until the owner installs Husky, lint-staged, and commitlint; no package manifest dependencies or lockfiles were changed.
+- Sources accessed 2026-10-18: Husky setup/how-to, lint-staged README, commitlint CI setup, GitHub rulesets and Actions security hardening, Git attributes. See each repository's `docs/engineering/git-standards-research.md` for URLs.
