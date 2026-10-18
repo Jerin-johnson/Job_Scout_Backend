@@ -6,8 +6,10 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { Job } from "../src/models/Job.js";
 import { jobController } from "../src/controllers/jobController.js";
 import { JobSource } from "../src/models/JobSource.js";
+import { JobCatalogVersion } from "../src/models/JobCatalogVersion.js";
 import { Profile } from "../src/models/Profile.js";
 import { embeddingService } from "../src/services/embeddingService.js";
+import { bumpCatalogVersion, getCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 import { del, CacheKeys, set } from "../src/shared/cache.js";
 import {
   jobIngestionService,
@@ -32,12 +34,21 @@ before(async () => {
       : undefined,
   });
   await mongoose.connect(mongo.getUri(), { dbName: "job-catalog-integration" });
-  await Promise.all([Job.syncIndexes(), JobSource.syncIndexes(), Profile.syncIndexes()]);
+  await Promise.all([Job.syncIndexes(), JobSource.syncIndexes(), JobCatalogVersion.syncIndexes(), Profile.syncIndexes()]);
 });
 
 after(async () => {
   await mongoose.disconnect();
   await mongo?.stop();
+});
+
+test("catalog version advances monotonically and provides a distinct cache namespace", async () => {
+  await JobCatalogVersion.deleteMany({});
+  const initial = await getCatalogVersion();
+  const next = await bumpCatalogVersion();
+  assert.equal(next, initial + 1);
+  assert.equal(await getCatalogVersion(), next);
+  assert.notEqual(CacheKeys.jobDemandVersion(initial), CacheKeys.jobDemandVersion(next));
 });
 
 test("source registry refresh updates verified policy metadata without overriding operator enablement or metrics", async () => {
@@ -506,7 +517,7 @@ test("recent-first approved-source candidate retrieval can use its compound inde
   assert.ok(result.executionStats.nReturned <= 400);
 });
 
-test("catalog count cache version avoids stale zero counts after source policy changes", async () => {
+test("catalog counts bypass stale global cache entries after source policy changes", async () => {
   const priorSource = await JobSource.findOne({ key: "remoteok" }).lean();
   await JobSource.updateOne({ key: "remoteok" }, { $set: makeSource("remoteok") }, { upsert: true });
   const id = new mongoose.Types.ObjectId();

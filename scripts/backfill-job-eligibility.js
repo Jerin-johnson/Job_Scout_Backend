@@ -5,6 +5,7 @@ import { env } from "../src/config/env.js";
 import { Job } from "../src/models/Job.js";
 import { parseJobEligibility } from "../src/services/jobs/eligibility.js";
 import { ELIGIBILITY_REGION_CONFIG_VERSION } from "../src/services/jobs/eligibilityRegions.js";
+import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 
 const apply = process.argv.includes("--apply");
 const batchSizeArg = process.argv.find((arg) => arg.startsWith("--batch-size="));
@@ -77,5 +78,6 @@ try {
     if (operations.length >= batchSize) await flush();
   }
   await flush();
+  if (apply && updated > 0) await bumpCatalogVersion();
   console.log(JSON.stringify({ mode: apply ? "apply" : "dry-run", configVersion: ELIGIBILITY_REGION_CONFIG_VERSION, scanned, updated, beforeByScope, afterByScope: byScope, unknownScopeClassified, lowConfidenceImproved, before: { unknownScope: unknownBefore, lowConfidence: lowConfidenceBefore }, after: { unknownScope: unknownAfter, lowConfidence: lowConfidenceAfter }, bySource: Object.fromEntries(Object.entries(totalBySource).sort().map(([source, total]) => [source, { total, unknownAfter: bySource[source] || 0, unknownShare: total ? Number(((bySource[source] || 0) / total).toFixed(4)) : 0 }])), randomSamples: samples.filter(Boolean), lastScannedId: lastId, resumeCommand: lastId ? `npm run jobs:eligibility:report -- --after-id=${lastId}` : null }, null, 2));
 } finally { await disconnectMongo(); }

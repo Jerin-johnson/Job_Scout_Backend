@@ -77,3 +77,10 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 ## Beta-readiness branch — 2026-10-18
 
 - Created `feat/beta-readiness` from the local main integration commit. This repository remains independent of the frontend history.
+
+## Beta readiness item 1 — catalog cache invalidation — 2026-10-18
+
+- Added a persistent catalog version and incorporated it into recommended-match and demand-term cache keys. Ingestion completion, registry enable/approval changes, and the catalog/storage migrations bump the version. Catalog count/facet requests remain uncached, avoiding the previously identified stale-count path.
+- Added Mongo integration coverage for monotonic version increments and key separation. Validation is being run before commit.
+
+- Validation: focused Mongo integration passed 18/18 with the installed MongoDB 8.0.8 system binary; ESLint and `git diff --check` passed. The sandboxed Mongo launch failed before test setup, so the same local test was rerun with approved local-process access.

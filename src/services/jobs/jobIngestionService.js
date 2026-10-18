@@ -17,6 +17,7 @@ import { parseJobEligibility, profileApplicantCountries } from "./eligibility.js
 import { latestReferenceRates, convertAmount } from "./fxRates.js";
 import { PLACE_SUGGESTIONS, ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
 import { splitJobForStorage, encodeCatalogCursor, decodeCatalogCursor } from "./jobStorage.js";
+import { bumpCatalogVersion, getCatalogVersion } from "./catalogVersion.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
@@ -316,7 +317,9 @@ async function* iterateJobs(jobs) {
 
 async function getAggregatedDemandTerms() {
   if (!isMongoReady()) return [];
-  const cachedTerms = await get(CacheKeys.jobDemand());
+  const catalogVersion = await getCatalogVersion();
+  const demandCacheKey = CacheKeys.jobDemandVersion(catalogVersion);
+  const cachedTerms = await get(demandCacheKey);
   if (Array.isArray(cachedTerms)) return cachedTerms;
   let aggregated;
   try {
@@ -410,7 +413,7 @@ async function getAggregatedDemandTerms() {
   }
   if (!roles.length) terms.push(...locations.map((location) => location._id.value));
   const resolvedTerms = [...new Set(terms)].slice(0, 32);
-  await set(CacheKeys.jobDemand(), resolvedTerms, 21600);
+  await set(demandCacheKey, resolvedTerms, 21600);
   return resolvedTerms;
 }
 
@@ -927,6 +930,8 @@ export const jobIngestionService = {
             },
           },
         );
+        // A completed pass can change active records, facets, and recommendations.
+        await bumpCatalogVersion();
       }
       return {
         source: sourceKey,
@@ -1573,6 +1578,7 @@ export const jobIngestionService = {
       { key: sourceKey },
       { $set: { enabled: Boolean(enabled), runState: enabled ? "idle" : "disabled" } },
     );
+    await bumpCatalogVersion();
     return this.sourceBudgets();
   },
 
@@ -1591,6 +1597,7 @@ export const jobIngestionService = {
       throw error;
     }
     await JobSource.updateOne({ key: sourceKey }, { $set: { approved: Boolean(approved), ...(approved ? {} : { enabled: false, runState: "disabled" }) } });
+    await bumpCatalogVersion();
     return this.sourceBudgets();
   },
 };

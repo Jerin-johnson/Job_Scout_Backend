@@ -70,6 +70,7 @@ export const CacheKeys = {
     `${CACHE_NAMESPACE}emb:${provider}:${model}:${dimension}:${hash}`,
   company: (slug) => `${CACHE_NAMESPACE}co:${slug}`,
   jobDemand: () => `${CACHE_NAMESPACE}job-demand:v1`,
+  jobDemandVersion: (catalogVersion = 1) => `${CACHE_NAMESPACE}job-demand:catalog-v${catalogVersion}`,
   resumeParse: (fileHash) => `${CACHE_NAMESPACE}rp:${fileHash}`,
   board: (userId, ver) => `${CACHE_NAMESPACE}board:${userId}:v${ver}`,
   lock: (key) => `${CACHE_NAMESPACE}lock:${key}`,

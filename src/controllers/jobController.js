@@ -18,6 +18,7 @@ import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
 import { recordInteraction, recordImpressions } from "../services/jobs/interactionEvents.js";
+import { getCatalogVersion } from "../services/jobs/catalogVersion.js";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
@@ -75,7 +76,8 @@ export const jobController = {
     try {
       const userId = req.user._id ? req.user._id.toString() : req.user.id;
       const ver = req.user.profileVersion || 1;
-      const cacheKey = CacheKeys.response(userId, `matches:${MATCH_SCORE_VERSION}`, ver);
+      const catalogVersion = await getCatalogVersion();
+      const cacheKey = CacheKeys.response(userId, `matches:${MATCH_SCORE_VERSION}:catalog-${catalogVersion}`, ver);
 
       // Check L1 response cache
       const cached = await get(cacheKey);
