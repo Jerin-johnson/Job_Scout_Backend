@@ -56,3 +56,5 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added `docs/engineering/commit-baseline.txt` to validate only commits introduced after the captured feature-branch baseline (backend `9c2cf309...`, frontend `a2dd0303...`). Existing commit history is untouched.
 - No hook dependencies or lockfiles were edited. Hook state remains unverified until owner installation.
 - Backend lint: 0 errors, 2 existing warnings; docs check passed; secret scan passed. Frontend lint passed, test suite 47/47 passed, docs link check passed, and secret scan passed. Existing whole-repo Prettier check is not a gate because it reports 97 pre-existing formatting differences.
+
+- Review correction: retained the backend's pre-existing comprehensive `.github/pull_request_template.md` after a case-insensitive Windows path collision; no existing checklist items were dropped.
