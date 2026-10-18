@@ -4,11 +4,11 @@ import { logger } from "../shared/utils/logger.js";
 
 let isConnected = false;
 
-export async function connectMongo() {
+export async function connectMongo({ autoIndex = env.NODE_ENV !== "production" } = {}) {
   if (isConnected) return mongoose.connection;
 
   // Auto-index disabled in production for performance & deterministic migrations
-  mongoose.set("autoIndex", env.NODE_ENV !== "production");
+  mongoose.set("autoIndex", autoIndex);
 
   try {
     const conn = await mongoose.connect(env.MONGODB_URI, {
