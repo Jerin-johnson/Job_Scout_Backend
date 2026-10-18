@@ -29,6 +29,8 @@ jobs:
         run: npm run docs:check
 
       - name: Run unit and MongoDB-memory-server integration tests
+        env:
+          MOCK_INTERVIEW_MONGO_INTEGRATION: "true"
         run: npm test
 
   docker-build:
