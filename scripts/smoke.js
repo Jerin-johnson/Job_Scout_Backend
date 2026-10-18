@@ -158,6 +158,7 @@ async function run() {
       headers: {
         "Content-Type": "application/json",
         "X-Requested-With": "JobScoutClient",
+        Origin: "http://localhost:3000",
       },
       body: JSON.stringify({
         email: testEmail,
@@ -183,6 +184,7 @@ async function run() {
       headers: {
         "Content-Type": "application/json",
         "X-Requested-With": "JobScoutClient",
+        Origin: "http://localhost:3000",
       },
       body: JSON.stringify({
         email: testEmail,
@@ -232,6 +234,7 @@ async function run() {
       headers: {
         "Content-Type": "application/json",
         "X-Requested-With": "JobScoutClient",
+        Origin: "http://localhost:3000",
       },
       body: JSON.stringify({ refreshToken: testUserRefreshToken }),
     });
@@ -247,6 +250,7 @@ async function run() {
       headers: {
         "Content-Type": "application/json",
         "X-Requested-With": "JobScoutClient",
+        Origin: "http://localhost:3000",
       },
       body: JSON.stringify({ refreshToken: testUserRefreshToken }),
     });

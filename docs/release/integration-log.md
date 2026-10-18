@@ -66,3 +66,10 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added a MongoDB 8 / Redis `noeviction` / API / worker / frontend Compose stack with healthchecks, fixed local ports, dummy dev-only auth values, persistent named volumes, and stack/smoke scripts. Added frontend production Dockerfile and secret-safe Docker ignore rules. No dependency or lockfile changed.
 - Validation: compose YAML parsed and all five services were present; backend unit suite 153/153 passed; full backend suite using local MongoDB 8.0.8: 191 passed, 0 failed, 1 optional skip. Backend lint 0 errors/2 existing warnings, docs check and secret scan pass.
 - Docker CLI is unavailable here; image builds, service health, and compose smoke remain **Unverified until owner runs**. No hosted DB/Redis was contacted.
+
+## Development integration gates — 2026-10-18
+
+- On the merged development branch: backend full suite 191 passed, 0 failed, 1 optional skip; lint 0 errors/2 existing warnings; docs check and secret scan passed. OpenAPI generation completed and the generated file's Git blob matched the committed contract.
+- Frontend lint passed, 47/47 tests passed, and docs check passed. Direct OneDrive `next build` failed with EPERM creating `.next`; an isolated clean temporary copy built successfully with all 24 static pages/routes.
+- Local smoke was attempted but is blocked: the reachable local Mongo endpoint returned authorization error code 13, while local Redis was refused. It did not reach hosted services and no write was confirmed. Docker Desktop engine is unavailable, so compose smoke is unverified. Both `npm audit` attempts stopped at registry DNS `ENOTFOUND`.
+- Smoke diagnosis: the unauthenticated smoke registration/login/refresh requests omitted the browser `Origin`; added the trusted local origin to those test requests. The smoke suite remains blocked by local DB/Redis availability and is not marked passed.
