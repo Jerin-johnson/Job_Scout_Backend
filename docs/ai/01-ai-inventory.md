@@ -28,6 +28,8 @@ No direct provider LLM calls were found outside provider adapters and src/ai/llm
 
 `src/controllers/resumeMatchController.js` calls shared `invokeLLM` only for optional `RESUME_MATCH_PROMPT_VERSION` (`resume-match-suggestions-v1`) suggestions. `resume-match-v1` adds a deterministic on-demand match report for a selected resume and a catalog job, owned application, or explicitly pasted description. It does not fetch arbitrary URLs or call an LLM for scoring. Resume term indexes cache by owner, file content hash, and score version; report identity includes the normalized job hash. Optional AI wording suggestions are separately consent/quota/model-policy guarded, and receive only bounded requirements plus facts grounded in the selected resume.
 
+The catalog emits bounded job interaction events only after separate user opt-in. Events are aggregated for the admin coverage endpoint; analytics collection is off by default per user.
+
 Local-only Phase 3 utilities include `jobs:match:preview` (read-only top-20 profile match), `jobs:eligibility:distribution` (read-only country/scope counts), `jobs:bson:measure` (read-only BSON size sampling), and `jobs:ats:validate`/`jobs:ats:import` (bounded public-board verification and pending-only local import). The first three require a loopback Mongo URI; no personal resume text or model prompts are emitted.
 
 ## Target design (not built yet)

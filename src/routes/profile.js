@@ -23,6 +23,8 @@ profileRouter.post(
 );
 profileRouter.get("/resume-ai-consent", profileController.getResumeAiConsent);
 profileRouter.put("/resume-ai-consent", csrfProtection, profileController.acceptResumeAiConsent);
+profileRouter.get("/job-analytics-consent", profileController.getJobAnalyticsConsent);
+profileRouter.put("/job-analytics-consent", csrfProtection, profileController.updateJobAnalyticsConsent);
 profileRouter.post(
   "/resume-upload-complete",
   csrfProtection,

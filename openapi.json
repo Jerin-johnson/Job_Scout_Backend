@@ -119,6 +119,40 @@
         "responses": { "200": { "description": "Preferences updated and version bumped" } }
       }
     },
+    "/api/v1/profile/job-analytics-consent": {
+      "get": {
+        "summary": "Read the authenticated user's job analytics consent",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Consent state and current consent version" } }
+      },
+      "put": {
+        "summary": "Opt in to or withdraw from job interaction analytics",
+        "description": "Stores only bounded categorical events when opted in. Withdrawal deletes the user's existing interaction-event rows.",
+        "tags": ["Profile"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["accepted"],
+                "properties": {
+                  "accepted": { "type": "boolean" },
+                  "version": { "type": "string", "enum": ["job-analytics-v1"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Consent updated" },
+          "400": { "description": "Invalid consent version or payload" }
+        }
+      }
+    },
     "/api/v1/profile/career-profile": {
       "get": {
         "summary": "Read the authenticated user's additive career profile and unsaved fact-derived suggestions",

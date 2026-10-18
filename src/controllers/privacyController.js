@@ -14,6 +14,8 @@ import { Resume } from "../models/Resume.js";
 import { Profile } from "../models/Profile.js";
 import { Application } from "../models/Application.js";
 import { deleteAllUserResumeData } from "../services/resumeDataLifecycle.js";
+import { InteractionEvent } from "../models/InteractionEvent.js";
+import { interactionActorKey } from "../services/jobs/interactionEvents.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -38,6 +40,7 @@ export const privacyController = {
       let interviews = [];
       let resumes = [];
       let jobMatchReports = [];
+      let interactionEvents = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
         [resumes, jobMatchReports] = await Promise.all([
@@ -61,6 +64,7 @@ export const privacyController = {
             reports.find((report) => report.interviewId.toString() === session._id.toString())
               ?.report || null,
         }));
+        interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) }).select("-actorKey").sort({ createdAt: -1 }).lean();
       }
 
       const exportBundle = {
@@ -72,6 +76,7 @@ export const privacyController = {
           name: user.name,
           plan: user.plan,
           createdAt: user.createdAt,
+          jobAnalyticsConsent: user.jobAnalyticsConsent || { acceptedAt: null, version: null },
         },
         profile: profile || {},
         applications: applications || [],
@@ -80,6 +85,7 @@ export const privacyController = {
         jobMatchReports,
         agentMemories: memories || [],
         interviews,
+        interactionEvents,
       };
 
       res.setHeader("Content-Type", "application/json");
@@ -118,6 +124,7 @@ export const privacyController = {
           Profile.deleteOne({ userId }),
           Document.deleteMany({ userId }),
           Application.deleteMany({ userId }),
+          InteractionEvent.deleteMany({ actorKey: interactionActorKey(userId) }),
         ]);
       }
       interviewGraph.deleteMockSessionsByUserId(userId);

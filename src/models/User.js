@@ -92,6 +92,10 @@ const UserSchema = new mongoose.Schema(
       acceptedAt: { type: Date, default: null },
       version: { type: String, default: null },
     },
+    jobAnalyticsConsent: {
+      acceptedAt: { type: Date, default: null },
+      version: { type: String, default: null },
+    },
     timezone: { type: String, default: "UTC", trim: true, maxlength: 64 },
     mockInterviewTrialUsedAt: { type: Date, default: undefined },
     mockInterviewTrialSessionId: { type: mongoose.Schema.Types.ObjectId, default: undefined },

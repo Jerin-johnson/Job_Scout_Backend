@@ -30,3 +30,16 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - GitHub workflow review: backend has `.github/workflows/ci.yml` with tests, lint, docs validation, and Docker build configured with `push: false`; no deployment step found. Frontend has no `.github/workflows` directory.
 - Retried `npm audit --omit=dev --audit-level=high` in both repositories; both failed before receiving advisory data because DNS resolution for `registry.npmjs.org` returned `ENOTFOUND`.
 - Local MongoDB read-only classifier sampling succeeded after requesting sandbox network access; the earlier sandboxed attempt was denied at loopback. The sample output was 100 current jobs and is predicted-label distribution only, not ground-truth accuracy.
+
+## Data supply implementation updates — 2026-10-18
+
+- Corrected the Jobicy decision memo and source research: 24 request starts/day is our conservative app-side budget; the public guide does not state a daily quota. The implemented hourly minimum, attribution, canonical URL, caching, rolling seven-day feed, and status checks are the enforced conditions.
+- Added privacy opt-in for job interaction counts, consent version/timestamp storage, withdrawal cleanup, export without the pseudonymous actor key, account-deletion cleanup, frontend Settings control, and OpenAPI contract.
+- Fixed stale catalog totals by removing the stale discovery count cache path; normal discovery now counts only active, unexpired records from enabled/approved sources.
+- Added `docs/ai/KNOWN_ISSUES.md` and `docs/ai/CHANGELOG.md`, and updated release checklist coverage/consent safeguards.
+- Current local evidence is recorded in `docs/ai/data-supply-strategy.md`; 300 occupation labels still require human answers, ATS discovery is limited to supported URL patterns, and live JobStream yield remains **Unverified** after local DNS `ENOTFOUND`.
+- Corrected full backend suite using MongoDB 8.0.8 system binary and loopback access: 189 passed, 0 failed, 1 skipped (optional). Backend lint: 0 errors, 2 existing `no-console` warnings. `docs:check` passes.
+- Frontend contract/UI tests passed 47/47 and lint passed (Next.js `next lint` deprecation notice). Production build succeeded in a temp copy outside OneDrive; the direct build under OneDrive failed with `EPERM` creating `.next/server/app/dev`.
+- Backend smoke is still **Unverified/failed in this environment**: the local Redis and MongoDB loopback connections are denied (`EACCES`), leaving dependent HTTP/LLM checks failing. First attempt also loaded an unavailable hosted Redis hostname from local configuration (`ENOTFOUND`); no external Redis was contacted after switching the test to loopback.
+- `npm audit --omit=dev --audit-level=high` was retried for both repositories; both failed before advisory data due DNS `ENOTFOUND registry.npmjs.org`.
+- Graphify updated from existing reports without semantic LLM analysis: backend 1,940 nodes/4,079 edges/139 communities; frontend 999 nodes/1,894 edges/82 communities. `graphify-out/` remains ignored in both repositories.
