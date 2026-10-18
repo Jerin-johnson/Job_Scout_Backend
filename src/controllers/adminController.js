@@ -15,6 +15,7 @@ import { z } from "zod";
 import mongoose from "mongoose";
 import { billingService } from "../services/billingService.js";
 import { TrackedCompany } from "../models/TrackedCompany.js";
+import { InteractionEvent } from "../models/InteractionEvent.js";
 
 async function audit(req, action, metadata = {}) {
   if (!isMongoReady()) return;
@@ -36,7 +37,19 @@ export const adminController = {
     } catch (error) { return next(error); }
   },
   async jobCoverage(req, res, next) {
-    try { return res.json({ data: await jobIngestionService.coverageReport() }); }
+    try {
+      const since = new Date(Date.now() - 30 * 86400000);
+      const [coverage, interactions] = await Promise.all([
+        jobIngestionService.coverageReport(),
+        InteractionEvent.aggregate([
+          { $match: { createdAt: { $gte: since } } },
+          { $group: { _id: { event: "$event", source: "$source", occupation: "$occupation", country: "$country", scoreBand: "$scoreBand" }, count: { $sum: "$count" } } },
+          { $sort: { "_id.event": 1, count: -1 } },
+        ]).option({ maxTimeMS: 1500 }),
+      ]);
+      const profiles = await User.countDocuments({ isDeleted: false });
+      return res.json({ data: { ...coverage, interactions: { windowDays: 30, totalUsers: profiles, usersWithZeroEligibleJobs: null, eligibleUserMeasurement: "Not stored; no per-user eligibility counter is currently available.", groups: interactions } } });
+    }
     catch (error) { return next(error); }
   },
   async updateTrackedCompany(req, res, next) {

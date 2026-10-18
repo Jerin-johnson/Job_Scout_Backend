@@ -51,8 +51,8 @@ export const SOURCE_POLICIES = Object.freeze([
     retentionDays: 7,
     staleAfterDays: 7,
     quota: { requestsPerDay: 24, intervalMs: 3600000, timeoutMs: 15000, maxRetries: 2 },
-    retentionRule: "Cache only listings published within the public seven-day window; honor explicit removals and expire each listing within seven days of publication.",
-    quotaPolicy: "Public keyless API: at most 24 request starts per day and at least one hour between automated passes; a few refreshes daily are normally sufficient. Use cursor pagination and conditional requests where supported.",
+    retentionRule: "The feed returns listings published within seven days. Do not close a listing only because it leaves that window; use the public status endpoint. Close explicit closed results immediately; hide unknown results and recheck. Active status confirmation allows a seven-day local freshness window before another check.",
+    quotaPolicy: "Public keyless API. Keep a full sync pass at least one hour apart; a few passes per day are normally enough. Pages in one cursor pass are sequential, up to 200 jobs each. The implementation conservatively caps request starts at 24 per day; this is our quota guard, not a published daily quota.",
     termsVerifiedAt: new Date("2026-10-17T00:00:00.000Z"),
   },
   ...["greenhouse", "lever", "ashby"].map((key) => ({

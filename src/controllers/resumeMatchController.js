@@ -16,6 +16,7 @@ import { effectiveDataPolicy } from "../config/aiStartupValidation.js";
 import { userRepository } from "../repositories/userRepository.js";
 import { requireResumeAiConsent } from "../services/resumeAiConsent.js";
 import { applyIgnoredKeywords, filterGroundedSuggestions, getResumePlainText, reportJobHash, RESUME_MATCH_PROMPT_VERSION, RESUME_MATCH_SCORE_VERSION, scoreResumeForJob } from "../services/resumeMatchService.js";
+import { recordInteraction } from "../services/jobs/interactionEvents.js";
 
 const MAX_JOB_DESCRIPTION_CHARS = 20_000;
 const createSchema = z.object({
@@ -136,7 +137,10 @@ export const resumeMatchController = {
       const contentHash = reportJobHash(job);
       const jobKey = `${sourceType}:${sourceId}:${contentHash}`;
       const existing = await JobMatchReport.findOne({ userId, resumeId, jobKey, scoreVersion: RESUME_MATCH_SCORE_VERSION }).lean();
-      if (existing) return res.status(200).json({ data: { report: reportDTO(existing), cacheHit: true } });
+      if (existing) {
+        await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "resume_match_used", source: sourceType === "catalog" ? "catalog" : sourceType });
+        return res.status(200).json({ data: { report: reportDTO(existing), cacheHit: true } });
+      }
 
       const parsedJob = { ...job, title: String(job.title || "Untitled role").slice(0, 200), company: String(job.company || "").slice(0, 200), rawDescription: String(job.rawDescription || "").slice(0, MAX_JOB_DESCRIPTION_CHARS) };
       const selectedResult = await scoreResumeForJob({ resume, profile, job: parsedJob });
@@ -164,6 +168,7 @@ export const resumeMatchController = {
         report = await JobMatchReport.findOne({ userId, resumeId, jobKey, scoreVersion: RESUME_MATCH_SCORE_VERSION }).lean();
       }
       logger.info({ userId, reportId: report?._id, elapsedMs: Math.round(performance.now() - startedAt), resumeIndexCacheHit: selectedResult.indexCacheHit }, "Resume match report generated");
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "resume_match_used", source: sourceType === "catalog" ? "catalog" : sourceType, occupation: parsedJob.occupation });
       return res.status(201).json({ data: { report: reportDTO(report), cacheHit: false } });
     } catch (error) { next(error); }
   },

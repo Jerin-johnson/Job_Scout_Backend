@@ -12,6 +12,8 @@ import { enqueueMatchRefreshForUser } from "../services/matchRefreshService.js";
 import { COUNTRY_ALIASES, ISO_SUBDIVISION_CODES, PLACE_CATALOG_VERSION, PLACE_SUGGESTIONS, normalizeSuggestionQuery, resolvePlacePair, suggestPlaces, suggestRoles } from "../services/profileSuggestionCatalog.js";
 import { RESUME_AI_CONSENT_VERSION, requireResumeAiConsent } from "../services/resumeAiConsent.js";
 import { deleteResumeForUser } from "../services/resumeDataLifecycle.js";
+import { JOB_ANALYTICS_CONSENT_VERSION, interactionActorKey } from "../services/jobs/interactionEvents.js";
+import { InteractionEvent } from "../models/InteractionEvent.js";
 
 const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),
@@ -188,6 +190,32 @@ export const profileController = {
       const acceptedAt = new Date();
       await userRepository.update(userId, { resumeAiConsent: { acceptedAt, version: body.version } });
       return res.status(200).json({ data: { accepted: true, version: body.version, acceptedAt } });
+    } catch (err) { next(err); }
+  },
+
+  async getJobAnalyticsConsent(req, res, next) {
+    try {
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const user = await userRepository.findById(userId);
+      return res.status(200).json({ data: { accepted: user?.jobAnalyticsConsent?.version === JOB_ANALYTICS_CONSENT_VERSION, version: JOB_ANALYTICS_CONSENT_VERSION, acceptedAt: user?.jobAnalyticsConsent?.acceptedAt || null } });
+    } catch (err) { next(err); }
+  },
+
+  async updateJobAnalyticsConsent(req, res, next) {
+    try {
+      const body = z.discriminatedUnion("accepted", [
+        z.object({ accepted: z.literal(true), version: z.literal(JOB_ANALYTICS_CONSENT_VERSION) }).strict(),
+        z.object({ accepted: z.literal(false) }).strict(),
+      ]).parse(req.body);
+      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      if (body.accepted) {
+        const acceptedAt = new Date();
+        await userRepository.update(userId, { jobAnalyticsConsent: { acceptedAt, version: body.version } });
+        return res.status(200).json({ data: { accepted: true, version: body.version, acceptedAt } });
+      }
+      await userRepository.update(userId, { jobAnalyticsConsent: { acceptedAt: null, version: null } });
+      await InteractionEvent.deleteMany({ actorKey: interactionActorKey(userId) });
+      return res.status(200).json({ data: { accepted: false, version: JOB_ANALYTICS_CONSENT_VERSION, acceptedAt: null } });
     } catch (err) { next(err); }
   },
 

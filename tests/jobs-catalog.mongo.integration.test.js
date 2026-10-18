@@ -8,7 +8,7 @@ import { jobController } from "../src/controllers/jobController.js";
 import { JobSource } from "../src/models/JobSource.js";
 import { Profile } from "../src/models/Profile.js";
 import { embeddingService } from "../src/services/embeddingService.js";
-import { del, CacheKeys } from "../src/shared/cache.js";
+import { del, CacheKeys, set } from "../src/shared/cache.js";
 import {
   jobIngestionService,
   registerJobAdapterFactory,
@@ -504,6 +504,25 @@ test("recent-first approved-source candidate retrieval can use its compound inde
   assert.match(planText, /job_candidate_recent_feed/);
   assert.match(planText, /IXSCAN/);
   assert.ok(result.executionStats.nReturned <= 400);
+});
+
+test("catalog count cache version avoids stale zero counts after source policy changes", async () => {
+  const priorSource = await JobSource.findOne({ key: "remoteok" }).lean();
+  await JobSource.updateOne({ key: "remoteok" }, { $set: makeSource("remoteok") }, { upsert: true });
+  const id = new mongoose.Types.ObjectId();
+  await Job.create({ _id: id, contentHash: `visible-${id}`, identityKey: `visible-${id}`, title: "Visible catalog fixture", company: "Example", rawDescription: "A test job for the catalog count", sourceBoard: "remoteok", status: "active", expiresAt: new Date(Date.now() + 86400000), postedAt: new Date() });
+  await set("jobs:catalog:active-count:v2:remoteok", 0, 300);
+  try {
+    const result = await jobIngestionService.searchJobs({ limit: 10, showAnyway: true });
+    assert.equal(result.jobs.length, 1);
+    assert.equal(result.total, 1);
+  } finally {
+    await Job.deleteOne({ _id: id });
+    if (priorSource) await JobSource.replaceOne({ _id: priorSource._id }, priorSource);
+    else await JobSource.deleteOne({ key: "remoteok" });
+    await del("jobs:catalog:active-count:v2:remoteok");
+    await del("jobs:catalog:active-count:v3:remoteok");
+  }
 });
 
 test("discovery graph reads the indexed catalog and contains no ingestion call", async () => {

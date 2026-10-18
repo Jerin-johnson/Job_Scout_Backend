@@ -10,6 +10,8 @@ Career profile data is stored in the owner's Profile document in MongoDB. Role/l
 
 Logs use request IDs, model/provider/status and error classes. Do not log raw prompts, answers, resume contents, object keys, presigned URLs, or provider responses. UsageEvent retention is 90 days. Interview consent stores acceptedAt and version. The production personal-data gate is config-driven by provider data-policy class; provider terms remain a legal-review flag, not a conclusion.
 
+Job interaction analytics are separately opt-in (`job-analytics-v1`); resume-AI consent does not authorize analytics. Only bounded categorical counts and a stable pseudonymous actor key are stored, with a 180-day TTL. Users can inspect/withdraw via `/api/v1/profile/job-analytics-consent`; withdrawal removes their event history. Export returns event rows without the actor key, and account deletion removes them. The current client exposes this control in Settings > Privacy.
+
 Memory routes are authenticated and scoped. **Code gap:** memoryPaused is toggled on the user, but the job-feedback write in jobController does not check it; chat does not retrieve memory. Do not claim pause is an end-to-end write gate until corrected and tested.
 
 ## Target design (not built yet)

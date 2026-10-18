@@ -50,6 +50,15 @@ const dayStart = (date = new Date()) =>
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const safeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+export function buildSourceStatusUpdate(status, checkedAt, freshnessDays) {
+  if (status === "closed") return { status: "closed", sourceExpiresAt: checkedAt, expiresAt: checkedAt, sourceCheckedAt: checkedAt };
+  if (status === "active") {
+    const expiresAt = new Date(checkedAt.getTime() + freshnessDays * 86400000);
+    return { status: "active", sourceExpiresAt: expiresAt, expiresAt, sourceCheckedAt: checkedAt };
+  }
+  return { status: "stale", sourceExpiresAt: checkedAt, expiresAt: checkedAt, sourceCheckedAt: checkedAt };
+}
+
 function cleanNormalizedJob(job, source) {
   const normalized = {
     ...job,
@@ -554,7 +563,7 @@ export const jobIngestionService = {
         (!source.lastLinkCheckAt ||
           Date.now() - new Date(source.lastLinkCheckAt).getTime() >= 86400000)
       ) {
-        const sample = await Job.find({ sourceBoard: sourceKey, status: "active" })
+        const sample = await Job.find({ sourceBoard: sourceKey, status: { $in: ["active", "stale"] } })
           .sort({ sourceCheckedAt: 1, lastSeenAt: 1 })
           .limit(100)
           .select("sourceJobId")
@@ -577,17 +586,7 @@ export const jobIngestionService = {
               .map((item) => ({
                 updateOne: {
                   filter: { sourceBoard: sourceKey, sourceJobId: String(item.id) },
-                  update:
-                    item.status === "closed"
-                      ? {
-                          $set: {
-                            status: "closed",
-                            sourceExpiresAt: checkedAt,
-                            expiresAt: checkedAt,
-                            sourceCheckedAt: checkedAt,
-                          },
-                        }
-                      : { $set: { sourceCheckedAt: checkedAt } },
+                  update: { $set: buildSourceStatusUpdate(item.status, checkedAt, source.retentionDays) },
                 },
               }));
             if (updates.length) await Job.bulkWrite(updates, { ordered: false });
@@ -1361,16 +1360,14 @@ export const jobIngestionService = {
       const nextCursor = hasMore && last
         ? encodeCatalogCursor({ id: String(last._id), postedAt: last.postedAt ? new Date(last.postedAt).toISOString() : null })
         : null;
-      const estimateKey = `jobs:catalog:active-count:v2:${enabledKeys.slice().sort().join(",")}`;
-      let total = await get(estimateKey).catch(() => null);
-      if (!Number.isFinite(Number(total))) {
-        total = await Job.countDocuments({
-          sourceBoard: { $in: enabledKeys },
-          status: "active",
-          expiresAt: { $gt: new Date() },
-        }).catch(() => jobs.length + Number(hasMore));
-        await set(estimateKey, Number(total), 300).catch(() => {});
-      }
+      // This count is shown to users and changes when source policy or ingestion
+      // changes. An index-backed count avoids stale zero/under-count cache entries.
+      const countResult = await Job.countDocuments({
+        sourceBoard: { $in: enabledKeys },
+        status: "active",
+        expiresAt: { $gt: new Date() },
+      }).then((count) => ({ count, approximate: false }))
+        .catch(() => ({ count: jobs.length + Number(hasMore), approximate: true }));
       return {
         jobs: jobs.map((job) => ({
           ...job,
@@ -1381,8 +1378,8 @@ export const jobIngestionService = {
               : false),
           jobId: String(job._id),
         })),
-        total: Number(total),
-        totalIsApproximate: true,
+        total: Number(countResult.count),
+        totalIsApproximate: countResult.approximate,
         hasMore,
         nextCursor,
         page: 1,

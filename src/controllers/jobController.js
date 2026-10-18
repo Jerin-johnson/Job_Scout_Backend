@@ -17,6 +17,7 @@ import { JobVector } from "../models/JobVector.js";
 import mongoose from "mongoose";
 import { HiddenJob } from "../models/HiddenJob.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
+import { recordInteraction, recordImpressions } from "../services/jobs/interactionEvents.js";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
@@ -192,6 +193,9 @@ export const jobController = {
           return mapped;
         });
         if (req.query.sort === "best-match") result.jobs.sort((a, b) => b.score - a.score);
+        const analyticsConsented = req.user.jobAnalyticsConsent?.version === "job-analytics-v1";
+        await recordImpressions(userId, result.jobs, analyticsConsented);
+        if (result.jobs.length === 0) await recordInteraction({ userId, consented: analyticsConsented, event: "zero_result", source: filters.source || "mixed", occupation: filters.occupation || "unknown", country: filters.countryCode || "unknown" });
       }
       res.status(200).json({ data: result });
     } catch (err) {
@@ -221,6 +225,7 @@ export const jobController = {
       const detail = await JobDetail.findOne({ jobId: job._id, expiresAt: { $gt: new Date() } }).select("description requirements provenance").lean();
       if (detail) job = { ...job, rawDescription: detail.description, requirements: detail.requirements, provenance: detail.provenance };
       const userId = req.user._id || req.user.id;
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "click", source: job.sourceBoard, occupation: job.occupation, country: job.structuredLocation?.countryCode });
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;
       const eligibilityDetails = classifyEligibility(job, profile || {});
@@ -260,6 +265,8 @@ export const jobController = {
       if (!mongoose.isValidObjectId(req.params.id)) return res.sendStatus(404);
       const result = await Job.updateOne({ _id: req.params.id, status: "active", expiresAt: { $gt: new Date() } }, { $inc: { applyClickCount: 1 } });
       if (!result.matchedCount) return res.sendStatus(404);
+      const job = await Job.findById(req.params.id).select("sourceBoard occupation structuredLocation.countryCode").lean();
+      await recordInteraction({ userId: req.user._id || req.user.id, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "apply_click", source: job?.sourceBoard, occupation: job?.occupation, country: job?.structuredLocation?.countryCode });
       res.status(204).end();
     } catch (err) { next(err); }
   },
@@ -271,6 +278,8 @@ export const jobController = {
       if (!job) return res.sendStatus(404);
       const userId = req.user._id || req.user.id;
       await HiddenJob.updateOne({ userId, jobId: job._id }, { $setOnInsert: { userId, jobId: job._id } }, { upsert: true });
+      const details = await Job.findById(job._id).select("sourceBoard occupation structuredLocation.countryCode").lean();
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "hide", source: details?.sourceBoard, occupation: details?.occupation, country: details?.structuredLocation?.countryCode });
       res.status(204).end();
     } catch (err) { next(err); }
   },
@@ -428,6 +437,9 @@ export const jobController = {
           confidence: 0.85,
         });
       }
+
+      const matchedJob = updated.jobId && mongoose.isValidObjectId(updated.jobId) ? await Job.findById(updated.jobId).select("sourceBoard occupation structuredLocation.countryCode").lean() : null;
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "match_feedback", source: matchedJob?.sourceBoard, occupation: matchedJob?.occupation, country: matchedJob?.structuredLocation?.countryCode, scoreBand: updated.scoreBand });
 
       res.status(200).json({
         data: {

@@ -16,6 +16,8 @@ This is a guarded runbook. Do not point these commands at production until the o
 - Set the frontend API origin to the production backend origin and verify CORS/CSP allow only the intended app origin and S3 bucket.
 - Run API and BullMQ worker as separate process roles. Worker requires MongoDB and Redis. Set Redis `maxmemory-policy noeviction`; confirm persistent availability, queue monitoring, and credentials.
 - Keep source enablement flags off except for approved feeds. ATS company records must be individually admin-approved; Adzuna remains blocked on license.
+- Jobicy and Remotive are disabled by default; never enable Remotive without written redistribution permission. Jobicy's 24/day request ceiling is an application budget (not a published provider quota) and its sync starts must remain at least one hour apart.
+- Job interaction analytics are opt-in only. Verify the UI consent/version, export and account-deletion behavior, and 180-day TTL before enabling event reports.
 
 ## Catalog rollout and guarded database steps
 
@@ -36,6 +38,7 @@ This is a guarded runbook. Do not point these commands at production until the o
 - Confirm a job card shows source and date; without a home country the Jobs page offers a link to the Career profile and unknown eligibility is labeled clearly.
 - Confirm Jobs uses the keyset cursor contract and a non-exhaustive source notice; do not claim full-web coverage or show unverified cross-source variants.
 - Verify error tracking receives request IDs but no prompt, resume, or secret payloads.
+- Check that admin coverage metrics distinguish measured local catalog counts from source-wide yield. JobStream live yield, government-feed rights, reference-data imports, and labeled occupation precision/recall remain unverified until their evidence gates pass.
 
 ## Rollback
 

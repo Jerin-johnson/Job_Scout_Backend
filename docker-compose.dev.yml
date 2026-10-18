@@ -1,0 +1,79 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--bind_ip_all"]
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: [jobscout-mongo:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7.4
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: [jobscout-redis:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  api:
+    build: .
+    command: ["node", "src/server.js"]
+    ports: ["127.0.0.1:4001:4001"]
+    environment: &backend-env
+      NODE_ENV: development
+      PORT: "4001"
+      HOST: 0.0.0.0
+      WEB_ORIGIN: http://localhost:3000
+      MONGODB_URI: mongodb://mongo:27017/jobscout_local
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: local-development-access-secret-not-for-production
+      JWT_REFRESH_SECRET: local-development-refresh-secret-not-for-production
+      RESUME_ENCRYPTION_KEY: local-development-resume-encryption-key-not-production
+      AI_ALLOW_MOCKS: "true"
+      JOBSCOUT_LOCAL_COMPOSE: "1"
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  worker:
+    build: .
+    command: ["node", "src/worker.js"]
+    environment: *backend-env
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.kill(1, 0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  frontend:
+    build:
+      context: ../Ai_resume_frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4001
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jobscout-mongo:
+  jobscout-redis:

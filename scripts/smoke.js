@@ -1,3 +1,4 @@
+import "../tests/test-env.js";
 import { createApp } from "../src/app.js";
 import { connectMongo, disconnectMongo } from "../src/config/database.js";
 import { env } from "../src/config/env.js";
@@ -35,6 +36,7 @@ async function startServerIfNeeded() {
     throw new Error("Smoke tests can only target an HTTP loopback URL.");
   }
 
+  if (process.env.SMOKE_EXTERNAL_API === "1") return;
   const app = createApp();
   await new Promise((resolve, reject) => {
     server = app.listen(Number(url.port) || 4001, url.hostname, resolve);

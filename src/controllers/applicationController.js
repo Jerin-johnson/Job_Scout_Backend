@@ -1,4 +1,5 @@
 import { z } from "zod";
+import mongoose from "mongoose";
 import { randomUUID } from "node:crypto";
 import { applicationRepository } from "../repositories/applicationRepository.js";
 import { applicationGraph } from "../ai/graphs/applicationGraph.js";
@@ -10,6 +11,8 @@ import {
 } from "../services/applicationReminderQueue.js";
 import { applicationReminderTransition } from "../services/applicationLifecycle.js";
 import { invalidateCandidateContext } from "../ai/candidateContext.js";
+import { Job } from "../models/Job.js";
+import { recordInteraction } from "../services/jobs/interactionEvents.js";
 
 const VALID_STATUSES = ["saved", "applied", "screening", "interviewing", "offer", "rejected"];
 const optionalDate = z.preprocess(
@@ -202,6 +205,9 @@ export const applicationController = {
         userId,
         reminderStatus: parsed.data.reminderEnabled ? "scheduled" : "none",
       });
+      const trackedJobId = parsed.data.jobId && mongoose.isValidObjectId(parsed.data.jobId) ? parsed.data.jobId : null;
+      const trackedJob = trackedJobId ? await Job.findById(trackedJobId).select("sourceBoard occupation structuredLocation.countryCode").lean() : null;
+      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "save", source: trackedJob?.sourceBoard, occupation: trackedJob?.occupation, country: trackedJob?.structuredLocation?.countryCode });
       if (app.reminderEnabled) {
         try {
           await scheduleApplicationReminder(app);
