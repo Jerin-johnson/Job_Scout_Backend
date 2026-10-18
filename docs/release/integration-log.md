@@ -84,3 +84,11 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added Mongo integration coverage for monotonic version increments and key separation. Validation is being run before commit.
 
 - Validation: focused Mongo integration passed 18/18 with the installed MongoDB 8.0.8 system binary; ESLint and `git diff --check` passed. The sandboxed Mongo launch failed before test setup, so the same local test was rerun with approved local-process access.
+
+## Beta readiness item 2 — source decisions and outreach drafts — 2026-10-18
+
+- Re-verified registry gates: Jobicy remains disabled by default and requires the ENABLE_JOBICY_INGESTION gate plus approved registry state; Remotive activation requires a written redistribution permission reference. Job cards render linked source attribution from the catalog source metadata. JobStream, NAV, France Travail and ATS sources stay disabled in the source policy.
+- Added owner-reviewed outreach drafts for Fantastic.jobs, NCS, NORKA, and Remotive. No outreach sent and no sources enabled.
+- Validation: existing Jobicy/Remotive gate coverage in 	ests/job-source-adapters.test.js; 
+pm run docs:check is being run.
+
