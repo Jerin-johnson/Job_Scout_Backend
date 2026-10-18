@@ -26,7 +26,7 @@ const createSchema = z.object({
     z.object({ type: z.literal("pasted"), title: z.string().trim().min(1).max(200), company: z.string().trim().max(200).default(""), description: z.string().trim().min(1).max(MAX_JOB_DESCRIPTION_CHARS) }).strict(),
   ]),
 }).strict();
-const ignoredSchema = z.object({ ignoredKeywords: z.array(z.string().trim().min(1).max(100)).max(100) }).strict();
+const ignoredSchema = z.object({ keyword: z.string().trim().min(1).max(100), ignored: z.boolean().default(true) }).strict();
 
 function httpError(statusCode, code, message) {
   const error = new Error(message);
@@ -190,13 +190,17 @@ export const resumeMatchController = {
       const parsed = ignoredSchema.safeParse(req.body);
       if (!parsed.success) throw httpError(400, "VALIDATION_ERROR", parsed.error.issues[0]?.message || "Invalid ignored keyword list.");
       const userId = ownerId(req.user);
-      const ignoredKeywords = [...new Set(parsed.data.ignoredKeywords.map((term) => term.toLowerCase()))];
+      const keyword = parsed.data.keyword.toLowerCase();
       const report = await JobMatchReport.findOne({ _id: req.params.id, userId });
       if (!report) return res.sendStatus(404);
       const allowed = new Set(Object.values(report.deterministicResult.match.groups).flat().map((item) => item.term.toLowerCase()));
-      if (ignoredKeywords.some((term) => !allowed.has(term))) throw httpError(400, "UNKNOWN_KEYWORD", "Only a keyword from this report can be ignored.");
-      report.ignoredKeywords = ignoredKeywords;
-      report.deterministicResult.match = applyIgnoredKeywords(report.deterministicResult.match, ignoredKeywords);
+      if (!allowed.has(keyword)) throw httpError(400, "UNKNOWN_KEYWORD", "Only a keyword from this report can be ignored.");
+      const ignoredKeywords = new Set((report.ignoredKeywords || []).map((term) => term.toLowerCase()));
+      if (parsed.data.ignored) ignoredKeywords.add(keyword);
+      else ignoredKeywords.delete(keyword);
+      const normalizedIgnoredKeywords = [...ignoredKeywords];
+      report.ignoredKeywords = normalizedIgnoredKeywords;
+      report.deterministicResult.match = applyIgnoredKeywords(report.deterministicResult.match, normalizedIgnoredKeywords);
       report.updatedAt = new Date();
       await report.save();
       return res.status(200).json({ data: { report: reportDTO(report.toObject()) } });
@@ -265,7 +269,7 @@ export const resumeMatchController = {
       if (!mongoose.isValidObjectId(req.params.id)) return res.sendStatus(404);
       const deleted = await JobMatchReport.deleteOne({ _id: req.params.id, userId: ownerId(req.user) });
       if (!deleted.deletedCount) return res.sendStatus(404);
-      return res.sendStatus(204);
+      return res.status(200).json({ data: { deleted: true } });
     } catch (error) { next(error); }
   },
 };
