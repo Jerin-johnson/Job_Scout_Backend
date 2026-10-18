@@ -82,7 +82,7 @@ test("resume match reports are idempotent, owner-scoped, exportable, and cascade
   assert.equal(foreignDelete.statusCode, 404);
 
   const ignored = response();
-  await resumeMatchController.ignoreKeywords({ ...request(owner, first.body.data.report.reportId), body: { ignoredKeywords: ["Python"] } }, ignored, (error) => { throw error; });
+  await resumeMatchController.ignoreKeywords({ ...request(owner, first.body.data.report.reportId), body: { keyword: "Python", ignored: true } }, ignored, (error) => { throw error; });
   assert.equal(ignored.statusCode, 200);
   assert.ok(Object.values(ignored.body.data.report.match.groups).flat().some((item) => item.term.toLowerCase() === "python" && item.ignored));
 
@@ -92,6 +92,16 @@ test("resume match reports are idempotent, owner-scoped, exportable, and cascade
   assert.equal(exportResponse.body.data.resumes.length, 1);
   assert.equal(exportResponse.body.data.resumes[0].encryptedRawText, undefined);
   assert.equal(exportResponse.body.data.jobMatchReports.length, 1);
+
+  const unignored = response();
+  await resumeMatchController.ignoreKeywords({ ...request(owner, first.body.data.report.reportId), body: { keyword: "Python", ignored: false } }, unignored, (error) => { throw error; });
+  assert.equal(unignored.statusCode, 200);
+  assert.ok(Object.values(unignored.body.data.report.match.groups).flat().some((item) => item.term.toLowerCase() === "python" && !item.ignored));
+  const reportDelete = response();
+  await resumeMatchController.remove(request(owner, first.body.data.report.reportId), reportDelete, (error) => { throw error; });
+  assert.equal(reportDelete.statusCode, 200);
+  assert.equal(reportDelete.body.data.deleted, true);
+  assert.equal(await JobMatchReport.countDocuments({ userId: owner }), 0);
 
   const originalDelete = storageService.deleteFile;
   const deletedKeys = [];

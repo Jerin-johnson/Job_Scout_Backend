@@ -232,6 +232,174 @@
         "responses": { "200": { "description": "List of facts" } }
       }
     },
+    "/api/v1/resume-match/reports": {
+      "get": {
+        "summary": "List the authenticated user's resume match reports",
+        "tags": ["Resume Match"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Up to 100 owner-scoped reports" } }
+      },
+      "post": {
+        "summary": "Create or fetch a deterministic job-specific resume match report",
+        "description": "Requires accepted resume AI consent and an owned resume. Catalog, application, and pasted job targets are supported. Repeated requests return the existing report.",
+        "tags": ["Resume Match"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["resumeId", "job"],
+                "properties": {
+                  "resumeId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" },
+                  "job": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": ["type", "jobId"],
+                        "properties": {
+                          "type": { "const": "catalog" },
+                          "jobId": { "type": "string", "maxLength": 100 }
+                        },
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "required": ["type", "applicationId"],
+                        "properties": {
+                          "type": { "const": "application" },
+                          "applicationId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" },
+                          "description": { "type": "string", "maxLength": 20000 }
+                        },
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "required": ["type", "title", "description"],
+                        "properties": {
+                          "type": { "const": "pasted" },
+                          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                          "company": { "type": "string", "maxLength": 200 },
+                          "description": { "type": "string", "minLength": 1, "maxLength": 20000 }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Existing idempotent match report returned" },
+          "201": { "description": "New match report created" },
+          "400": { "description": "Invalid input or no profile facts" },
+          "404": { "description": "Resume, application, or job is unavailable to this user" }
+        }
+      }
+    },
+    "/api/v1/resume-match/reports/{id}": {
+      "get": {
+        "summary": "Get one owner-scoped match report",
+        "tags": ["Resume Match"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Match report" },
+          "404": { "description": "Report not found" }
+        }
+      },
+      "delete": {
+        "summary": "Delete one owner-scoped match report",
+        "tags": ["Resume Match"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Report deleted; response data includes deleted=true" },
+          "404": { "description": "Report not found" }
+        }
+      }
+    },
+    "/api/v1/resume-match/reports/{id}/ignored-keywords": {
+      "patch": {
+        "summary": "Ignore or restore one keyword in a match report",
+        "tags": ["Resume Match"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["keyword"],
+                "properties": {
+                  "keyword": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "ignored": { "type": "boolean", "default": true }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated report" },
+          "400": { "description": "Keyword is not part of this report" },
+          "404": { "description": "Report not found" }
+        }
+      }
+    },
+    "/api/v1/resume-match/reports/{id}/suggestions": {
+      "post": {
+        "summary": "Generate grounded resume wording suggestions for a match report",
+        "description": "Requires resume AI consent and a paid API model approved for personal data. Suggestions are validated and grounded in saved resume facts.",
+        "tags": ["Resume Match"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": { "schema": { "type": "object", "additionalProperties": false } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Grounded suggestions or an availability status" },
+          "404": { "description": "Report or owned resume not found" },
+          "503": { "description": "Approved provider unavailable or blocked by data policy" }
+        }
+      }
+    },
     "/api/v1/ai/models": {
       "get": {
         "summary": "List configured free-tier chat models",
