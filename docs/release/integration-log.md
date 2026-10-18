@@ -58,3 +58,4 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Backend lint: 0 errors, 2 existing warnings; docs check passed; secret scan passed. Frontend lint passed, test suite 47/47 passed, docs link check passed, and secret scan passed. Existing whole-repo Prettier check is not a gate because it reports 97 pre-existing formatting differences.
 
 - Review correction: retained the backend's pre-existing comprehensive `.github/pull_request_template.md` after a case-insensitive Windows path collision; no existing checklist items were dropped.
+- Follow-up review hardening: hooks now stop on staged lint failures, and CI explicitly configures the Redis service to `noeviction` using the existing ioredis dependency.

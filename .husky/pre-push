@@ -1,3 +1,4 @@
+set -e
 branch=$(git branch --show-current)
 if [ "$branch" = "main" ] || [ "$branch" = "development" ]; then
   npm run verify:release

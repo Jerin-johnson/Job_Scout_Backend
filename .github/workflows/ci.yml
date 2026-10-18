@@ -42,11 +42,11 @@ jobs:
       - run: npm ci
       - run: node scripts/check-commits.mjs
       - run: npm run lint
+      - run: node scripts/set-ci-redis-policy.mjs
       - run: npm test
       - run: npm run docs:check
       - run: npm run scan:secrets
       - run: npm audit --omit=dev --audit-level=high || echo 'AUDIT REPORT UNAVAILABLE; review required before release.'
-      - run: redis-cli -h 127.0.0.1 config set maxmemory-policy noeviction
       - run: npm run openapi
       - run: git diff --exit-code -- docs/openapi.json openapi.json
 
@@ -56,16 +56,3 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: docker build --tag jobscout-api:ci --file Dockerfile .
 
-  production-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-        env:
-          HUSKY: '0'
-          NEXT_TELEMETRY_DISABLED: '1'
