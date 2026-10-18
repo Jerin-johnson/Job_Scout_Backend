@@ -27,3 +27,7 @@ npm run stack:down
 
 Expected: Mongo, Redis, API, worker, and frontend report healthy; smoke ends with `PASS`. The stack uses a dedicated compose project and local volumes; it does not load production secrets or enable external feeds. For direct development, `npm run dev:stack` remains available.
 
+
+### Compose verification status
+
+The compose file parses as YAML and contains the five requested local services. This execution environment has no Docker CLI, so image builds, service health, and `smoke:compose` remain **Unverified until the owner runs the commands above**. The worker healthcheck is a process-liveness check; dependency readiness is gated before startup by healthy Mongo, Redis, and API services.

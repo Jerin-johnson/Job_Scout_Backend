@@ -59,3 +59,10 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 
 - Review correction: retained the backend's pre-existing comprehensive `.github/pull_request_template.md` after a case-insensitive Windows path collision; no existing checklist items were dropped.
 - Follow-up review hardening: hooks now stop on staged lint failures, and CI explicitly configures the Redis service to `noeviction` using the existing ioredis dependency.
+
+## Test isolation and local stack — 2026-10-18
+
+- Test bootstrap now rejects non-loopback `MONGODB_URI` and `REDIS_URL`, forces `NODE_ENV=test`, and provides loopback defaults before `dotenv/config` loads. The smoke runner imports the same guard and supports a local Compose API target. New tests prove hosted URLs fail without printing their values.
+- Added a MongoDB 8 / Redis `noeviction` / API / worker / frontend Compose stack with healthchecks, fixed local ports, dummy dev-only auth values, persistent named volumes, and stack/smoke scripts. Added frontend production Dockerfile and secret-safe Docker ignore rules. No dependency or lockfile changed.
+- Validation: compose YAML parsed and all five services were present; backend unit suite 153/153 passed; full backend suite using local MongoDB 8.0.8: 191 passed, 0 failed, 1 optional skip. Backend lint 0 errors/2 existing warnings, docs check and secret scan pass.
+- Docker CLI is unavailable here; image builds, service health, and compose smoke remain **Unverified until owner runs**. No hosted DB/Redis was contacted.
