@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { detectAtsCareersUrl } from "../src/services/jobs/trackedCompanyService.js";
 
 const ENDPOINTS = {
@@ -101,21 +102,47 @@ async function loadCompanies(path) {
 async function validateFile() {
   const input = process.argv.find((arg) => arg.startsWith("--file="))?.slice(7);
   if (!input) throw new Error("Usage: npm run jobs:ats:validate -- --file=companies.csv [--output=verified.json]");
-  const output = process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) || "ats-verified.json";
   const candidates = await loadCompanies(input);
   if (!Array.isArray(candidates)) throw new Error("Input must be an array, {companies: []}, or CSV with a header row.");
-  if (candidates.length > 500) throw new Error("Validate at most 500 companies per run to keep public board checks bounded.");
-  const results = [];
-  for (const row of candidates) {
-    const normalized = normalizeCompanyCandidate(row);
-    results.push(normalized.platform ? await validateCompanyCandidate(normalized) : { ...normalized, jobCount: 0, remoteCount: 0, indiaCount: 0, error: normalized.error });
-    // one request/second across the validation run, bounded by provider public endpoints.
-    if (results.length < candidates.length) await new Promise((resolve) => setTimeout(resolve, 1000));
+  if (candidates.length > 10_000) throw new Error("Validate at most 10,000 companies per run.");
+  const normalizedRows = candidates.map(normalizeCompanyCandidate);
+  const uniqueRows = [...new Map(normalizedRows.map((row, index) => [`${row.platform || "invalid"}:${row.slug || index}`, row])).values()];
+  const output = process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) || "ats-verified.json";
+  const progressPath = `${output}.progress.json`;
+  const inputHash = createHash("sha256").update(await readFile(input)).digest("hex");
+  const resume = process.argv.includes("--resume");
+  let progress = { version: 1, inputHash, completed: {} };
+  if (resume) {
+    try { progress = JSON.parse(await readFile(progressPath, "utf8")); }
+    catch { throw new Error("No resumable validation checkpoint exists for this output path."); }
+    if (progress.version !== 1 || progress.inputHash !== inputHash) throw new Error("Input changed since the checkpoint. Choose a new output path or remove the checkpoint after review.");
   }
+  const concurrencyArg = Number(process.argv.find((arg) => arg.startsWith("--concurrency="))?.slice(14)) || 4;
+  const concurrency = Math.min(8, Math.max(1, concurrencyArg));
+  const results = Array(uniqueRows.length);
+  const checkpointKey = (row, index) => `${row.platform || "invalid"}:${row.slug || index}`;
+  uniqueRows.forEach((row, index) => { if (progress.completed[checkpointKey(row, index)]) results[index] = progress.completed[checkpointKey(row, index)]; });
+  let nextIndex = 0;
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= uniqueRows.length) return;
+      if (results[index]) continue;
+      const row = uniqueRows[index];
+      const result = row.platform ? await validateCompanyCandidate(row) : { ...row, jobCount: 0, remoteCount: 0, indiaCount: 0, error: row.error || "Invalid source identity." };
+      results[index] = result;
+      progress.completed[checkpointKey(row, index)] = result;
+      if (Object.keys(progress.completed).length % 50 === 0 || index === uniqueRows.length - 1) await writeFile(progressPath, JSON.stringify(progress), "utf8");
+      // Bounded request-start rate across workers; no provider receives a burst.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  });
+  await Promise.all(workers);
+  await writeFile(progressPath, JSON.stringify(progress), "utf8");
   console.log("Company | ATS | Status | Jobs | Remote | India jobs | Error");
   for (const row of results) console.log(`${row.company} | ${row.platform || "—"} | ${row.valid ? "valid" : "invalid"} | ${row.jobCount} | ${row.remoteCount} | ${row.indiaCount} | ${row.error || "—"}`);
-  await writeFile(output, `${JSON.stringify({ version: 1, verifiedAt: new Date().toISOString(), companies: results.filter((row) => row.valid).map((row) => ({ name: row.company, platform: row.platform, slug: row.slug, careersUrl: row.careersUrl || `https://${row.platform === "greenhouse" ? "boards.greenhouse.io" : row.platform === "lever" ? "jobs.lever.co" : "jobs.ashbyhq.com"}/${row.slug}`, status: "pending", validation: { valid: true, jobCount: row.jobCount, remoteCount: row.remoteCount, indiaCount: row.indiaCount, checkedAt: row.checkedAt } })) }, null, 2)}\n`, { flag: "wx" });
-  console.log(`Verified companies ready for approval import: ${results.filter((row) => row.valid).length}; file: ${output}`);
+  await writeFile(output, `${JSON.stringify({ version: 1, inputHash, verifiedAt: new Date().toISOString(), companies: results.filter((row) => row.valid).map((row) => ({ name: row.company, platform: row.platform, slug: row.slug, careersUrl: row.careersUrl || `https://${row.platform === "greenhouse" ? "boards.greenhouse.io" : row.platform === "lever" ? "jobs.lever.co" : row.platform === "ashby" ? "jobs.ashbyhq.com" : row.platform === "smartrecruiters" ? "jobs.smartrecruiters.com" : row.platform === "recruitee" ? `${row.slug}.recruitee.com` : "apply.workable.com"}/${row.slug}`, status: "pending", validation: { valid: true, jobCount: row.jobCount, remoteCount: row.remoteCount, indiaCount: row.indiaCount, checkedAt: row.checkedAt } })) }, null, 2)}\n`, { flag: "wx" });
+  console.log(`Verified companies ready for approval import: ${results.filter((row) => row.valid).length}; failures: ${results.filter((row) => !row.valid).length}; deduplicated input: ${uniqueRows.length}; output: ${output}; resume checkpoint: ${progressPath}`);
 }
 
 async function importFile() {

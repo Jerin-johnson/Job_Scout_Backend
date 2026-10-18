@@ -112,6 +112,7 @@ export function extractJobFeatures(job = {}) {
     requiredSkills: [...new Set(requiredSkills)].slice(0, 60),
     preferredSkills: [...new Set(preferredSkills)].slice(0, 60),
     titleTokens: terms(title),
+    companyTokens: terms(job.company || ""),
     occupation,
     experienceYears,
     seniority,

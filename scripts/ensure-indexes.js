@@ -7,6 +7,8 @@ import { User } from "../src/models/User.js";
 import { Application } from "../src/models/Application.js";
 import { Job } from "../src/models/Job.js";
 import { JobSource } from "../src/models/JobSource.js";
+import { JobDetail } from "../src/models/JobDetail.js";
+import { JobVector } from "../src/models/JobVector.js";
 import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
 
 async function ensureIndexes() {
@@ -71,6 +73,8 @@ async function ensureIndexes() {
     Application.createIndexes(),
     Job.createIndexes(),
     JobSource.createIndexes(),
+    JobDetail.createIndexes(),
+    JobVector.createIndexes(),
   ]);
 
   logger.info("All collection indexes synchronized successfully.");

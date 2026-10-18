@@ -21,9 +21,13 @@ export const SOURCE_POLICIES = Object.freeze([
     key: "remotive",
     displayName: "Remotive",
     adapterModule: "remotiveAdapter.js",
-    approved: true,
-    enabled: true,
-    termsUrl: "https://github.com/remotive-com/remote-jobs-api",
+    // The current terms prohibit copying or redistributing listings. Keep disabled
+    // until written permission covers the catalog use.
+    approved: false,
+    enabled: false,
+    activationRequirements: ["written_redistribution_permission"],
+    activationStatus: "blocked_on_terms",
+    termsUrl: "https://remotive.com/terms-of-use",
     attributionText: "Remotive",
     attributionUrl: "https://remotive.com/",
     retentionDays: 14,
@@ -35,15 +39,19 @@ export const SOURCE_POLICIES = Object.freeze([
     key: "jobicy",
     displayName: "Jobicy",
     adapterModule: "jobicyAdapter.js",
+    // The current official API guide permits integration use with attribution.
+    // Keep the registry disabled by default; enable only for explicit local
+    // measurement or after the operator approves the source in production.
     approved: true,
-    enabled: true,
-    termsUrl: "https://github.com/Jobicy/remote-jobs-api",
+    enabled: false,
+    activationStatus: "approved_api_terms_default_disabled",
+    termsUrl: "https://jobicy.com/jobs-rss-feed",
     attributionText: "Jobicy",
     attributionUrl: "https://jobicy.com/",
     retentionDays: 14,
     staleAfterDays: 7,
     quota: { requestsPerDay: 24, intervalMs: 3600000, timeoutMs: 15000, maxRetries: 2 },
-    termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
+    termsVerifiedAt: new Date("2026-10-17T00:00:00.000Z"),
   },
   ...["greenhouse", "lever", "ashby"].map((key) => ({
     key,
@@ -75,11 +83,17 @@ export const SOURCE_POLICIES = Object.freeze([
     activationStatus: "blocked_on_license",
     termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
   },
-]);
+].map((policy) => ({
+  ...policy,
+  termsReference: policy.termsUrl,
+  retentionRule: policy.retentionRule || `Delete after ${policy.retentionDays} days or earlier when source marks inactive.`,
+  quotaPolicy: policy.quotaPolicy || `${policy.quota.requestsPerDay} requests per day; minimum interval ${policy.quota.intervalMs}ms.`,
+})));
 
 export function isSourcePolicyComplete(policy) {
   return Boolean(
-    policy?.termsUrl && policy?.attributionText && policy?.attributionUrl && /^[A-Za-z0-9_-]+Adapter\.js$/.test(policy?.adapterModule || "") &&
+    policy?.termsUrl && policy?.termsReference && policy?.attributionText && policy?.attributionUrl && /^[A-Za-z0-9_-]+Adapter\.js$/.test(policy?.adapterModule || "") &&
+    policy?.retentionRule && policy?.quotaPolicy &&
     Number.isFinite(policy?.retentionDays) && policy.retentionDays > 0 &&
     Number.isFinite(policy?.staleAfterDays) && policy.staleAfterDays > 0 &&
     Number.isFinite(policy?.quota?.requestsPerDay) && policy.quota.requestsPerDay > 0 &&
@@ -101,6 +115,7 @@ export function isSourceEnabledByEnvironment(sourceKey, config = env) {
 // Adzuna's terms require a licensed commercial arrangement/strict display attribution;
 // ordinary admin approval is intentionally insufficient to activate it.
 export function isSourceActivationAllowed(source) {
+  if (source?.key === "remotive") return Boolean(source?.writtenRedistributionPermissionReference);
   if (source?.key !== "adzuna-india") return true;
   return Boolean(source?.commercialLicenseReference && source?.attributionBadgeVerified && source?.storageDisplayTermsReviewed);
 }

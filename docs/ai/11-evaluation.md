@@ -1,5 +1,7 @@
 # 11 — Evaluation
 
+Use `npm run eval:match-rank-gate` for pairwise relevance and India eligibility checks across lexical-v2, lexical-v3, and lexical-v4. Use `npm run eval:jobs-phase3` to inspect calibration and the 14 US-only controls. These curated fixtures do not replace an independently labeled production sample. Keep lexical-v2 as the default unless a challenger improves pairwise ordering on new cases without breaking existing relevance or eligibility controls.
+
 Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
 ## As built (verified in code)

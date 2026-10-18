@@ -1,4 +1,6 @@
 import { Job } from "../../models/Job.js";
+import { JobDetail } from "../../models/JobDetail.js";
+import { JobVector } from "../../models/JobVector.js";
 import { JobSource } from "../../models/JobSource.js";
 import { Profile } from "../../models/Profile.js";
 import { env } from "../../config/env.js";
@@ -14,10 +16,12 @@ import { classifyJobOccupation } from "./occupationClassification.js";
 import { parseJobEligibility, profileApplicantCountries } from "./eligibility.js";
 import { latestReferenceRates, convertAmount } from "./fxRates.js";
 import { PLACE_SUGGESTIONS, ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
+import { splitJobForStorage, encodeCatalogCursor, decodeCatalogCursor } from "./jobStorage.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
 const BATCH_SIZE = 32;
+const BULK_WRITE_BATCH_SIZE = 500;
 const inMemoryJobs = new Map();
 const adapterFactories = Object.create(null);
 const sourceSeedPromises = new Map();
@@ -65,6 +69,14 @@ function cleanNormalizedJob(job, source) {
       : [],
     sourceCategory: String(job.sourceCategory || job.category || "").slice(0, 160),
   };
+  normalized.groupKey = source.adapter.generateGroupKey?.({
+    canonicalUrl: normalized.canonicalUrl,
+    company: normalized.company,
+    title: normalized.title,
+    location: normalized.location,
+    employmentType: normalized.employmentType,
+    postedAt: normalized.postedAt,
+  }) || "";
   const contentHash = (source.adapter || null)?.generateContentHash?.(normalized);
   normalized.contentHash = contentHash || job.contentHash;
   normalized.identityKey = source.adapter.generateIdentity({
@@ -134,7 +146,31 @@ async function ensureSourceRecords() {
     for (const policy of SOURCE_POLICIES) {
       if (!isSourcePolicyComplete(policy))
         throw new Error(`Incomplete source policy: ${policy.key}`);
-      await JobSource.updateOne({ key: policy.key }, { $setOnInsert: policy }, { upsert: true });
+      await JobSource.updateOne(
+        { key: policy.key },
+        { $setOnInsert: policy },
+        { upsert: true },
+      );
+      const registryPolicy = {
+        displayName: policy.displayName,
+        adapterModule: policy.adapterModule,
+        termsUrl: policy.termsUrl,
+        termsReference: policy.termsReference,
+        attributionText: policy.attributionText,
+        attributionUrl: policy.attributionUrl,
+        retentionDays: policy.retentionDays,
+        retentionRule: policy.retentionRule,
+        staleAfterDays: policy.staleAfterDays,
+        quotaPolicy: policy.quotaPolicy,
+        quota: policy.quota,
+        termsVerifiedAt: policy.termsVerifiedAt,
+        activationRequirements: policy.activationRequirements || [],
+        activationStatus: policy.activationStatus || "terms_verified",
+      };
+      await JobSource.updateOne(
+        { key: policy.key },
+        { $set: registryPolicy },
+      );
     }
   })();
   sourceSeedPromises.set(databaseKey, seedPromise);
@@ -560,16 +596,16 @@ export const jobIngestionService = {
             : [];
         const existingByIdentity = new Map(existingDocs.map((job) => [job.identityKey, job]));
         const changed = [];
+        const unchangedOps = [];
         for (const job of uniqueJobs) {
           const existing = existingByIdentity.get(job.identityKey);
           if (existing?.recordHash === job.recordHash) {
             job.lastSeenAt = new Date();
             duplicates += 1;
-            if (isMongoReady())
-              await Job.updateOne(
-                { identityKey: job.identityKey },
-                { $set: { lastSeenAt: job.lastSeenAt, status: "active" } },
-              );
+            if (isMongoReady()) unchangedOps.push({ updateOne: {
+              filter: { identityKey: job.identityKey },
+              update: { $set: { lastSeenAt: job.lastSeenAt, status: "active" } },
+            } });
             else
               inMemoryJobs.set(job.identityKey, {
                 ...inMemoryJobs.get(job.identityKey),
@@ -587,6 +623,12 @@ export const jobIngestionService = {
           }
           job.provenance[0].seenAt = new Date();
           changed.push(job);
+        }
+
+        if (isMongoReady() && unchangedOps.length) {
+          for (let offset = 0; offset < unchangedOps.length; offset += BULK_WRITE_BATCH_SIZE) {
+            await Job.bulkWrite(unchangedOps.slice(offset, offset + BULK_WRITE_BATCH_SIZE), { ordered: false });
+          }
         }
 
         if (changed.length) {
@@ -641,16 +683,36 @@ export const jobIngestionService = {
           });
           }
           if (isMongoReady()) {
-            await Job.bulkWrite(
-              changed.map((job) => ({
+            const storageRows = changed.map((job) => ({ job, ...splitJobForStorage(job) }));
+            for (let offset = 0; offset < storageRows.length; offset += BULK_WRITE_BATCH_SIZE) {
+              const batch = storageRows.slice(offset, offset + BULK_WRITE_BATCH_SIZE);
+              await Job.bulkWrite(batch.map(({ job, catalog }) => ({
                 updateOne: {
                   filter: { identityKey: job.identityKey },
-                  update: { $set: job },
+                  update: { $set: catalog },
                   upsert: true,
                 },
-              })),
-              { ordered: false },
-            );
+              })), { ordered: false });
+              const identities = batch.map(({ job }) => job.identityKey);
+              const persisted = await Job.find({ identityKey: { $in: identities } }).select("_id identityKey").lean();
+              const idByIdentity = new Map(persisted.map((row) => [row.identityKey, row._id]));
+              const detailOps = batch.map(({ job, details }) => ({
+                updateOne: {
+                  filter: { jobId: idByIdentity.get(job.identityKey) },
+                  update: { $set: { ...details, expiresAt: job.expiresAt } },
+                  upsert: true,
+                },
+              })).filter((operation) => operation.updateOne.filter.jobId);
+              if (detailOps.length) await JobDetail.bulkWrite(detailOps, { ordered: false });
+              const vectorOps = batch.filter(({ vector }) => vector).map(({ job, vector }) => ({
+                updateOne: {
+                  filter: { jobId: idByIdentity.get(job.identityKey) },
+                  update: { $set: vector },
+                  upsert: true,
+                },
+              })).filter((operation) => operation.updateOne.filter.jobId);
+              if (vectorOps.length) await JobVector.bulkWrite(vectorOps, { ordered: false });
+            }
           } else {
             for (const job of changed)
               inMemoryJobs.set(job.identityKey, {
@@ -1076,11 +1138,15 @@ export const jobIngestionService = {
     countryCode = "",
     source = "",
     remoteType = "",
+    occupation = "",
+    eligibility = "",
+    postedWithinDays = 0,
     minimumSalaryInr = null,
     eligibilityCountryCodes = [],
     showAnyway = false,
     excludeJobIds = [],
     page = 1,
+    cursor = "",
     limit = 20,
   }) {
     const sources = await listSourceRecords({ enabledOnly: true });
@@ -1092,15 +1158,22 @@ export const jobIngestionService = {
       expiresAt: { $gt: new Date() },
     };
     if (q) {
-      const expression = new RegExp(safeRegex(q), "i");
-      filter.$or = [
-        { title: expression },
-        { company: expression },
-        { tags: expression },
-        { requirements: expression },
-      ];
+      const tokens = [...new Set(String(q).normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}+#.]+/gu) || [])].slice(0, 8);
+      if (tokens.length) filter.$and = tokens.map((token) => ({
+        $or: [
+          { "features.titleTokens": token },
+          { "features.companyTokens": token },
+        ],
+      }));
     }
     if (location) filter.location = new RegExp(safeRegex(location), "i");
+    if (occupation && /^[a-z0-9-]{2,60}$/i.test(occupation)) filter.occupation = occupation.toLowerCase();
+    if (Number(postedWithinDays) > 0) filter.postedAt = { $gte: new Date(Date.now() - Number(postedWithinDays) * 86400000) };
+    if (eligibility === "unknown") filter["eligibility.confidence"] = { $lte: 0.35 };
+    if (eligibility === "eligible" && eligibilityCountryCodes.length) {
+      const codes = eligibilityCountryCodes.map((code) => String(code).toUpperCase()).filter((code) => /^[A-Z]{2}$/.test(code));
+      filter.$and = [...(filter.$and || []), { $or: [{ "eligibility.countries": { $in: codes } }, { "structuredLocation.eligibleCountryCodes": { $in: codes } }, { "structuredLocation.countryCode": { $in: codes } }, { "structuredLocation.remoteScope": "worldwide" }] }];
+    }
     if (/^[A-Za-z]{2}$/.test(countryCode))
       filter["structuredLocation.countryCode"] = countryCode.toUpperCase();
     if (source) {
@@ -1148,17 +1221,39 @@ export const jobIngestionService = {
       };
       filter.$nor = [...(filter.$nor || []), explicitMismatch];
     }
-    const skip = (page - 1) * limit;
     if (isMongoReady()) {
-      const [jobs, total] = await Promise.all([
-        Job.find(filter)
-          .sort({ postedDateKnown: -1, postedAt: -1, _id: 1 })
-          .skip(skip)
-          .limit(limit)
-          .select("-embedding -rawPayload")
-          .lean(),
-        Job.countDocuments(filter),
-      ]);
+      const cursorData = decodeCatalogCursor(cursor);
+      const cursorFilter = cursorData ? {
+        $or: cursorData.postedAt
+          ? [
+              { postedAt: { $lt: new Date(cursorData.postedAt) } },
+              { postedAt: null, _id: { $gt: cursorData.id } },
+              { postedAt: new Date(cursorData.postedAt), _id: { $gt: cursorData.id } },
+            ]
+          : [{ postedAt: null, _id: { $gt: cursorData.id } }],
+      } : null;
+      const query = cursorFilter ? { $and: [filter, cursorFilter] } : filter;
+      const fetchedJobs = await Job.find(query)
+        .sort({ postedAt: -1, _id: 1 })
+        .limit(limit + 1)
+        .select("-embedding -rawPayload -rawDescription -requirements")
+        .lean();
+      const hasMore = fetchedJobs.length > limit;
+      const jobs = fetchedJobs.slice(0, limit);
+      const last = jobs.at(-1);
+      const nextCursor = hasMore && last
+        ? encodeCatalogCursor({ id: String(last._id), postedAt: last.postedAt ? new Date(last.postedAt).toISOString() : null })
+        : null;
+      const estimateKey = `jobs:catalog:active-count:v2:${enabledKeys.slice().sort().join(",")}`;
+      let total = await get(estimateKey).catch(() => null);
+      if (!Number.isFinite(Number(total))) {
+        total = await Job.countDocuments({
+          sourceBoard: { $in: enabledKeys },
+          status: "active",
+          expiresAt: { $gt: new Date() },
+        }).catch(() => jobs.length + Number(hasMore));
+        await set(estimateKey, Number(total), 300).catch(() => {});
+      }
       return {
         jobs: jobs.map((job) => ({
           ...job,
@@ -1169,10 +1264,13 @@ export const jobIngestionService = {
               : false),
           jobId: String(job._id),
         })),
-        total,
-        page,
+        total: Number(total),
+        totalIsApproximate: true,
+        hasMore,
+        nextCursor,
+        page: 1,
         limit,
-        pages: Math.ceil(total / limit),
+        pages: 0,
         sources: await this.publicSources(),
       };
     }
@@ -1209,7 +1307,7 @@ export const jobIngestionService = {
           new Date(b.postedAt || 0) - new Date(a.postedAt || 0),
       );
     return {
-      jobs: jobs.slice(skip, skip + limit).map(({ embedding: _embedding, ...job }) => ({
+      jobs: jobs.slice((page - 1) * limit, page * limit).map(({ embedding: _embedding, rawDescription: _rawDescription, requirements: _requirements, ...job }) => ({
         ...job,
         jobId: String(job._id || job.identityKey),
       })),
@@ -1217,6 +1315,9 @@ export const jobIngestionService = {
       page,
       limit,
       pages: Math.ceil(jobs.length / limit),
+      totalIsApproximate: false,
+      hasMore: jobs.length > page * limit,
+      nextCursor: null,
       sources: await this.publicSources(),
     };
   },
