@@ -16,6 +16,7 @@
     "smoke": "node scripts/smoke.js",
     "test": "node --import ./tests/test-env.js --test tests/*.test.js",
     "ensure-indexes": "node scripts/ensure-indexes.js",
+    "ensure-indexes:report": "node scripts/ensure-indexes.js --dry-run",
     "jobs:migrate": "node scripts/migrate-job-catalog.js",
     "jobs:migrate:report": "node scripts/migrate-job-catalog.js --report",
     "jobs:migrate:apply": "node scripts/migrate-job-catalog.js --apply",

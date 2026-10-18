@@ -7,3 +7,26 @@ Before deploying a schema/index change, inspect the additive model/index update 
 **Content hash / identity:** current job identity uniqueness is enforced by `job_identity_unique` on `identityKey`; migration reporting and rollback are implemented in `scripts/migrate-job-catalog.js`. No migration was run for this documentation task. Verify duplicate identity handling with `npm run jobs:migrate:report` against a copy before deployment.
 
 Resume cleanup is report-only by default. `npm run resumes:cleanup-report` shows candidates; deletion requires the explicit configuration flag and the configured retention age. Never enable deletion before reviewing the report.
+
+# Index synchronization safety
+
+Preview the index/retention synchronization before applying it:
+
+```powershell
+npm run ensure-indexes:report
+```
+
+The report is read-only and only connects when the configured MongoDB URI is a
+loopback host and `NODE_ENV` is not `production`. It reports how many interview
+records would receive retention expiry dates, how many historical trial users
+would be updated, whether the obsolete global `contentHash` index is present,
+and which declared indexes are missing or have a different key/unique/TTL
+definition. `writesPerformed` must remain
+`false`. The report omits the database name and connection URI.
+
+Apply index synchronization only in an approved deployment workflow after
+reviewing the preview:
+
+```powershell
+npm run ensure-indexes
+```
