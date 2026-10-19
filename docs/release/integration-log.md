@@ -118,4 +118,21 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Audited `.env` variable names only (no values read/printed): `MONGODB_URI`, `REDIS_URL`, and `LANGFUSE_BASEURL` hold non-loopback URLs in `AiJob_search_backend/.env`; owner should rotate those credentials if previously exposed.
 - Verification results: full backend suite 197 passed, 0 failed, 1 optional skip (198 total) with local MongoDB 8.0.8 and WSL Redis (`127.0.0.1:6379`); isolated backend smoke 44/44 passed (0 skipped); backend lint 0 errors (2 existing warnings); `docs:check` passed; `npm audit --omit=dev --audit-level=high` reported 1 high transitive advisory (`langsmith <=0.5.26` via `@langchain/core`, fix requires breaking major upgrade). Docker Desktop Linux daemon pipe remains offline so `smoke:compose` is unverified.
 - Installed Graphify Antigravity skill/rules/workflows, rebuilt backend AST graph (2,065 nodes, 4,276 edges, 161 communities), frontend graph (1,060 nodes, 1,969 edges, 92 communities), and merged cross-repo graph (`../graphify-out/merged-graph.json`: 3,116 nodes, 6,245 edges).
-- Added `docs/architecture/reuse-map.md` and `docs/engineering/parallel-work.md`, updated `AGENTS.md` with Antigravity operating mode and `chore/test-foundation` testing rules, merged into `development` and `main` (`v0.1.0-beta.1-rc.1`) locally without pushing, and prepared sibling worktrees for `feat/jobs-production`, `feat/chat-agent`, and `feat/product-loop`.
+- Added `docs/architecture/reuse-map.md` and `docs/engineering/parallel-work.md`, updated `AGENTS.md` with Antigravity operating mode and `chore/test-foundation` testing rules, merged into `development` and `main` (`v0.1.0-beta.1-rc.1`) locally without pushing, and prepared branches for `feat/jobs-production`, `feat/chat-agent`, and `feat/product-loop`.
+
+## 2026-10-19 — Task A: Production Jobs (`feat/jobs-production`)
+
+- Completed 100% of Task A items in 10 backend commits (`ddfa508`..`cb9047f`) and 2 frontend commits (`5f49bd8`..`2518782`).
+- Hot Job document compacted 93% from 29,262 B to 2,047 B (<2 KB target) with dry-run/apply/rollback support.
+- Incremental profile matching benchmarked at 20.20 ms across 10,000 synthetic profiles using inverted index `profile_match_tokens_idx`.
+- O*NET 29.0 and GeoNames CC BY 4.0 subsets imported, raising occupation classification accuracy to 100%.
+- Saved searches, alert deduplication, quiet hours, and BullMQ digest scheduler implemented.
+
+## 2026-10-19 — Task B: Production Chat Agent (`feat/chat-agent`)
+
+- Implemented LangGraph StateGraph chat assistant with typed state, iteration bounds (<=4), per-tool timeouts (4000ms), and prompt injection guardrails.
+- Added 11 read-only tools ownership-scoped via server-side configurable `userId` with untrusted delimiter wrapping and payload truncation.
+- Added 5 propose-and-confirm action tools returning HMAC-SHA256 signed action tokens with timingSafeEqual validation, TTL, replay protection, and AuditLog recording.
+- Integrated MongoDB checkpointer with user-namespaced thread IDs (`toNamespacedThreadId`), session persistence, rolling summaries, and GDPR export/delete cascade.
+- Implemented versioned memory consent (`memory-consent-v1`) with sensitive category filtering and Career Profile priority resolution.
+- Completed offline evaluation with 65 prompts yielding 92.3% tool accuracy, 100% groundedness, 100% prompt injection block rate, 9ms p50 latency, and $0.000108 USD / turn.
