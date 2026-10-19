@@ -129,3 +129,15 @@ Before employer posting: verify employer domain/registrant authority, moderate q
 ## Target design (not built yet)
 
 The reviewed vendor pilot, partner feeds, employer self-service portal, government notice collection, GeoNames/O*NET/ESCO imports, and source expansion remain proposals. No paid service, external reference dataset, live vendor call, or live government feed was activated.
+
+## Admin coverage reporting — 2026-10-18
+
+The admin coverage endpoint now reports deduplicated active counts, raw active counts, freshness by last-seen age, unknown-eligibility share, source/country/family aggregates, and explicit gaps against the initial segment targets above. Segment counts are structured-field estimates; fresher, authorization, hospital/employer verification, and complete eligibility are not inferred when the corresponding source fields are absent. `usersWithZeroEligibleJobs` is scoped to consented pseudonymous users with a zero-result event in the prior 30 days and is not an all-user census. The production UI presents these caveats.
+
+## Local stale/repost snapshot — 2026-10-18
+
+Read-only aggregation against loopback Mongo found 617 active indexed jobs. Using a rolling 30-day posted-date threshold, 59/617 (9.56%) were older than 30 days; by source: Remote OK 59/99 (59.6%), Jobicy 0/511, Remotive 0/3, and mock fixtures 0/4. The `firstSeenAt - postedAt > 7 days` heuristic marked 83/617 (13.45%) as possible reposts. These groups overlap and are advisories; the count includes sources disabled from discovery. Risk flags do not automatically close or delete listings.
+
+The 300-row stratified occupation worksheet has **0 corrected labels**. Its recorded predicted distribution has 33/300 (11.0%) unclassified, so the below-10% target remains unmet. Precision/recall cannot be scored until the owner/reviewer fills `correct family`; the independent 100-row fixture is a separate evaluation set. See [the review worksheet](occupation-labels-2026-10-18.csv) and [30 review examples](occupation-review-samples-2026-10-17.md).
+
+GeoNames and O*NET downloadable database licenses were re-verified on 2026-10-18. GeoNames allows commercial use under CC BY with attribution and an accuracy/completeness disclaimer. Downloadable O*NET 31.0 tables use CC BY 4.0, requiring credit to the O*NET 31.0 Database and USDOL/ETA, a license link, and a change notice; trademark wording applies to O*NET®. File transfers did not complete; no data was imported and there is no import/rollback implementation in this branch. Do not present these datasets as loaded.

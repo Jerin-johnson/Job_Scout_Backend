@@ -6,8 +6,10 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { Job } from "../src/models/Job.js";
 import { jobController } from "../src/controllers/jobController.js";
 import { JobSource } from "../src/models/JobSource.js";
+import { JobCatalogVersion } from "../src/models/JobCatalogVersion.js";
 import { Profile } from "../src/models/Profile.js";
 import { embeddingService } from "../src/services/embeddingService.js";
+import { bumpCatalogVersion, getCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 import { del, CacheKeys, set } from "../src/shared/cache.js";
 import {
   jobIngestionService,
@@ -16,6 +18,7 @@ import {
   updateVariantGroups,
 } from "../src/services/jobs/jobIngestionService.js";
 import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
+import { getJobRiskFlags } from "../src/services/jobs/jobRisk.js";
 import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
 import {
   migrateJobCatalog,
@@ -32,12 +35,39 @@ before(async () => {
       : undefined,
   });
   await mongoose.connect(mongo.getUri(), { dbName: "job-catalog-integration" });
-  await Promise.all([Job.syncIndexes(), JobSource.syncIndexes(), Profile.syncIndexes()]);
+  await Promise.all([Job.syncIndexes(), JobSource.syncIndexes(), JobCatalogVersion.syncIndexes(), Profile.syncIndexes()]);
 });
 
 after(async () => {
   await mongoose.disconnect();
   await mongo?.stop();
+});
+
+test("catalog version advances monotonically and provides a distinct cache namespace", async () => {
+  await JobCatalogVersion.deleteMany({});
+  const initial = await getCatalogVersion();
+  const next = await bumpCatalogVersion();
+  assert.equal(next, initial + 1);
+  assert.equal(await getCatalogVersion(), next);
+  assert.notEqual(CacheKeys.jobDemandVersion(initial), CacheKeys.jobDemandVersion(next));
+});
+
+test("admin coverage reports deduplicated freshness and target gaps; older listings get caution flags", async () => {
+  const id = new mongoose.Types.ObjectId();
+  const postedAt = new Date(Date.now() - 45 * 86400000);
+  const firstSeenAt = new Date(Date.now() - 2 * 86400000);
+  const job = await Job.create({ _id: id, contentHash: `coverage-${id}`, identityKey: `coverage-${id}`, title: "Nurse listing", company: "Test Hospital", rawDescription: "Staff nurse position", sourceBoard: "coverage-fixture", status: "active", expiresAt: new Date(Date.now() + 86400000), postedAt, postedDateKnown: true, firstSeenAt, lastSeenAt: new Date(), occupation: "nursing", structuredLocation: { countryCode: "IN", region: "Kerala" } });
+  try {
+    const report = await jobIngestionService.coverageReport();
+    assert.ok(report.totalActive >= 1);
+    assert.ok(report.freshness.some((bucket) => bucket._id === "under_24h"));
+    assert.ok(report.targetGaps.some((item) => item.key === "kerala-nursing" && item.target === 100));
+    const codes = getJobRiskFlags(job).map((flag) => flag.code);
+    assert.ok(codes.includes("older_listing"));
+    assert.ok(codes.includes("possible_repost"));
+  } finally {
+    await Job.deleteOne({ _id: id });
+  }
 });
 
 test("source registry refresh updates verified policy metadata without overriding operator enablement or metrics", async () => {
@@ -506,7 +536,7 @@ test("recent-first approved-source candidate retrieval can use its compound inde
   assert.ok(result.executionStats.nReturned <= 400);
 });
 
-test("catalog count cache version avoids stale zero counts after source policy changes", async () => {
+test("catalog counts bypass stale global cache entries after source policy changes", async () => {
   const priorSource = await JobSource.findOne({ key: "remoteok" }).lean();
   await JobSource.updateOne({ key: "remoteok" }, { $set: makeSource("remoteok") }, { upsert: true });
   const id = new mongoose.Types.ObjectId();

@@ -936,6 +936,18 @@ async function generateOpenApi() {
           responses: { 200: { description: "Account and memories deleted" } },
         },
       },
+      "/api/v1/feedback": {
+        post: {
+          summary: "Submit private text-only product feedback",
+          tags: ["Privacy"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            201: { description: "Feedback accepted; receipt returned" },
+            400: { description: "Category or message failed validation" },
+            429: { description: "Per-user feedback limit reached" },
+          },
+        },
+      },
     },
   };
 

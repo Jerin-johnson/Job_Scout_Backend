@@ -11,6 +11,8 @@ import { Job } from "../src/models/Job.js";
 import { JobMatchReport } from "../src/models/JobMatchReport.js";
 import { Document } from "../src/models/Document.js";
 import { Application } from "../src/models/Application.js";
+import { UserFeedback } from "../src/models/UserFeedback.js";
+import { feedbackController } from "../src/controllers/feedbackController.js";
 import { encryptText, computeSha256 } from "../src/shared/utils/crypto.js";
 import { resumeMatchController } from "../src/controllers/resumeMatchController.js";
 import { privacyController } from "../src/controllers/privacyController.js";
@@ -59,6 +61,11 @@ test("resume match reports are idempotent, owner-scoped, exportable, and cascade
   const rawText = "Jordan Smith jordan@example.com +1 415 555 0199 SUMMARY Backend Engineer EXPERIENCE Backend Engineer at Acme 2021 - 2025 Built Python APIs serving 20 customers EDUCATION Bachelor SKILLS Python";
   const resume = await Resume.create({ userId: owner, fileHash: computeSha256(rawText), originalFilename: "resume.pdf", mimeType: "application/pdf", s3Key: `resumes/${owner}/resume.pdf`, encryptedRawText: encryptText(rawText), factsSummary: { roles: 1, skills: 1, education: 1, totalFacts: 3 } });
   const job = await Job.create({ contentHash: "resume-match-test-job", title: "Backend Engineer", company: "Target Co", rawDescription: "Required: Python and SQL. Bachelor degree. 3 years experience.", requirements: ["Python", "SQL", "Bachelor degree", "3 years experience"], tags: ["Python", "SQL"], sourceBoard: "test", status: "active", expiresAt: new Date(Date.now() + 86400000) });
+  await UserFeedback.syncIndexes();
+  const feedbackResponse = response();
+  await feedbackController.submit({ user: { _id: owner }, body: { category: "idea", message: "Please add a way to filter jobs by salary." } }, feedbackResponse, (error) => { throw error; });
+  assert.equal(feedbackResponse.statusCode, 201);
+  await UserFeedback.create({ userId: other, category: "bug", message: "This should remain private to another user." });
 
   const request = (userId, id) => ({ user: { _id: userId, id: userId.toString(), plan: "free" }, body: { resumeId: resume._id.toString(), job: { type: "catalog", jobId: job._id.toString() } }, params: { id }, id: "resume-match-test-request" });
   const first = response();
@@ -92,6 +99,8 @@ test("resume match reports are idempotent, owner-scoped, exportable, and cascade
   assert.equal(exportResponse.body.data.resumes.length, 1);
   assert.equal(exportResponse.body.data.resumes[0].encryptedRawText, undefined);
   assert.equal(exportResponse.body.data.jobMatchReports.length, 1);
+  assert.equal(exportResponse.body.data.feedback.length, 1);
+  assert.equal(exportResponse.body.data.feedback[0].message, "Please add a way to filter jobs by salary.");
 
   const unignored = response();
   await resumeMatchController.ignoreKeywords({ ...request(owner, first.body.data.report.reportId), body: { keyword: "Python", ignored: false } }, unignored, (error) => { throw error; });
@@ -116,6 +125,8 @@ test("resume match reports are idempotent, owner-scoped, exportable, and cascade
     assert.equal(await Profile.countDocuments({ userId: owner }), 0);
     assert.equal(await Document.countDocuments({ userId: owner }), 0);
     assert.equal(await Application.countDocuments({ userId: owner }), 0);
+    assert.equal(await UserFeedback.countDocuments({ userId: owner }), 0);
+    assert.equal(await UserFeedback.countDocuments({ userId: other }), 1);
   } finally { storageService.deleteFile = originalDelete; }
 });
 

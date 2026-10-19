@@ -3,6 +3,7 @@ import { env } from "../src/config/env.js";
 import { Job } from "../src/models/Job.js";
 import { JobDetail } from "../src/models/JobDetail.js";
 import { JobVector } from "../src/models/JobVector.js";
+import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 
 const mode = process.argv.includes("--apply") ? "apply" : "report";
 const batchSize = Math.min(1000, Math.max(50, Number(process.env.JOB_STORAGE_MIGRATION_BATCH_SIZE) || 500));
@@ -49,6 +50,7 @@ export async function migrateJobStorage({ jobModel = Job, detailModel = JobDetai
     if (batch.length >= batchSize) await flush();
   }
   await flush();
+  if (apply) await bumpCatalogVersion();
   return { mode: apply ? "apply" : "report", resumedAfter: checkpoint?.lastId ? String(checkpoint.lastId) : null, scanned, detailsToCopy, vectorsToCopy, detailsWritten, vectorsWritten, estimatedDetailBytes: bytesDetail, batchSize, legacyFieldsPreserved: true, rollback: "Keep legacy fields until reads are verified. Runtime falls back to legacy descriptions and vectors. Roll back app code and retain the additive collections; no source fields are deleted." };
 }
 

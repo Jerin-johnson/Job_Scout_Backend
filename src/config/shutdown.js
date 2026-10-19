@@ -9,6 +9,14 @@ export function registerShutdownHandler(fn) {
   shutdownHandlers.push(fn);
 }
 
+export function closeHttpServer(server) {
+  if (!server) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+    server.closeIdleConnections?.();
+  });
+}
+
 export function setupGracefulShutdown(server = null) {
   const shutdown = async (signal) => {
     if (isShuttingDown) return;
@@ -17,9 +25,12 @@ export function setupGracefulShutdown(server = null) {
 
     // 1. Stop accepting new HTTP requests
     if (server) {
-      server.close(() => {
-        logger.info("HTTP server closed to new connections");
-      });
+      try {
+        await closeHttpServer(server);
+        logger.info("HTTP server drained and closed");
+      } catch (err) {
+        logger.error({ err: err.message }, "HTTP server close failed");
+      }
     }
 
     // 2. Run custom handlers (draining SSE, closing BullMQ workers, etc.)

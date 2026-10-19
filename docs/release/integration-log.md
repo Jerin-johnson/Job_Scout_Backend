@@ -73,3 +73,49 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Frontend lint passed, 47/47 tests passed, and docs check passed. Direct OneDrive `next build` failed with EPERM creating `.next`; an isolated clean temporary copy built successfully with all 24 static pages/routes.
 - Local smoke was attempted but is blocked: the reachable local Mongo endpoint returned authorization error code 13, while local Redis was refused. It did not reach hosted services and no write was confirmed. Docker Desktop engine is unavailable, so compose smoke is unverified. Both `npm audit` attempts stopped at registry DNS `ENOTFOUND`.
 - Smoke diagnosis: the unauthenticated smoke registration/login/refresh requests omitted the browser `Origin`; added the trusted local origin to those test requests. The smoke suite remains blocked by local DB/Redis availability and is not marked passed.
+
+## Beta-readiness branch — 2026-10-18
+
+- Created `feat/beta-readiness` from the local main integration commit. This repository remains independent of the frontend history.
+
+## Beta readiness item 1 — catalog cache invalidation — 2026-10-18
+
+- Added a persistent catalog version and incorporated it into recommended-match and demand-term cache keys. Ingestion completion, registry enable/approval changes, and the catalog/storage migrations bump the version. Catalog count/facet requests remain uncached, avoiding the previously identified stale-count path.
+- Added Mongo integration coverage for monotonic version increments and key separation. Validation is being run before commit.
+
+- Validation: focused Mongo integration passed 18/18 with the installed MongoDB 8.0.8 system binary; ESLint and `git diff --check` passed. The sandboxed Mongo launch failed before test setup, so the same local test was rerun with approved local-process access.
+
+## Beta readiness item 2 — source decisions and outreach drafts — 2026-10-18
+
+- Re-verified registry gates: Jobicy remains disabled by default and requires the ENABLE_JOBICY_INGESTION gate plus approved registry state; Remotive activation requires a written redistribution permission reference. Job cards render linked source attribution from the catalog source metadata. JobStream, NAV, France Travail and ATS sources stay disabled in the source policy.
+- Added owner-reviewed outreach drafts for Fantastic.jobs, NCS, NORKA, and Remotive. No outreach sent and no sources enabled.
+- Validation: source-gate adapter tests and `npm run docs:check` passed.
+
+## Beta readiness item 3 — coverage reporting — 2026-10-18
+
+- Admin coverage now reports active deduplicated inventory by occupation, country, source, remote scope, freshness, eligibility confidence, and target segment gap. Zero-result users are counted only from consented pseudonymous analytics in the 30-day window; this is not a complete per-user eligibility census.
+- Added a responsive admin summary and caution flags for old postings and possible reposts. Link health remains sampled to at most 100 records and one status request/source/day where the adapter supports batch checks.
+- Validation: backend Mongo catalog integration 19/19 passed; frontend tests 47/47 and lint passed. Precise entry-level, verified-employer and all-user eligible counts remain limited by source fields/consent.
+
+## Beta readiness item 6 — operational and feedback hardening — 2026-10-18
+
+- API shutdown now awaits HTTP drain; worker cleanup is registered before signal handling. Added Sentry before-send redaction for payloads, sensitive fields, and URL query strings.
+- Added authenticated text-only feedback at `POST /api/v1/feedback`, five submissions/hour/user, 180-day TTL, export and account-deletion coverage, plus Settings UI and API receipt schema. Feedback body is redacted from request logs.
+- Added production configuration checklist and isolated local Mongo/Redis backup/restore runbook. Health live/readiness already existed. Docker CLI exists but Docker Desktop's Linux engine pipe is unavailable, so compose smoke and backup/restore rehearsal could not run.
+- Validation: backend full suite 197 passed, 0 failed, 1 optional skip; lint 0 errors/2 existing warnings; OpenAPI generated; docs check passed. Frontend full suite 48/48, lint and docs check passed. Feedback UI/API was contract-tested; no live server session was used.
+
+## Beta readiness final evidence update — 2026-10-18
+
+- Read-only local catalog snapshot: 617 active jobs; 59 (9.56%) have posted dates older than 30 days, and 83 (13.45%) meet the possible-repost date-gap heuristic. Source counts and caveats are in `docs/ai/data-supply-strategy.md`.
+- GeoNames/O*NET license metadata was verified, but bounded dataset transfers did not complete. No reference dataset was imported or left in the workspace, and no import/rollback code was added. The 300-row occupation worksheet still has 0 corrected labels and 33/300 (11.0%) predicted unclassified; precision/recall remain unmeasured.
+- Final backend docs check passed; no application code changed in this evidence update. Frontend production build retried directly under OneDrive and again failed with `EPERM` creating `.next/server/app/dev`. The earlier isolated temporary-copy build had succeeded, but this final retry is not a clean in-place build gate. Docker Desktop's Linux engine remains unavailable; compose smoke and backup/restore rehearsal remain unverified. No hosted service or database was contacted.
+
+## Task 0 Antigravity switch, standards completion & parallel workstreams — 2026-10-19
+
+- Switched workflow to Antigravity; installed pre-approved devDependencies (`husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`) and set `"prepare": "husky"`.
+- Verified Husky hooks fire: `commit-msg` rejected non-conventional commit messages (exit code 1) and `pre-push` blocked pushes from an invalid branch against a throwaway local bare repo (exit code 1).
+- Hardened `tests/test-env.js` and `scripts/run-tests.mjs` so local tests and smoke default to mock provider keys and bounded Mongo concurrency without contacting hosted endpoints.
+- Audited `.env` variable names only (no values read/printed): `MONGODB_URI`, `REDIS_URL`, and `LANGFUSE_BASEURL` hold non-loopback URLs in `AiJob_search_backend/.env`; owner should rotate those credentials if previously exposed.
+- Verification results: full backend suite 197 passed, 0 failed, 1 optional skip (198 total) with local MongoDB 8.0.8 and WSL Redis (`127.0.0.1:6379`); isolated backend smoke 44/44 passed (0 skipped); backend lint 0 errors (2 existing warnings); `docs:check` passed; `npm audit --omit=dev --audit-level=high` reported 1 high transitive advisory (`langsmith <=0.5.26` via `@langchain/core`, fix requires breaking major upgrade). Docker Desktop Linux daemon pipe remains offline so `smoke:compose` is unverified.
+- Installed Graphify Antigravity skill/rules/workflows, rebuilt backend AST graph (2,065 nodes, 4,276 edges, 161 communities), frontend graph (1,060 nodes, 1,969 edges, 92 communities), and merged cross-repo graph (`../graphify-out/merged-graph.json`: 3,116 nodes, 6,245 edges).
+- Added `docs/architecture/reuse-map.md` and `docs/engineering/parallel-work.md`, updated `AGENTS.md` with Antigravity operating mode and `chore/test-foundation` testing rules, merged into `development` and `main` (`v0.1.0-beta.1-rc.1`) locally without pushing, and prepared sibling worktrees for `feat/jobs-production`, `feat/chat-agent`, and `feat/product-loop`.

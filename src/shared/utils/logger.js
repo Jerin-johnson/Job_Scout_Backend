@@ -22,6 +22,8 @@ export const redactPaths = [
   "req.body.resumeText",
   "req.body.rawText",
   "req.body.content",
+  "req.body.message",
+  "req.body.feedback",
 ];
 
 export const logger = pino({

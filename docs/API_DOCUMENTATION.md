@@ -970,3 +970,14 @@ Returns the authenticated user's currently selectable chat models. The list is c
     }
   }
   ```
+
+### 3.13. Product feedback (`/api/v1/feedback`)
+
+#### `POST /api/v1/feedback`
+
+- **Authentication**: Required; record is always assigned to the authenticated user. CSRF protection applies to cookie-authenticated requests.
+- **Rate limit**: Five submissions per user per hour.
+- **Body**: `{ "category": "general|bug|idea", "message": "10 to 2,000 characters" }`. Extra fields are rejected. Text only; do not send passwords, resume text, or other sensitive personal data.
+- **Retention and privacy**: MongoDB TTL removes feedback after 180 days. Feedback is included in that owner's privacy export and removed during account deletion. It is not shown in the admin coverage dashboard.
+- **Response `201 Created`**: `{ "data": { "id": "...", "createdAt": "2026-10-18T00:00:00.000Z", "message": "Thanks for your feedback." } }`.
+- **Errors**: `400` for invalid fields/message length; `429 FEEDBACK_RATE_LIMITED` when the per-user limit is reached.

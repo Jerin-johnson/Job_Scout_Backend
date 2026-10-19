@@ -16,6 +16,7 @@ import { Application } from "../models/Application.js";
 import { deleteAllUserResumeData } from "../services/resumeDataLifecycle.js";
 import { InteractionEvent } from "../models/InteractionEvent.js";
 import { interactionActorKey } from "../services/jobs/interactionEvents.js";
+import { UserFeedback } from "../models/UserFeedback.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -41,6 +42,7 @@ export const privacyController = {
       let resumes = [];
       let jobMatchReports = [];
       let interactionEvents = [];
+      let feedback = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
         [resumes, jobMatchReports] = await Promise.all([
@@ -65,6 +67,7 @@ export const privacyController = {
               ?.report || null,
         }));
         interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) }).select("-actorKey").sort({ createdAt: -1 }).lean();
+        feedback = await UserFeedback.find({ userId }).select("category message createdAt").sort({ createdAt: -1 }).lean();
       }
 
       const exportBundle = {
@@ -86,6 +89,7 @@ export const privacyController = {
         agentMemories: memories || [],
         interviews,
         interactionEvents,
+        feedback,
       };
 
       res.setHeader("Content-Type", "application/json");
@@ -125,6 +129,7 @@ export const privacyController = {
           Document.deleteMany({ userId }),
           Application.deleteMany({ userId }),
           InteractionEvent.deleteMany({ actorKey: interactionActorKey(userId) }),
+          UserFeedback.deleteMany({ userId }),
         ]);
       }
       interviewGraph.deleteMockSessionsByUserId(userId);

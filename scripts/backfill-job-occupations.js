@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
 import { Job } from "../src/models/Job.js";
 import { classifyJobOccupation, OCCUPATION_FEATURES_VERSION } from "../src/services/jobs/occupationClassification.js";
+import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 
 const apply = process.argv.includes("--apply");
 const batchSizeArg = process.argv.find((arg) => arg.startsWith("--batch-size="));
@@ -75,6 +76,7 @@ try {
     }
   }
   await flush();
+  if (apply && updated > 0) await bumpCatalogVersion();
   const unclassified = countsByFamily.unclassified || 0;
   const bySource = Object.fromEntries(Object.entries(countsBySource).sort().map(([source, count]) => [source, {
     total: count,
