@@ -45,6 +45,7 @@ function inMemoryModeAllowed() {
 function counterLimit(plan, feature) {
   const quotas = (PLAN_CONFIG[plan] || PLAN_CONFIG[PLANS.FREE]).quotas;
   if (feature === "chat") return quotas.chatMessagesDaily;
+  if (feature === "chat_tool") return quotas.chatToolCallsDaily || 25;
   if (feature === "match_jobs") return quotas.dailyMatches;
   if (feature === "tailor_resume") return quotas.tailoredDocsMonthly;
   if (feature === "resume_match_suggestions") return quotas.resumeMatchSuggestionsMonthly;
@@ -52,7 +53,16 @@ function counterLimit(plan, feature) {
 }
 
 function quotaLimitError(feature, count, limit) {
-  const label = feature === "chat" ? "Daily chat" : feature === "match_jobs" ? "Daily job match" : feature === "resume_match_suggestions" ? "Monthly resume match suggestions" : "Monthly tailored resume";
+  const label =
+    feature === "chat"
+      ? "Daily chat"
+      : feature === "chat_tool"
+        ? "Daily chat tool"
+        : feature === "match_jobs"
+          ? "Daily job match"
+          : feature === "resume_match_suggestions"
+            ? "Monthly resume match suggestions"
+            : "Monthly tailored resume";
   const error = new Error(`${label} quota reached (${count}/${limit}).`);
   error.statusCode = 429;
   error.code = "QUOTA_EXCEEDED";
@@ -77,6 +87,105 @@ export const quotaService = {
       throw err;
     }
     requireQuotaStore();
+    return true;
+  },
+
+  isChatToolsEnabled() {
+    return !env.AI_KILL_SWITCH && !env.AI_CHAT_TOOLS_KILL_SWITCH;
+  },
+
+  async getChatEntitlements(user) {
+    const plan = user?.plan || PLANS.FREE;
+    const planConfig = PLAN_CONFIG[plan] || PLAN_CONFIG[PLANS.FREE];
+    const userId = user?._id ? user._id.toString() : user?.id ? user.id.toString() : "";
+    const day = getDayKey();
+    const dailySpend = userId ? await this.getDailySpendUsd(userId, day) : 0;
+    const dailyBudget = planConfig.quotas.dailyUsdBudget || env.DAILY_USER_USD_BUDGET;
+    const toolCallsToday = userId ? await this.getCounter(`quota:${userId}:chat_tool:${day}`) : 0;
+    const toolCallsDailyLimit = planConfig.quotas.chatToolCallsDaily || 25;
+    const nearBudget = dailyBudget > 0 && dailySpend >= dailyBudget * 0.8;
+    const toolsExhausted = toolCallsToday >= toolCallsDailyLimit;
+    const killSwitchActive = !this.isChatToolsEnabled();
+    const degraded = nearBudget || toolsExhausted || killSwitchActive;
+
+    return {
+      plan,
+      maxToolCallsPerTurn: degraded ? 0 : planConfig.quotas.chatToolCallsPerTurn || 2,
+      maxToolCallsDaily: toolCallsDailyLimit,
+      toolCallsUsedToday: toolCallsToday,
+      turnTokenBudget: nearBudget
+        ? Math.min(1800, planConfig.quotas.chatTurnTokenBudget || 4000)
+        : planConfig.quotas.chatTurnTokenBudget || 4000,
+      maxOutputTokens: nearBudget ? 450 : 1200,
+      allowedModelTier: nearBudget ? "small" : planConfig.features.chatModelTier || "small",
+      degraded,
+      degradationReason: killSwitchActive
+        ? "kill_switch"
+        : nearBudget
+          ? "near_budget"
+          : toolsExhausted
+            ? "daily_tool_limit"
+            : null,
+      dailySpendUsd: dailySpend,
+      dailyBudgetUsd: dailyBudget,
+    };
+  },
+
+  async reserveUsage({
+    user,
+    feature = "chat",
+    model = "unknown",
+    provider = "unknown",
+    requestId = null,
+    estimatedInputTokens = 0,
+    estimatedOutputTokens = 0,
+    estimatedCostUsd = 0,
+  }) {
+    const userId = user?._id ? user._id.toString() : user?.id ? user.id.toString() : null;
+    if (!userId) return null;
+    const attemptId = `res_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return {
+      reservationId: attemptId,
+      userId,
+      userPlan: user?.plan || PLANS.FREE,
+      planVersion: user?.planVersion || "unversioned",
+      feature,
+      provider,
+      model,
+      requestId,
+      estimatedInputTokens,
+      estimatedOutputTokens,
+      estimatedCostUsd,
+      startedAt: performance.now(),
+    };
+  },
+
+  async settleUsage(reservation, actual = {}) {
+    if (!reservation?.userId) return null;
+    const latencyMs =
+      actual.latencyMs ??
+      Math.round(performance.now() - (reservation.startedAt || performance.now()));
+    await this.recordUsage({
+      userId: reservation.userId,
+      userPlan: reservation.userPlan,
+      planVersion: reservation.planVersion,
+      feature: actual.feature || reservation.feature,
+      provider: actual.provider || reservation.provider,
+      model: actual.model || reservation.model,
+      requestId: actual.requestId || reservation.requestId,
+      attemptId: reservation.reservationId,
+      status: actual.status || "success",
+      outcome: actual.outcome || "success",
+      usageIsEstimated: actual.usageIsEstimated ?? true,
+      inputTokens: actual.inputTokens ?? reservation.estimatedInputTokens ?? 0,
+      outputTokens: actual.outputTokens ?? reservation.estimatedOutputTokens ?? 0,
+      cacheReadTokens: actual.cacheReadTokens ?? 0,
+      cachedInputTokens: actual.cachedInputTokens ?? actual.cacheReadTokens ?? 0,
+      cacheWriteTokens: actual.cacheWriteTokens ?? 0,
+      costUsd: actual.costUsd ?? reservation.estimatedCostUsd ?? 0,
+      latencyMs,
+      retryCount: actual.retryCount ?? 0,
+    });
     return true;
   },
 
@@ -143,7 +252,19 @@ export const quotaService = {
     if (estimatedCostUsd > 0) {
       const reservationWouldBlock = dailySpend + estimatedCostUsd > userBudget;
       if (reservationWouldBlock) {
-        logger.info({ userId, feature, userPlan: plan, dailySpend, estimatedCostUsd, userBudget, wouldBlock: true, mode: "shadow" }, "AI request reservation shadow evaluation");
+        logger.info(
+          {
+            userId,
+            feature,
+            userPlan: plan,
+            dailySpend,
+            estimatedCostUsd,
+            userBudget,
+            wouldBlock: true,
+            mode: "shadow",
+          },
+          "AI request reservation shadow evaluation",
+        );
       }
     }
     if (dailySpend >= userBudget) {
@@ -175,7 +296,19 @@ export const quotaService = {
       const monthlyAllowance = planConfig.priceUsd * env.AI_MONTHLY_ALLOWANCE_SHADOW_RATIO;
       const monthlyWouldBlock = monthlySpend + estimatedCostUsd > monthlyAllowance;
       if (monthlyWouldBlock) {
-        logger.info({ userId, feature, userPlan: plan, monthlySpend, estimatedCostUsd, monthlyAllowance, wouldBlock: true, mode: "shadow" }, "AI monthly allowance shadow evaluation");
+        logger.info(
+          {
+            userId,
+            feature,
+            userPlan: plan,
+            monthlySpend,
+            estimatedCostUsd,
+            monthlyAllowance,
+            wouldBlock: true,
+            mode: "shadow",
+          },
+          "AI monthly allowance shadow evaluation",
+        );
       }
     }
 
@@ -365,7 +498,10 @@ export const quotaService = {
           pricingVersion,
         });
       } catch (cause) {
-        logger.error({ errorCode: cause?.code || "USAGE_LEDGER_WRITE_FAILED" }, "Could not persist AI usage ledger row");
+        logger.error(
+          { errorCode: cause?.code || "USAGE_LEDGER_WRITE_FAILED" },
+          "Could not persist AI usage ledger row",
+        );
         if (env.NODE_ENV === "production") {
           const error = new Error("AI usage ledger is temporarily unavailable.");
           error.statusCode = 503;
@@ -400,7 +536,18 @@ export const quotaService = {
       const alertThreshold = planRevenue * env.AI_MONTHLY_ALLOWANCE_SHADOW_RATIO;
       if (totalMonthSpend > alertThreshold) {
         if (env.AI_MONTHLY_ALLOWANCE_SHADOW_MODE) {
-          logger.info({ userId, userPlan, totalMonthSpend, planRevenue, threshold: alertThreshold, wouldBlock: true, mode: "shadow" }, "AI monthly allowance shadow evaluation");
+          logger.info(
+            {
+              userId,
+              userPlan,
+              totalMonthSpend,
+              planRevenue,
+              threshold: alertThreshold,
+              wouldBlock: true,
+              mode: "shadow",
+            },
+            "AI monthly allowance shadow evaluation",
+          );
         }
         if (env.SENTRY_DSN) {
           Sentry.captureMessage(
@@ -410,7 +557,6 @@ export const quotaService = {
         }
       }
     }
-
   },
 
   async getCounter(key) {

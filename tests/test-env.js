@@ -34,8 +34,8 @@ requireLoopback("REDIS_URL", "redis://127.0.0.1:6379");
 process.env.AI_ALLOW_MOCKS ||= "true";
 process.env.MONGOMS_LAUNCH_TIMEOUT ||= "60000";
 if (process.env.SMOKE_ALLOW_LIVE_AI !== "true") {
-  process.env.GROQ_API_KEY ||= "";
-  process.env.GEMINI_API_KEY ||= "";
+  process.env.GROQ_API_KEY ||= "dummy_groq_key_for_test";
+  process.env.GEMINI_API_KEY ||= "dummy_gemini_key_for_test";
   process.env.ANTHROPIC_API_KEY ||= "dummy_anthropic_key_for_dev";
   process.env.OPENAI_API_KEY ||= "dummy_openai_key";
   process.env.VOYAGE_API_KEY ||= "";
