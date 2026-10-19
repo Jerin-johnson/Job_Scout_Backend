@@ -154,3 +154,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added `src/services/jobs/incrementalMatching.js` (`INCREMENTAL_MATCH_BUDGET`, `buildProfileMatchIndex`, `extractBatchJobDemandIndex`, `rankAffectedProfilesForNewJobs`, `findAffectedUsersForNewJobs`) and `profile_match_tokens_idx` (`{ matchTokens: 1, updatedAt: -1 }`) on `Profile`.
 - Wired `buildProfileMatchIndex` into `profileRepository.upsertProfile` and `enqueueIncrementalMatchesForNewJobs` into `matchRefreshService.js`. Kept `lexical-v2` as default scoring version.
 - Benchmarked 10,000 synthetic users in `20.20 ms` and verified `IXSCAN` (`totalDocsExamined: 12` out of 500 profiles) in `tests/jobs-incremental-matching.test.js` (3/3 passed).
+
+## Task A (`feat/jobs-production`) — Item 7 Saved jobs, saved searches & alerts — 2026-10-19
+
+- Added `src/models/SavedSearch.js` and `src/services/jobs/savedSearchService.js` (`getSavedSearchPlanLimits`, `isWithinQuietHours`, `selectUnsentAlertJobs`, `appendBoundedSentJobIds`, `canSendSavedSearchAlert`, `savedSearchService`).
+- Added per-plan tier limits (`Free: 3/2`, `Pro: 15/10`, `Premium: 50/25`) in `src/shared/constants/plans.js`, routes in `src/routes/jobs.js`, handlers in `src/controllers/jobController.js`, and GDPR/DPDP export/deletion in `src/controllers/privacyController.js`.
+- Verified with 5/5 passing tests in `tests/jobs-saved-searches.test.js`.

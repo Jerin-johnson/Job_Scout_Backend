@@ -170,3 +170,23 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
 - **Scoring Version Policy (`lexical-v2` vs `lexical-v4`)**:
   - `lexical-v2` (`JOB_MATCH_SCORE_VERSION=lexical-v2`) remains the default production scoring version (`skills: 40, title: 20, experience: 15, location: 15, salary: 5, recency: 5`).
   - `lexical-v4` is opt-in via `JOB_MATCH_SCORE_VERSION=lexical-v4` (`skills: 32, title: 22, experience: 10, location: 12, salary: 5, recency: 5, occupation: 8, seniority: 3, eligibility: 3`) when structured `careerProfile` (confirmed experience years, home/target locations, work authorization) and occupation classification coverage exceed the activation threshold, because `lexical-v4` explicitly downgrades confidence to `low` when role/experience facts are unconfirmed and hard-blocks country-ineligible listings.
+
+## 8. Saved Jobs, Saved Searches & Alerts (`src/models/SavedSearch.js`, `src/services/jobs/savedSearchService.js`)
+
+- **Saved Jobs Audit**: Saved jobs are persisted in `Application` (`status: "saved"`, indexed via `{ userId: 1, status: 1 }` and `{ userId: 1, archivedAt: 1, status: 1 }`) and flow directly into the application tracker lifecycle (`saved -> applied -> screening -> interviewing -> offer/rejected`).
+- **Saved Searches & Tier Limits**:
+  - `SavedSearch` stores structured catalog filters (`q`, `location`, `countryCode`, `occupation`, `remoteType`, `source`, `postedWithinDays`, `minimumSalaryInr`, `eligibility`, `showAnyway`), `alertFrequency` (`"none" | "instant" | "daily"`), `alertChannels` (`["in_app", "email"]`), `quietHours` (`{ enabled, startHourUtc, endHourUtc }`), `unsubscribeToken`, and a bounded 200-ID `sentJobIds` deduplication window.
+  - Per-plan tier limits (`src/shared/constants/plans.js`):
+    - **Free**: `savedSearchesMax: 3`, `dailyAlertsMax: 2`
+    - **Pro**: `savedSearchesMax: 15`, `dailyAlertsMax: 10`
+    - **Premium**: `savedSearchesMax: 50`, `dailyAlertsMax: 25`
+- **API Endpoints (`src/routes/jobs.js`)**:
+  - `GET /api/v1/jobs/saved-searches`
+  - `POST /api/v1/jobs/saved-searches`
+  - `POST /api/v1/jobs/saved-searches/preview`
+  - `PATCH /api/v1/jobs/saved-searches/:id`
+  - `DELETE /api/v1/jobs/saved-searches/:id`
+  - `POST /api/v1/jobs/saved-searches/:id/unsubscribe` (supports one-click `unsubscribeToken` or authenticated owner)
+- **GDPR / India DPDP Compliance (`src/controllers/privacyController.js`)**:
+  - `GET /api/v1/privacy/export` includes `savedSearches` (excluding internal `unsubscribeToken`).
+  - `DELETE /api/v1/privacy/delete-account` purges all user `SavedSearch` documents.

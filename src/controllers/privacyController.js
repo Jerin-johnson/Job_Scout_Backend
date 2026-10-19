@@ -17,6 +17,7 @@ import { deleteAllUserResumeData } from "../services/resumeDataLifecycle.js";
 import { InteractionEvent } from "../models/InteractionEvent.js";
 import { interactionActorKey } from "../services/jobs/interactionEvents.js";
 import { UserFeedback } from "../models/UserFeedback.js";
+import { savedSearchService } from "../services/jobs/savedSearchService.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -36,6 +37,7 @@ export const privacyController = {
       const profile = await profileRepository.findByUserId(userId);
       const applications = await applicationRepository.findByUserId(userId);
       const memories = await longTermMemory.listUserMemories(userId);
+      const savedSearches = await savedSearchService.exportForUser(userId);
 
       let documents = [];
       let interviews = [];
@@ -66,8 +68,14 @@ export const privacyController = {
             reports.find((report) => report.interviewId.toString() === session._id.toString())
               ?.report || null,
         }));
-        interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) }).select("-actorKey").sort({ createdAt: -1 }).lean();
-        feedback = await UserFeedback.find({ userId }).select("category message createdAt").sort({ createdAt: -1 }).lean();
+        interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) })
+          .select("-actorKey")
+          .sort({ createdAt: -1 })
+          .lean();
+        feedback = await UserFeedback.find({ userId })
+          .select("category message createdAt")
+          .sort({ createdAt: -1 })
+          .lean();
       }
 
       const exportBundle = {
@@ -83,6 +91,7 @@ export const privacyController = {
         },
         profile: profile || {},
         applications: applications || [],
+        savedSearches: savedSearches || [],
         tailoredDocuments: documents,
         resumes,
         jobMatchReports,
@@ -118,6 +127,7 @@ export const privacyController = {
       // 1. Purge agent memories
       await longTermMemory.forgetAllMemories(userId);
       await deleteAllUserResumeData(userId);
+      await savedSearchService.deleteAllForUser(userId);
 
       // Remove durable interview transcripts/reports and legacy process-local sessions.
       if (isMongoReady()) {

@@ -22,6 +22,8 @@ export const PLAN_CONFIG = {
       chatMessagesDaily: 20,
       maxMemories: 50,
       dailyUsdBudget: 0.1,
+      savedSearchesMax: 3,
+      dailyAlertsMax: 2,
     },
     features: {
       dailyMatching: false,
@@ -42,6 +44,8 @@ export const PLAN_CONFIG = {
       chatMessagesDaily: 200,
       maxMemories: 300,
       dailyUsdBudget: 1.5,
+      savedSearchesMax: 15,
+      dailyAlertsMax: 10,
     },
     features: {
       dailyMatching: true,
@@ -62,6 +66,8 @@ export const PLAN_CONFIG = {
       chatMessagesDaily: 1000,
       maxMemories: 1000,
       dailyUsdBudget: 5.0,
+      savedSearchesMax: 50,
+      dailyAlertsMax: 25,
     },
     features: {
       dailyMatching: true,

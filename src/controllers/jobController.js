@@ -23,10 +23,61 @@ import { HiddenJob } from "../models/HiddenJob.js";
 import { suggestTargetRoleCorrections } from "../services/jobs/roleNormalization.js";
 import { recordInteraction, recordImpressions } from "../services/jobs/interactionEvents.js";
 import { getCatalogVersion } from "../services/jobs/catalogVersion.js";
+import { savedSearchService } from "../services/jobs/savedSearchService.js";
 
 const feedbackSchema = z.object({
   feedback: z.enum(["thumbs_up", "thumbs_down"]),
   reason: z.string().optional().default(""),
+});
+
+const savedSearchFiltersSchema = z
+  .object({
+    q: z.string().trim().max(120).optional().default(""),
+    location: z.string().trim().max(120).optional().default(""),
+    countryCode: z.string().trim().max(2).optional().default(""),
+    occupation: z.string().trim().max(60).optional().default(""),
+    remoteType: z.enum(["", "remote", "hybrid", "onsite"]).optional().default(""),
+    source: z.string().trim().max(60).optional().default(""),
+    postedWithinDays: z.number().int().min(0).max(365).optional().default(0),
+    minimumSalaryInr: z.number().min(0).nullable().optional().default(null),
+    eligibility: z.enum(["", "eligible", "unknown"]).optional().default(""),
+    showAnyway: z.boolean().optional().default(false),
+  })
+  .default({});
+
+const quietHoursSchema = z
+  .object({
+    enabled: z.boolean().optional().default(false),
+    startHourUtc: z.number().int().min(0).max(23).optional().default(22),
+    endHourUtc: z.number().int().min(0).max(23).optional().default(7),
+  })
+  .optional();
+
+const createSavedSearchSchema = z.object({
+  name: z.string().trim().max(80).optional(),
+  filters: savedSearchFiltersSchema,
+  alertFrequency: z.enum(["none", "instant", "daily"]).optional().default("daily"),
+  alertChannels: z
+    .array(z.enum(["in_app", "email"]))
+    .min(1)
+    .max(2)
+    .optional()
+    .default(["in_app", "email"]),
+  quietHours: quietHoursSchema,
+  enabled: z.boolean().optional().default(true),
+});
+
+const updateSavedSearchSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  filters: savedSearchFiltersSchema.optional(),
+  alertFrequency: z.enum(["none", "instant", "daily"]).optional(),
+  alertChannels: z
+    .array(z.enum(["in_app", "email"]))
+    .min(1)
+    .max(2)
+    .optional(),
+  quietHours: quietHoursSchema,
+  enabled: z.boolean().optional(),
 });
 
 function serializeMatch(match) {
@@ -86,11 +137,9 @@ export const jobController = {
         .strict()
         .parse(req.body);
       const company = await requestCompanyTracking(careersUrl, req.user._id || req.user.id);
-      return res
-        .status(202)
-        .json({
-          data: { company, message: "Company board verified and queued for admin review." },
-        });
+      return res.status(202).json({
+        data: { company, message: "Company board verified and queued for admin review." },
+      });
     } catch (error) {
       return next(error);
     }
@@ -491,15 +540,13 @@ export const jobController = {
         .object({ reason: z.enum(["expired", "broken_link", "misleading", "spam", "other"]) })
         .safeParse(req.body);
       if (!parsed.success)
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: "INVALID_REPORT_REASON",
-              message: "Choose a report reason.",
-              requestId: req.id,
-            },
-          });
+        return res.status(400).json({
+          error: {
+            code: "INVALID_REPORT_REASON",
+            message: "Choose a report reason.",
+            requestId: req.id,
+          },
+        });
       const job = await Job.findOne({ _id: req.params.id }).select("_id").lean();
       if (!job) return res.sendStatus(404);
       await Job.updateOne(
@@ -743,6 +790,142 @@ export const jobController = {
         data: {
           message: "Feedback recorded successfully",
           match: updated,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listSavedSearches(req, res, next) {
+    try {
+      const userId = req.user?._id || req.user?.id;
+      const result = await savedSearchService.listByUser(userId, { plan: req.user?.plan });
+      return res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async createSavedSearch(req, res, next) {
+    try {
+      const parsed = createSavedSearchSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_SAVED_SEARCH",
+            message: parsed.error.issues[0]?.message || "Invalid saved search parameters.",
+            requestId: req.id,
+          },
+        });
+      }
+      const created = await savedSearchService.create(req.user, parsed.data);
+      return res.status(201).json({ data: { savedSearch: created } });
+    } catch (err) {
+      if (err?.code === "SAVED_SEARCH_LIMIT_REACHED") {
+        return res.status(403).json({
+          error: {
+            code: err.code,
+            message: err.message,
+            requestId: req.id,
+          },
+        });
+      }
+      next(err);
+    }
+  },
+
+  async updateSavedSearch(req, res, next) {
+    try {
+      const parsed = updateSavedSearchSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_SAVED_SEARCH",
+            message: parsed.error.issues[0]?.message || "Invalid saved search update parameters.",
+            requestId: req.id,
+          },
+        });
+      }
+      const userId = req.user?._id || req.user?.id;
+      const updated = await savedSearchService.update(userId, req.params.id, parsed.data);
+      if (!updated) {
+        return res.status(404).json({
+          error: {
+            code: "SAVED_SEARCH_NOT_FOUND",
+            message: "Saved search not found.",
+            requestId: req.id,
+          },
+        });
+      }
+      return res.status(200).json({ data: { savedSearch: updated } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async deleteSavedSearch(req, res, next) {
+    try {
+      const userId = req.user?._id || req.user?.id;
+      const removed = await savedSearchService.remove(userId, req.params.id);
+      if (!removed) {
+        return res.status(404).json({
+          error: {
+            code: "SAVED_SEARCH_NOT_FOUND",
+            message: "Saved search not found.",
+            requestId: req.id,
+          },
+        });
+      }
+      return res.status(200).json({ data: { deleted: true } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async previewSavedSearch(req, res, next) {
+    try {
+      const parsed = savedSearchFiltersSchema.safeParse(req.body?.filters ?? req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_SAVED_SEARCH",
+            message: parsed.error.issues[0]?.message || "Invalid saved search filters.",
+            requestId: req.id,
+          },
+        });
+      }
+      const userId = req.user?._id || req.user?.id;
+      const profile = userId ? await profileRepository.findByUserId(userId) : null;
+      const eligibilityCountryCodes = profileApplicantCountries(profile || {});
+      const preview = await savedSearchService.preview(parsed.data, {
+        limit: Number(req.body?.limit) || 5,
+        eligibilityCountryCodes,
+      });
+      return res.status(200).json({ data: preview });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async unsubscribeSavedSearch(req, res, next) {
+    try {
+      const token = String(req.body?.token || req.query?.token || "").trim();
+      const userId = req.user?._id || req.user?.id || "";
+      const updated = await savedSearchService.unsubscribe(req.params.id, { token, userId });
+      if (!updated) {
+        return res.status(404).json({
+          error: {
+            code: "SAVED_SEARCH_NOT_FOUND",
+            message: "Saved search or unsubscribe token is invalid.",
+            requestId: req.id,
+          },
+        });
+      }
+      return res.status(200).json({
+        data: {
+          unsubscribed: true,
+          savedSearch: updated,
         },
       });
     } catch (err) {
