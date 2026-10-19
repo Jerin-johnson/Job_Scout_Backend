@@ -47,7 +47,7 @@ export const billingController = {
 
       return res.status(200).json({
         received: true,
-        ...(result as Record<string, unknown>),
+        ...result,
       });
     } catch (err) {
       next(err);

@@ -2,16 +2,61 @@ import PDFDocument from "pdfkit";
 import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { storageService } from "./storageService.js";
 
+export interface TailoredBulletItem {
+  tailoredBullet?: string;
+}
+
+export interface GeneratePdfParams {
+  candidateName?: string;
+  email?: string;
+  jobTitle?: string;
+  company?: string;
+  bullets?: TailoredBulletItem[] | unknown[];
+  summary?: string;
+}
+
+export interface GenerateDocxParams {
+  candidateName?: string;
+  email?: string;
+  jobTitle?: string;
+  company?: string;
+  bullets?: TailoredBulletItem[] | unknown[];
+}
+
+export interface ExportAndUploadParams {
+  documentId: string;
+  candidateName?: string;
+  email?: string;
+  jobTitle?: string;
+  company?: string;
+  bullets?: TailoredBulletItem[] | unknown[];
+  summary?: string;
+}
+
+export interface ExportAndUploadResult {
+  pdfUrl: string;
+  docxUrl: string;
+  pdfBuffer: Buffer;
+  docxBuffer: Buffer;
+}
+
 export const exportService = {
   /**
    * Generate ATS-friendly PDF buffer
    */
-  async generatePdf({ candidateName, email, jobTitle, company, bullets, summary }) {
+  async generatePdf({
+    candidateName,
+    email,
+    jobTitle,
+    company,
+    bullets,
+    summary,
+  }: GeneratePdfParams): Promise<Buffer> {
     return new Promise((resolve) => {
       const doc = new PDFDocument({ margin: 50, pdfVersion: "1.5" });
-      const buffers = [];
+      const buffers: Buffer[] = [];
 
-      doc.on("data", (chunk) => buffers.push(chunk));
+      doc.on("data", (chunk: Buffer) => buffers.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(buffers)));
 
       // Header
@@ -28,7 +73,7 @@ export const exportService = {
       doc
         .fontSize(14)
         .font("Helvetica-Bold")
-        .text(`Tailored Application: ${jobTitle} at ${company}`);
+        .text(`Tailored Application: ${jobTitle || ""} at ${company || ""}`);
       doc.moveDown(0.5);
 
       // Summary
@@ -41,8 +86,10 @@ export const exportService = {
       doc.fontSize(12).font("Helvetica-Bold").text("Relevant Verified Experience:");
       doc.moveDown(0.5);
 
-      for (const bullet of bullets) {
-        doc.fontSize(10).font("Helvetica").text(`• ${bullet.tailoredBullet}`, { indent: 15 });
+      for (const bullet of (bullets || [])) {
+        const item = bullet as { tailoredBullet?: string };
+        const text = item?.tailoredBullet || String(item || "");
+        doc.fontSize(10).font("Helvetica").text(`• ${text}`, { indent: 15 });
         doc.moveDown(0.2);
       }
 
@@ -53,7 +100,13 @@ export const exportService = {
   /**
    * Generate ATS-friendly DOCX buffer
    */
-  async generateDocx({ candidateName, email, jobTitle, company, bullets }) {
+  async generateDocx({
+    candidateName,
+    email,
+    jobTitle,
+    company,
+    bullets,
+  }: GenerateDocxParams): Promise<Buffer> {
     const doc = new DocxDocument({
       sections: [
         {
@@ -67,14 +120,17 @@ export const exportService = {
               text: email || "",
             }),
             new Paragraph({
-              text: `Target: ${jobTitle} at ${company}`,
+              text: `Target: ${jobTitle || ""} at ${company || ""}`,
               heading: HeadingLevel.HEADING_2,
             }),
-            ...bullets.map(
-              (b) =>
-                new Paragraph({
-                  children: [new TextRun({ text: `• ${b.tailoredBullet}` })],
-                }),
+            ...(bullets || []).map(
+              (b) => {
+                const item = b as { tailoredBullet?: string };
+                const text = item?.tailoredBullet || String(item || "");
+                return new Paragraph({
+                  children: [new TextRun({ text: `• ${text}` })],
+                });
+              },
             ),
           ],
         },
@@ -87,8 +143,16 @@ export const exportService = {
   /**
    * Export document to S3 and return signed/storage URLs
    */
-  async exportAndUpload({ documentId, candidateName, email, jobTitle, company, bullets }) {
-    const pdfBuffer = await this.generatePdf({ candidateName, email, jobTitle, company, bullets });
+  async exportAndUpload({
+    documentId,
+    candidateName,
+    email,
+    jobTitle,
+    company,
+    bullets,
+    summary,
+  }: ExportAndUploadParams): Promise<ExportAndUploadResult> {
+    const pdfBuffer = await this.generatePdf({ candidateName, email, jobTitle, company, bullets, summary });
     const docxBuffer = await this.generateDocx({
       candidateName,
       email,

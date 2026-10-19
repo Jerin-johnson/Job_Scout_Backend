@@ -4,7 +4,8 @@ export interface IRefreshTokenMeta {
   tokenHash: string;
   familyId: string;
   expiresAt: Date;
-  createdAt: Date;
+  isRevoked?: boolean;
+  createdAt?: Date;
 }
 
 export interface UserEntity extends IBaseEntity {

@@ -7,38 +7,65 @@ import { isMongoReady } from "../config/database.js";
 import { Subscription } from "../models/Subscription.js";
 import { Payment } from "../models/Payment.js";
 
-function getUserId(user) {
-  return String(user?._id || user?.id || "");
+function getUserId(user?: unknown): string {
+  if (!user || typeof user !== "object") return "";
+  const u = user as { _id?: unknown; id?: unknown };
+  return String(u._id || u.id || "");
 }
 
-function razorpayClient() {
+interface CustomHttpError extends Error {
+  statusCode?: number;
+  code?: string;
+}
+
+function razorpayClient(): Razorpay {
   if (
     !env.RAZORPAY_KEY_ID ||
     env.RAZORPAY_KEY_ID.includes("dummy") ||
     !env.RAZORPAY_KEY_SECRET ||
     env.RAZORPAY_KEY_SECRET.includes("dummy")
   ) {
-    throw Object.assign(
-      new Error("Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable checkout"),
-      { code: "BILLING_NOT_CONFIGURED", statusCode: 503 },
-    );
+    const error: CustomHttpError = new Error("Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable checkout");
+    error.code = "BILLING_NOT_CONFIGURED";
+    error.statusCode = 503;
+    throw error;
   }
   return new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET });
 }
 
+export interface CreateCheckoutSessionParams {
+  user?: unknown;
+  plan: string;
+}
+
+export interface CreateCheckoutSessionResult {
+  checkoutUrl: string;
+  sessionId: string;
+  provider: string;
+}
+
+export interface RazorpayWebhookResult {
+  processed: boolean;
+  eventId: string | null;
+  event: string;
+}
+
 export const billingService = {
-  async createCheckoutSession({ user, plan }) {
-    if (!PLAN_CONFIG[plan] || plan === PLANS.FREE)
-      throw Object.assign(new Error("Invalid paid subscription plan"), {
-        code: "INVALID_PLAN",
-        statusCode: 400,
-      });
+  async createCheckoutSession({ user, plan }: CreateCheckoutSessionParams): Promise<CreateCheckoutSessionResult> {
+    const validPlan = plan as keyof typeof PLAN_CONFIG;
+    if (!PLAN_CONFIG[validPlan] || plan === PLANS.FREE) {
+      const error: CustomHttpError = new Error("Invalid paid subscription plan");
+      error.code = "INVALID_PLAN";
+      error.statusCode = 400;
+      throw error;
+    }
     const planId = plan === PLANS.PRO ? env.RAZORPAY_PLAN_ID_PRO : env.RAZORPAY_PLAN_ID_PREMIUM;
-    if (!planId || planId.includes("dummy"))
-      throw Object.assign(new Error(`Configure the Razorpay subscription plan ID for ${plan}`), {
-        code: "BILLING_NOT_CONFIGURED",
-        statusCode: 503,
-      });
+    if (!planId || planId.includes("dummy")) {
+      const error: CustomHttpError = new Error(`Configure the Razorpay subscription plan ID for ${plan}`);
+      error.code = "BILLING_NOT_CONFIGURED";
+      error.statusCode = 503;
+      throw error;
+    }
     const subscription = await razorpayClient().subscriptions.create({
       plan_id: planId,
       customer_notify: 1,
@@ -54,20 +81,20 @@ export const billingService = {
     };
   },
 
-  async cancelSubscription(subscriptionId, atPeriodEnd = true) {
+  async cancelSubscription(subscriptionId: string, atPeriodEnd = true): Promise<unknown> {
     return razorpayClient().subscriptions.cancel(subscriptionId, atPeriodEnd);
   },
 
-  async refundPayment(paymentId, amountMinor, notes = {}) {
-    return razorpayClient().payments.refund(paymentId, { amount: amountMinor, notes });
+  async refundPayment(paymentId: string, amountMinor: number, notes: Record<string, unknown> = {}): Promise<unknown> {
+    return razorpayClient().payments.refund(paymentId, { amount: amountMinor, notes: notes as Record<string, string> });
   },
 
-  async handleRazorpayWebhook(payload, signature) {
+  async handleRazorpayWebhook(payload: unknown, signature?: string | null): Promise<RazorpayWebhookResult> {
     if (!env.RAZORPAY_WEBHOOK_SECRET || env.RAZORPAY_WEBHOOK_SECRET.includes("dummy")) {
-      throw Object.assign(new Error("Razorpay webhook secret is not configured"), {
-        code: "WEBHOOK_NOT_CONFIGURED",
-        statusCode: 503,
-      });
+      const error: CustomHttpError = new Error("Razorpay webhook secret is not configured");
+      error.code = "WEBHOOK_NOT_CONFIGURED";
+      error.statusCode = 503;
+      throw error;
     }
     const raw = Buffer.isBuffer(payload)
       ? payload
@@ -83,34 +110,71 @@ export const billingService = {
       expectedBuffer.length !== suppliedBuffer.length ||
       !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)
     ) {
-      throw Object.assign(new Error("Razorpay webhook signature verification failed"), {
-        code: "INVALID_WEBHOOK_SIGNATURE",
-        statusCode: 400,
-      });
+      const error: CustomHttpError = new Error("Razorpay webhook signature verification failed");
+      error.code = "INVALID_WEBHOOK_SIGNATURE";
+      error.statusCode = 400;
+      throw error;
     }
-    const event = JSON.parse(raw.toString("utf8"));
+    const event = JSON.parse(raw.toString("utf8")) as {
+      id?: string;
+      event: string;
+      created_at?: number;
+      payload?: {
+        subscription?: {
+          entity?: {
+            id?: string;
+            customer_id?: string;
+            current_start?: number;
+            current_end?: number;
+            has_scheduled_changes?: boolean;
+            notes?: { userId?: string; plan?: string };
+          };
+        };
+        payment?: {
+          entity?: {
+            id?: string;
+            subscription_id?: string;
+            amount?: number | string;
+            amount_refunded?: number | string;
+            currency?: string;
+            created_at?: number;
+          };
+        };
+        refund?: {
+          entity?: {
+            payment_id?: string;
+          };
+        };
+      };
+    };
     const subscription = event.payload?.subscription?.entity;
     const payment = event.payload?.payment?.entity;
-    let subscriptionRecord = null;
+    let subscriptionRecord: { userId?: unknown; plan?: string } | null = null;
     if (subscription) {
       const existingRecord =
         isMongoReady() && subscription.id
-          ? await Subscription.findOne({ subscriptionId: subscription.id }).lean()
+          ? ((await Subscription.findOne({ subscriptionId: subscription.id }).lean()) as {
+              userId?: unknown;
+              plan?: string;
+              status?: string;
+              lastProviderEventAt?: Date;
+              cancelAtPeriodEnd?: boolean;
+            } | null)
           : null;
-      const userId = subscription.notes?.userId || existingRecord?.userId?.toString();
-      const plan = subscription.notes?.plan || existingRecord?.plan;
-      const normalizedStatus = {
+      const userId = subscription.notes?.userId || (existingRecord?.userId ? String(existingRecord.userId) : undefined);
+      const plan = (subscription.notes?.plan || existingRecord?.plan) as keyof typeof PLAN_CONFIG | undefined;
+      const normalizedStatus = ({
         "subscription.activated": "active",
         "subscription.authenticated": "active",
         "subscription.charged": "active",
         "subscription.halted": "past_due",
         "subscription.cancelled": "canceled",
-      }[event.event];
+      } as Record<string, string>)[event.event];
       const eventAt = event.created_at ? new Date(event.created_at * 1000) : new Date();
       const isCurrentEvent =
         !existingRecord?.lastProviderEventAt || eventAt >= existingRecord.lastProviderEventAt;
       if (isMongoReady() && subscription.id && isCurrentEvent) {
-        subscriptionRecord = await Subscription.findOneAndUpdate(
+        subscriptionRecord = (await Subscription.findOneAndUpdate(
           { subscriptionId: subscription.id },
           {
             $set: {
@@ -134,10 +198,10 @@ export const billingService = {
               lastProviderEventAt: eventAt,
             },
           },
-          { upsert: Boolean(userId && PLAN_CONFIG[plan]), new: true, setDefaultsOnInsert: true },
-        ).lean();
+          { upsert: Boolean(userId && plan && PLAN_CONFIG[plan]), new: true, setDefaultsOnInsert: true },
+        ).lean()) as { userId?: unknown; plan?: string } | null;
       }
-      if (isCurrentEvent && userId && PLAN_CONFIG[plan] && plan !== PLANS.FREE) {
+      if (isCurrentEvent && userId && plan && PLAN_CONFIG[plan] && plan !== PLANS.FREE) {
         if (
           ["subscription.activated", "subscription.charged", "subscription.authenticated"].includes(
             event.event,
@@ -164,7 +228,7 @@ export const billingService = {
     if (payment?.id && isMongoReady()) {
       const subscriptionId = payment.subscription_id || subscription?.id || null;
       if (!subscriptionRecord && subscriptionId) {
-        subscriptionRecord = await Subscription.findOne({ subscriptionId }).lean();
+        subscriptionRecord = (await Subscription.findOne({ subscriptionId }).lean()) as { userId?: unknown; plan?: string } | null;
       }
       if (event.event === "payment.captured" || event.event === "subscription.charged") {
         await Payment.findOneAndUpdate(
@@ -201,9 +265,9 @@ export const billingService = {
     if (event.event === "refund.failed" && isMongoReady()) {
       const refund = event.payload?.refund?.entity;
       if (refund?.payment_id) {
-        const prior = await Payment.findOne({ providerPaymentId: refund.payment_id })
+        const prior = (await Payment.findOne({ providerPaymentId: refund.payment_id })
           .select("amountRefundedMinor")
-          .lean();
+          .lean()) as { amountRefundedMinor?: number } | null;
         await Payment.updateOne(
           { providerPaymentId: refund.payment_id, status: "refund_pending" },
           { $set: { status: prior?.amountRefundedMinor ? "partially_refunded" : "captured" } },
