@@ -24,6 +24,8 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
+    const { disconnectRedis } = await import("../src/config/redis.js");
+    await disconnectRedis().catch(() => {});
   });
 
   it("GET /health should return 200 with status ok", async () => {

@@ -1,12 +1,19 @@
 import { rateLimit } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
-import { getRedisClient } from "../config/redis.js";
+import { getRedisClient, isRedisReady } from "../config/redis.js";
 
 function userKey(req) {
   return String(req.user?._id || req.user?.id || "anonymous");
 }
 
 function createInterviewLimiter({ name, limit, windowMs }) {
+  const store = isRedisReady()
+    ? new RedisStore({
+        prefix: `jobscout:ratelimit:interview:${name}:`,
+        sendCommand: (...args) => getRedisClient().call(...args),
+      })
+    : undefined;
+
   return rateLimit({
     windowMs,
     limit,
@@ -14,10 +21,7 @@ function createInterviewLimiter({ name, limit, windowMs }) {
     legacyHeaders: false,
     passOnStoreError: true,
     keyGenerator: userKey,
-    store: new RedisStore({
-      prefix: `jobscout:ratelimit:interview:${name}:`,
-      sendCommand: (...args) => getRedisClient().call(...args),
-    }),
+    store,
     handler(_req, res) {
       return res.status(429).json({
         error: {
