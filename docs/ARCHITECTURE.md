@@ -1,10 +1,12 @@
-# JobScout architecture and scaling plan
+# JobScout Architecture and Technical Specification
 
-Last reviewed: 2026-10-16. This describes the repository implementation; it does not assert a particular production topology. See the separately maintained frontend repo at `../Ai_resume_frontend`.
+Last reviewed: 2026-10-19. This describes the repository implementation, Clean Architecture layers, SOLID principles, dependency injection design, and scaling topology.
 
-## System at a glance
+---
 
-JobScout uses a Next.js web application, a Node.js/Express API, a separate Node.js worker, MongoDB, Redis/BullMQ, and AWS S3 for private resume objects. API and worker are separate process entry points and can be deployed/scaled independently. The exact hosting provider, production replica counts, Atlas tier, Redis tier, and S3 lifecycle configuration are **Unverified** here.
+## 1. System Topology & Services
+
+JobScout uses a Next.js web application, a Node.js/Express API, a separate Node.js worker, MongoDB, Redis/BullMQ, and AWS S3 for private resume objects. API and worker are separate process entry points and can be deployed/scaled independently.
 
 ```mermaid
 flowchart LR
@@ -21,75 +23,215 @@ flowchart LR
   Worker --> Email[Configured email provider]
 ```
 
-## Backend services
+### Core Backend Processes
 
-- **Express API (`src/server.js`)** handles authentication, owner-scoped profile/resume APIs, job search and matching, application tracking, billing webhooks, and chat/interview streaming. User requests do not trigger source ingestion.
-- **Worker (`src/worker.js`)** handles scheduled job ingestion and bounded/background work through BullMQ. Its Mongo/Redis dependencies and concurrency are independent of the HTTP process.
-- **MongoDB** is the system of record for users, profile/resume metadata and encrypted extracted text, jobs, source registry/run state, applications, interviews and usage events. Schemas and indexes live in `src/models`.
-- **Redis** provides cache/quota coordination and BullMQ state. Production AI paid calls fail closed when the durable quota store is unavailable. The exact hosted Redis topology is deployment-configured.
-- **AWS S3** stores private resume files. The browser receives a short-lived, user-prefix-scoped presigned URL; API completion verifies ownership and is idempotent.
-- **AI integrations** go through the shared LangChain invocation layer and model catalog. Embeddings use their dedicated quota- and kill-switch-aware service. Job matching remains deterministic and LLM-free in its hot path.
-- **Job feeds** are selected through a source registry and policy gate. Only currently enabled/approved registry sources are ingested; the catalog is not the whole internet.
+- **Express API (`src/main/server.ts`)**: Handles authentication, profile/resume APIs, job discovery, application tracking, mock interview simulation, AI chat agent streaming, and payment webhooks.
+- **Background Worker (`src/main/worker.ts`)**: Handles scheduled feed ingestion, source health monitoring, repeat schedule reconciliation, email digest generation, and heavy asynchronous jobs via BullMQ.
+- **MongoDB**: System of record for users, profiles, resumes, jobs (catalog, details, vectors), application boards, interview sessions, and audit events.
+- **Redis**: Fast volatile caching, distributed rate limiting, quota enforcement, and BullMQ task queues.
+- **AWS S3**: Secure private storage for uploaded resumes. Client uploads directly via presigned URLs.
 
-## Frontend services
+---
 
-The separate `Ai_resume_frontend` repository is a Next.js App Router application. Pages compose shared React components, design tokens and API operations in `src/lib/api`. Authentication is cookie-based; server/API origins and permitted browser connections are environment/configuration controlled. Resume file bytes go from browser directly to the scoped S3 presigned URL, while metadata and completion are sent to the backend API.
+## 2. Clean Architecture Layers
 
-The frontend is static/server rendered where appropriate and makes authenticated API calls for user data. It does not own business rules, billing enforcement, quota checks, matching, or provider keys. The backend remains the authorization and validation boundary.
+The backend follows the Dependency Inversion Rule:
+$$\text{Presentation} \longrightarrow \text{Application} \longrightarrow \text{Domain} \longleftarrow \text{Infrastructure}$$
+The Composition Root is isolated in the `Main` layer.
 
-## Current request and ingestion flows
+```mermaid
+graph TD
+  subgraph Presentation ["Presentation Layer (HTTP / Web)"]
+    Controllers[Controllers]
+    Routes[Routes]
+    Validators[Zod Request Validators]
+    Middleware[Auth & Error Middleware]
+  end
 
-1. Browser makes an authenticated REST request to the API.
-2. The API validates schemas, obtains identity from authenticated server state, checks owner and plan/consent gates, and reads/writes MongoDB or Redis.
-3. Expensive or repeatable work is queued to the existing worker where appropriate; the worker uses the same Mongo/Redis stores.
-4. Resume upload uses a presigned browser PUT to S3; completion is an API operation that validates the user's key, file metadata and consent before parsing.
-5. Scheduled source adapters fetch only policy-approved sources, normalize and deduplicate by source identity, and update changed job documents. Discovery reads the indexed catalog only.
+  subgraph Application ["Application Layer (Use Cases)"]
+    UseCases[Use Cases: IUseCase<TInput, TOutput>]
+    DTOs[Input & Output DTOs]
+    AppInterfaces[External Service Interfaces]
+    AppErrors[Application Errors]
+  end
 
-## Scaling in stages
+  subgraph Domain ["Domain Layer (Business Invariants)"]
+    Entities[Domain Entities]
+    ValueObjects[Value Objects]
+    RepoContracts[Repository Contracts: IUserRepository]
+    DomainErrors[Domain Errors]
+  end
 
-These are scale options, not current deployed capacity commitments. Use observed latency, queue age, Mongo explain plans, Redis utilization and provider spend before increasing resources.
+  subgraph Infrastructure ["Infrastructure Layer (Technical Details)"]
+    MongooseRepos[Concrete Repositories]
+    BaseRepo[BaseMongooseRepository]
+    MongooseModels[Mongoose Schemas & Models]
+    SecurityAdapters[Bcrypt & JWT Services]
+    ExternalAdapters[S3, Resend, Redis, AI Providers]
+  end
 
-### Marginal catalog cost scenarios
+  subgraph Main ["Main Layer (Composition Root)"]
+    DIContainer[TSyringe Container]
+    AppFactory[Express App Factory]
+    ServerEntry[Server & Worker Bootstraps]
+  end
 
-Production monthly invoices cannot be calculated from this repository because the MongoDB/Redis/worker hosting tiers, region, replica counts, ingestion cadence and provider billing account are not specified. The following bounded estimate isolates embedding API spend and catalog document volume; it is not a total infrastructure bill. It uses the configured `text-embedding-3-small` rate of $0.02 per million input tokens and a measured 6,174-byte average raw description (~1,544 tokens at an illustrative four characters/token). It assumes every job is new or changed in the month; because the worker caches/embeds only changed jobs, 10% monthly change costs one tenth.
+  Presentation --> Application
+  Application --> Domain
+  Infrastructure -.->|implements| RepoContracts
+  Infrastructure -.->|implements| AppInterfaces
+  Main --> Presentation
+  Main --> Infrastructure
+  Main --> Application
+```
 
-| Catalog jobs | Logical BSON size at 28,807 bytes/job | One full new/changed pass of embeddings | At 10% monthly change |
-|---:|---:|---:|---:|
-| 10,000 | ~0.29 GB | ~$0.31/month | ~$0.03/month |
-| 100,000 | ~2.88 GB | ~$3.09/month | ~$0.31/month |
-| 1,000,000 | ~28.81 GB | ~$30.88/month | ~$3.09/month |
+### 2.1 Domain Layer (`src/domain/`)
 
-The token estimate uses raw-description bytes only; title, company and requirements add a small amount, while provider tokenization may differ. The measured document size includes the existing 1,536-dimension vector and raw description. BSON volume excludes indexes, MongoDB compression, replication, backups and storage tier minimums. Source API costs are zero for the currently configured public feeds within their allowed quotas, but quota limits and terms still apply. API/worker compute, MongoDB, Redis, S3, backups, logs, and bandwidth are **Unverified** and excluded; use the actual provider bill before capacity or budget decisions. Cost controls are content-hash skip, batching, changed-only embeddings, bounded candidate retrieval, and no per-job LLM scoring.
+- Contains enterprise business entities, value objects, domain rules, and repository contracts.
+- **Zero External Dependencies:** Must NEVER import Express, Mongoose, TSyringe, or external libraries.
+- **Entities:** `User`, `Profile`, `Job`, `Application`, `InterviewSession`, `Memory`, `ChatSession`.
+- **Contracts:** `IUserRepository`, `IProfileRepository`, `IJobRepository`, `IApplicationRepository`, `IInterviewRepository`.
+- **Domain Errors:** `DomainError`, `EntityNotFoundError`, `InvariantViolationError`.
 
-### Current architecture: one API and one worker process
+### 2.2 Application Layer (`src/application/`)
 
-- Keep API and worker as distinct processes, even if they share an image, so expensive ingestion cannot block request handling.
-- Use existing Mongo indexes and bounded candidate retrieval; keep the discovery pool capped and matching deterministic.
-- Use existing Redis queues/cache/quota paths and per-source quotas. Keep retry counts bounded and avoid duplicate provider work with content hashes/idempotency keys.
-- Upload resume bytes directly to S3 instead of proxying them through the API.
-- Monitor API p95/error rate, worker queue age, per-source request budget, Mongo examined/returned ratio, Redis health, and AI usage before scaling.
+- Orchestrates application business workflows via single-purpose Use Cases implementing `IUseCase<TInput, TOutput>`.
+- Depends ONLY on Domain contracts and abstract infrastructure interfaces (`IPasswordHasher`, `ITokenService`, `IStorageService`, `IEmailService`).
+- Uses constructor injection for all dependencies.
+- Handles input/output DTO transformations and application validation.
 
-### Increased traffic: scale existing processes horizontally
+### 2.3 Infrastructure Layer (`src/infrastructure/`)
 
-- Add stateless API replicas behind the existing load balancer; keep secrets/config identical and session/auth state in the shared stores.
-- Increase worker replicas or queue concurrency gradually by workload type. Preserve per-source rate limits and AI quotas across replicas using Redis-backed coordination.
-- Tune Mongo connection pools and query/index patterns before upgrading the database tier. Check `explain()` and queue-backed write pressure.
-- Apply S3 lifecycle/retention and least-privilege IAM only after the intended policy is reviewed; no bucket lifecycle was changed here.
+- Implements technical capabilities and contracts required by inner layers:
+  - Database: `BaseMongooseRepository<TDocument, TEntity, TId>`, concrete repositories (`MongooseUserRepository`), models, and mappers.
+  - Security: `BcryptPasswordHasher` (implements `IPasswordHasher`), `JwtTokenService` (implements `ITokenService`).
+  - Storage & Email: AWS S3 and Resend adapters.
+  - AI & LLM: LangChain and provider integrations.
 
-### Larger catalog or sustained bottlenecks
+### 2.4 Presentation Layer (`src/presentation/`)
 
-- Partition worker queues by task/source only when queue-age metrics show contention. Keep a single source registry and durable cursors.
-- Consider a separate Mongo collection for high-volume vectors only after a measured size/latency case and migration/rollback review; existing vectors are not moved or deleted.
-- Consider a dedicated search index or database only when bounded Mongo queries fail measured p95/throughput goals. This requires approval because it adds infrastructure and operational cost.
-- Add autoscaling from sustained CPU, latency and queue-age signals with hard cost ceilings; do not scale from instantaneous job count alone.
-- Introduce regional deployment, event bus, or service decomposition only when latency/residency/availability requirements justify their added cost and failure modes.
+- Manages HTTP/REST boundaries and SSE streaming.
+- **Controllers:** Extremely thin; parses request params, invokes appropriate Use Cases, and formats HTTP responses using the common response envelope.
+- **Validation:** Request body and parameter validation using Zod schemas at the HTTP boundary before reaching Use Cases.
+- **Middleware:** Authentication (`req.user`), CSRF guards, rate limiting, and centralized error handling.
 
-## Development and local startup
+### 2.5 Main Layer (`src/main/`)
 
-Use the backend `npm run dev:stack` command to start the API, worker and sibling frontend together when local prerequisites (MongoDB and Redis) are available. Ports: frontend 3000, API 4001. Separate commands are documented in the root `AGENTS.md` and each repo's README. Never paste `.env` values into logs or reports.
+- **Composition Root:** `src/main/container.ts` registers all concrete dependencies into TSyringe container using collision-safe symbols.
+- Assembles Express application (`app.ts`), route tree (`routes.ts`), and boots HTTP server (`server.ts`) or worker (`worker.ts`).
 
-## Operational gaps
+---
 
-- Production host/replica count, MongoDB and Redis service tiers, autoscaling policy, backup RPO/RTO, S3 lifecycle and observability thresholds must be verified against deployment configuration.
-- Monthly spend depends on hosting tiers, job source quotas, model selection/usage, embedding calls, retention and traffic; no paid service or infrastructure was added by this change.
-- This document is a topology/scaling guide, not a capacity guarantee. Benchmark with representative data before setting numeric SLOs.
+## 3. SOLID Principles in Practice
+
+1. **Single Responsibility Principle (SRP):**
+   - Controllers handle only HTTP status codes, headers, and payload serialization.
+   - Use Cases encapsulate a single business flow (e.g. `RegisterUserUseCase`).
+   - Repositories encapsulate database queries and translation to domain entities.
+2. **Open/Closed Principle (OCP):**
+   - New job source adapters or AI providers implement common interfaces (`BaseAdapter`, `ILlmProvider`) without modifying core ingestion or chat logic.
+3. **Liskov Substitution Principle (LSP):**
+   - In-memory mock repositories and concrete Mongoose repositories honor identical interface contracts, enabling fast, isolated testing.
+4. **Interface Segregation Principle (ISP):**
+   - Focused interfaces (e.g. `IPasswordHasher`, `ITokenService`) instead of bloated helper god-interfaces.
+5. **Dependency Inversion Principle (DIP):**
+   - High-level use cases depend on abstract repository interfaces (`IUserRepository`), not concrete database models.
+
+---
+
+## 4. TSyringe Dependency Injection Design
+
+- **Tokens:** Centralized injection tokens defined in `src/shared/constants/injectionTokens.ts`:
+  ```typescript
+  export const TOKENS = {
+    UserRepository: Symbol("IUserRepository"),
+    ProfileRepository: Symbol("IProfileRepository"),
+    ApplicationRepository: Symbol("IApplicationRepository"),
+    PasswordHasher: Symbol("IPasswordHasher"),
+    TokenService: Symbol("ITokenService"),
+    StorageService: Symbol("IStorageService"),
+    EmailService: Symbol("IEmailService"),
+  } as const;
+  ```
+- **Constructor Injection:**
+  ```typescript
+  @injectable()
+  export class RegisterUserUseCase implements IUseCase<RegisterUserDTO, AuthResultDTO> {
+    constructor(
+      @inject(TOKENS.UserRepository) private readonly userRepository: IUserRepository,
+      @inject(TOKENS.PasswordHasher) private readonly passwordHasher: IPasswordHasher,
+      @inject(TOKENS.TokenService) private readonly tokenService: ITokenService
+    ) {}
+
+    async execute(input: RegisterUserDTO): Promise<AuthResultDTO> { ... }
+  }
+  ```
+- **Lifecycles:**
+  - Singleton: Database connection managers, Redis clients, Logger, Repository instances.
+  - Transient: Request DTOs, Use Cases.
+
+---
+
+## 5. Repository Pattern & Base Repository
+
+A strongly typed base repository `BaseMongooseRepository<TDocument, TEntity, TId>` encapsulates common CRUD, pagination, and projection patterns while allowing feature-specific query optimizations in concrete repositories:
+
+```typescript
+export abstract class BaseMongooseRepository<TDoc extends Document, TEntity, TId = string> {
+  constructor(protected readonly model: Model<TDoc>) {}
+
+  abstract toEntity(doc: TDoc): TEntity;
+  abstract toPersistence(entity: Partial<TEntity>): Record<string, unknown>;
+
+  async findById(id: TId): Promise<TEntity | null> {
+    const doc = await this.model.findById(id).lean();
+    return doc ? this.toEntity(doc as unknown as TDoc) : null;
+  }
+}
+```
+
+---
+
+## 6. Common Response Model & Centralized Error Handling
+
+### 6.1 Success Responses
+
+All successful REST endpoints format responses using the standard envelope:
+
+```json
+{
+  "data": { ... }
+}
+```
+
+### 6.2 Error Responses
+
+Application and Domain errors extend a typed `AppError` base class. The presentation `errorHandler` catches and maps them to HTTP responses:
+
+```json
+{
+  "error": {
+    "code": "EMAIL_ALREADY_EXISTS",
+    "message": "An account with this email already exists",
+    "details": [],
+    "requestId": "req_12345"
+  }
+}
+```
+
+| Error Category                | Typical Status     | Example Error Code                           | Handling                                 |
+| ----------------------------- | ------------------ | -------------------------------------------- | ---------------------------------------- |
+| Domain Validation / Invariant | 400 Bad Request    | `INVALID_PAYLOAD`, `INVARIANT_VIOLATION`     | Zod issues / domain rule description     |
+| Authentication                | 401 Unauthorized   | `INVALID_CREDENTIALS`, `TOKEN_EXPIRED`       | Clear cookies & prompt re-login          |
+| Authorization / Quota         | 403 Forbidden      | `FORBIDDEN`, `QUOTA_EXCEEDED`                | Explains missing privilege or tier limit |
+| Resource Not Found            | 404 Not Found      | `USER_NOT_FOUND`, `JOB_NOT_FOUND`            | Standard 404 envelope                    |
+| Conflict / Duplicate          | 409 Conflict       | `EMAIL_ALREADY_EXISTS`, `DUPLICATE_RESOURCE` | State explanation                        |
+| Internal Infrastructure       | 500 Internal Error | `INTERNAL_SERVER_ERROR`                      | Captured to Sentry, sanitized in prod    |
+
+---
+
+## 7. Scaling and Capacity Plan
+
+- **Marginal Catalog Costs:** Catalog storage is optimized via split collections (`Job`, `JobDetail`, `JobVector`). Hot documents remain $\le 2\text{ KB}$ for fast index scans.
+- **Process Separation:** API and Worker are isolated, preventing ingestion spikes from degrading user request latency.
+- **Ingestion Resilience:** Source feeds use circuit breakers (`opossum`), backoff, dead-letter queues, and per-source rate budgets.
