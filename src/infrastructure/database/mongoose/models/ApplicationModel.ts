@@ -130,7 +130,20 @@ export const ApplicationSchema = new Schema<IApplicationDocument>(
 );
 
 ApplicationSchema.index({ userId: 1, status: 1 });
+// Board reads are scoped to a user and exclude archived cards, then group by stage.
+ApplicationSchema.index(
+  { userId: 1, archivedAt: 1, status: 1 },
+  { name: "application_board_by_stage" },
+);
+ApplicationSchema.index(
+  { userId: 1, archivedAt: 1, nextFollowUpAt: 1 },
+  { name: "application_board_follow_up" },
+);
+ApplicationSchema.index({ reminderStatus: 1, nextFollowUpAt: 1 });
 
 export const ApplicationModel: Model<IApplicationDocument> =
   (mongoose.models.Application as Model<IApplicationDocument>) ||
   mongoose.model<IApplicationDocument>("Application", ApplicationSchema);
+
+export { ApplicationModel as Application };
+

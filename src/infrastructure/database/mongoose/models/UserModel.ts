@@ -181,3 +181,6 @@ UserSchema.index({ email: 1, isDeleted: 1 });
 export const UserModel: Model<IUserDocument> =
   (mongoose.models.User as Model<IUserDocument>) ||
   mongoose.model<IUserDocument>("User", UserSchema);
+
+export { UserModel as User };
+

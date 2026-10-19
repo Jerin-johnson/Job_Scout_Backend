@@ -125,3 +125,6 @@ ProfileSchema.index({ matchTokens: 1, updatedAt: -1 }, { name: "profile_match_to
 export const ProfileModel: Model<IProfileDocument> =
   (mongoose.models.Profile as Model<IProfileDocument>) ||
   mongoose.model<IProfileDocument>("Profile", ProfileSchema);
+
+export { ProfileModel as Profile };
+

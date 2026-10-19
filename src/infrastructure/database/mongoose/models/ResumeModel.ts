@@ -82,3 +82,6 @@ ResumeSchema.index({ userId: 1, s3Key: 1 }, { unique: true });
 export const ResumeModel: Model<IResumeDocument> =
   (mongoose.models.Resume as Model<IResumeDocument>) ||
   mongoose.model<IResumeDocument>("Resume", ResumeSchema);
+
+export { ResumeModel as Resume };
+
