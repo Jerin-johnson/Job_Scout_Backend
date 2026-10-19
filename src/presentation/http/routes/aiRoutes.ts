@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { aiController } from "../controllers/aiController.js";
-import { authenticate } from "../middleware/auth.js";
-import { csrfProtection } from "../middleware/csrf.js";
-import { heavyAiLimiter } from "../middleware/rateLimiter.js";
+import { aiController } from "../../../controllers/aiController.js";
+import { authenticate } from "../../../middleware/auth.js";
+import { csrfProtection } from "../../../middleware/csrf.js";
+import { heavyAiLimiter } from "../../../middleware/rateLimiter.js";
 
 export const aiRouter = Router();
 

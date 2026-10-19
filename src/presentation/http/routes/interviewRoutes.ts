@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { interviewController } from "../controllers/interviewController.js";
-import { authenticate } from "../middleware/auth.js";
-import { csrfProtection } from "../middleware/csrf.js";
-import { requireQuota } from "../middleware/quotaGate.js";
-import { answerRateLimit, completeRateLimit } from "../middleware/interviewRateLimit.js";
+import { interviewController } from "../../../controllers/interviewController.js";
+import { authenticate } from "../../../middleware/auth.js";
+import { csrfProtection } from "../../../middleware/csrf.js";
+import { requireQuota } from "../../../middleware/quotaGate.js";
+import { answerRateLimit, completeRateLimit } from "../../../middleware/interviewRateLimit.js";
 
 export const interviewRouter = Router();
 

@@ -72,7 +72,7 @@
     "format:fix": "prettier --write .",
     "prepare": "husky",
     "check:architecture": "node scripts/check-architecture.mjs",
-    "verify": "npm run lint && npm run check:architecture && npm test && npm run docs:check",
+    "verify": "npm run typecheck && npm run lint && npm run check:architecture && npm test && npm run docs:check",
     "verify:push": "node scripts/verify.mjs push",
     "verify:release": "node scripts/verify.mjs release",
     "scan:secrets": "node scripts/scan-secrets.mjs working",

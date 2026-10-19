@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { adminController } from "../controllers/adminController.js";
-import { authenticate, requireRole } from "../middleware/auth.js";
-import { ROLES } from "../shared/constants/plans.js";
-import { csrfProtection } from "../middleware/csrf.js";
+import { adminController } from "../../../controllers/adminController.js";
+import { authenticate, requireRole } from "../../../middleware/auth.js";
+import { ROLES } from "../../../shared/constants/plans.js";
+import { csrfProtection } from "../../../middleware/csrf.js";
 
 export const adminRouter = Router();
 

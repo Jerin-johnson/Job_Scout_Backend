@@ -19,6 +19,18 @@ function getAllTsFiles(dir) {
 
 const violations = [];
 
+// 0. Ensure obsolete competing directories are NOT reintroduced
+if (fs.existsSync("src/routes")) {
+  const remainingFiles = fs.readdirSync("src/routes");
+  if (remainingFiles.length > 0) {
+    violations.push({
+      rule: "Obsolete architectural directory reintroduction forbidden",
+      file: "src/routes",
+      detail: `The 'src/routes/' directory was canonically consolidated into 'src/presentation/http/routes/' and must not be reintroduced (found: ${remainingFiles.join(", ")})`,
+    });
+  }
+}
+
 // 1. Check Domain Layer boundaries
 const domainFiles = getAllTsFiles("src/domain");
 const forbiddenDomainPackages = [
@@ -44,7 +56,7 @@ for (const file of domainFiles) {
       const pkgRegex = new RegExp(`from\\s+['"]${pkg}(?:/[^'"]*)?['"]`);
       if (pkgRegex.test(line)) {
         violations.push({
-          rule: "Domain must not depend on external infrastructure packages",
+          rule: "Domain must not depend on external infrastructure packages (Mongoose, Express, Redis, BullMQ, SDKs)",
           file,
           line: idx + 1,
           detail: `Import of '${pkg}' in domain layer: "${line.trim()}"`,
@@ -70,20 +82,31 @@ for (const file of useCaseFiles) {
   const content = fs.readFileSync(file, "utf8");
   const lines = content.split("\n");
   lines.forEach((line, idx) => {
-    // Application use cases must not directly import concrete infrastructure adapters
-    if (
-      /from\s+['"].*?\/infrastructure\/(?:database\/mongoose\/repositories|security|storage|email)\/[A-Z]/.test(
+    // Application use cases must not directly import concrete infrastructure adapters or repositories
+    const isConcreteRepoOrAdapter =
+      /from\s+['"].*?(?:infrastructure\/(?:database\/mongoose\/repositories|security|storage|email))/.test(
         line,
-      )
-    ) {
+      ) ||
+      (/from\s+['"].*?repositories\/[A-Za-z]/.test(line) && !line.includes("domain/repositories"));
+
+    if (isConcreteRepoOrAdapter) {
       violations.push({
-        rule: "Application use cases must depend on domain interfaces, not concrete infrastructure adapters",
+        rule: "Application use cases must depend on domain interfaces, not concrete infrastructure repositories or adapters",
         file,
         line: idx + 1,
-        detail: `Direct infrastructure adapter import in use case: "${line.trim()}"`,
+        detail: `Direct infrastructure repository/adapter import in use case: "${line.trim()}"`,
       });
     }
-    // Must not import express Request/Response
+    // Application use cases must not import Mongoose or Mongoose models directly
+    if (/from\s+['"](?:mongoose|.*?\/mongoose\/models\/.*?)['"]/.test(line)) {
+      violations.push({
+        rule: "Application use cases must not depend directly on Mongoose persistence models",
+        file,
+        line: idx + 1,
+        detail: `Mongoose import in use case: "${line.trim()}"`,
+      });
+    }
+    // Application use cases must not import express Request/Response
     if (/from\s+['"]express['"]/.test(line)) {
       violations.push({
         rule: "Application use cases must not depend on HTTP frameworks (Express)",
@@ -138,6 +161,7 @@ if (violations.length > 0) {
 }
 
 console.log(`Architecture Boundary Check PASSED:`);
+console.log(`- Obsolete directories: 'src/routes' is completely removed and forbidden`);
 console.log(
   `- Domain layer: 0 infrastructure/framework imports across ${domainFiles.length} files`,
 );

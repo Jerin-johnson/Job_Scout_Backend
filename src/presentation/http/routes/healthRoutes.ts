@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
-import { isMongoReady } from "../config/database.js";
-import { isRedisReady } from "../config/redis.js";
+import { isMongoReady } from "../../../config/database.js";
+import { isRedisReady } from "../../../config/redis.js";
 
 export const healthRouter = Router();
 
