@@ -1,16 +1,36 @@
 import { env } from "../config/env.js";
-import { getLLMProvider, listLLMProviders } from "./providers/index.js";
+import { getLLMProvider, listLLMProviders, LLMProvider } from "./providers/index.js";
 import { effectiveDataPolicy } from "../config/aiStartupValidation.js";
 
 export const AUTO_CHAT_MODEL_ID = "auto";
 
-function configuredProvidersInPreferenceOrder() {
+export interface SelectableChatModel {
+  id: string;
+  provider: string;
+  name: string;
+  description: string;
+  access: string;
+  tier: string;
+  dataPolicyClass: string;
+}
+
+export interface ChatModelOption {
+  id: string;
+  provider: string;
+  name: string;
+  description: string;
+  access: string;
+  dataPolicyClass: string;
+  tier?: string;
+}
+
+function configuredProvidersInPreferenceOrder(): LLMProvider[] {
   return listLLMProviders()
     .filter((provider) => provider.isConfigured())
     .sort((left, right) => Number(right.id === env.LLM_PROVIDER) - Number(left.id === env.LLM_PROVIDER));
 }
 
-export function listSelectableChatModels() {
+export function listSelectableChatModels(): SelectableChatModel[] {
   return configuredProvidersInPreferenceOrder().flatMap((provider) =>
     (provider.chatModels || [])
       .filter((model) => model.enabled && model.access === "free_tier")
@@ -27,7 +47,7 @@ export function listSelectableChatModels() {
   );
 }
 
-export function listChatModelOptions() {
+export function listChatModelOptions(): ChatModelOption[] {
   const available = listSelectableChatModels();
   if (!available.length) return [];
   return [
@@ -43,7 +63,7 @@ export function listChatModelOptions() {
   ];
 }
 
-export function resolveChatModelForTier(tier = "small") {
+export function resolveChatModelForTier(tier = "small"): SelectableChatModel | null {
   const available = listSelectableChatModels();
   if (!available.length) return null;
   const preferred = available.filter((model) => model.provider === env.LLM_PROVIDER);
@@ -51,15 +71,16 @@ export function resolveChatModelForTier(tier = "small") {
     || available.find((model) => model.tier === tier)
     || preferred.find((model) => model.tier === "small")
     || available.find((model) => model.tier === "small")
-    || available[0];
+    || available[0]
+    || null;
 }
 
-export function resolveSelectableChatModel(modelId) {
+export function resolveSelectableChatModel(modelId: string): SelectableChatModel | null {
   if (!modelId || modelId === AUTO_CHAT_MODEL_ID) return null;
   return listSelectableChatModels().find((model) => model.id === modelId) || null;
 }
 
-export function getChatModelProvider(modelId) {
+export function getChatModelProvider(modelId: string): LLMProvider | null {
   const model = resolveSelectableChatModel(modelId);
   return model ? getLLMProvider(model.provider) : null;
 }
