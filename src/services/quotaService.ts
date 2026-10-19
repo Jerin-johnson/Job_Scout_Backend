@@ -475,7 +475,7 @@ export const quotaService = {
     userId: string,
     feature: string,
     idempotencyKey?: string | null,
-    userPlan = PLANS.FREE,
+    userPlan: string = PLANS.FREE,
   ): Promise<number> {
     if (!idempotencyKey) {
       const error: QuotaError = new Error("An idempotency key is required to count an AI operation");
