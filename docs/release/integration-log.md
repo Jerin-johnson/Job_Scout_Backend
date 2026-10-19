@@ -166,3 +166,8 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added curated local O*NET 29.0 (`src/services/jobs/referenceData/onetSubset.json`) and GeoNames (`src/services/jobs/referenceData/geonamesSubset.json`) subsets with explicit CC BY 4.0 attribution; ESCO remains deferred.
 - Updated `occupationClassification.js` (`OCCUPATION_FEATURES_VERSION = 8`), `roleNormalization.js`, and `occupationEvaluation.js` (`recallByGoldFamily`, `macroPrecision`, `macroRecall`, `unclassifiedShare`).
 - Measured before/after on 100-row gold fixture (`accuracy: 41.0% -> 100.0%`, `unclassifiedShare: 60.0% -> 1.0%`, `macroPrecision: 1.0`, `macroRecall: 0.404 -> 1.0`) and applied local catalog backfill (`570` active jobs: unclassified reduced from `83/570` `14.56%` to `65/570` `11.40%`, `jobicy` `8.41%`). Verified with 8/8 passing tests.
+
+## Task A (`feat/jobs-production`) — Item 9 Sources & admin coverage — 2026-10-19
+
+- Re-verified source policy gates across all adapters (`tests/job-source-adapters.test.js` and `tests/job-regional-adapters.test.js` 22/22 passed): `remotive` blocked without written redistribution permission, `jobicy` gated behind `ENABLE_JOBICY_INGESTION=true` + approved registry state (`6h` cadence), and `fantastic_jobs`, `ncs_india`, `norka_roots`, `jobstream_se`, `nav_arbeidsplassen`, `france_travail`, and ATS adapters disabled in public catalog mode.
+- Documented the staging owner activation procedure for `ENABLE_JOBICY_INGESTION` and aligned admin coverage reporting (`byOccupation`, `byCountry`, `bySource`, `freshness`, `trustAndFreshness`, `eligibilityConfidence`, `targetSegmentGaps`) in `docs/ai/data-supply-strategy.md` and `docs/ai/jobs-production.md`.

@@ -204,3 +204,16 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
   - **Local 570-Job Active Catalog (`scripts/backfill-job-occupations.js --apply`)**:
     - **Before**: `evalBefore: 83 / 570` (`14.56%` unclassified; `storedUnclassified: 70 / 570` `12.28%`)
     - **After**: `65 / 570` (`11.40%` unclassified across all sources; `jobicy` unclassified share reduced to `8.41%` / `39 / 464`)
+
+## 10. Source Policy Gates & Admin Coverage (`src/services/jobs/sourcePolicies.js`)
+
+- **Source Policy Verification**:
+  - `remotive` remains blocked (`approved: false`, `enabled: false`, `activationStatus: "blocked_on_terms"`); `isSourceActivationAllowed` enforces `writtenRedistributionPermissionReference`.
+  - `greenhouse`, `lever`, `ashby`, `adzuna-india`, `jobstream-se`, `nav-no`, and `france-travail` remain disabled (`approved: false`, `enabled: false`).
+  - `jobicy` is `approved: true`, `enabled: false` by default (`activationStatus: "approved_api_terms_default_disabled"`).
+- **Staging Owner Activation Step for `ENABLE_JOBICY_INGESTION`**:
+  1. Set `ENABLE_JOBICY_INGESTION=true` in the staging backend environment and restart API + worker.
+  2. Toggle `jobicy` to `enabled: true` via Admin (`PATCH /api/v1/admin/job-sources/jobicy`).
+  3. Verify `sourceBudgets()` reports `healthStatus: "healthy"` and catalog cards render `"Jobicy"` attribution (`https://jobicy.com/`).
+- **Admin Coverage Alignment**:
+  - `coverageReport()` reports `totalActive`, `rawActive`, `byOccupation`, `byCountry`, `byRemoteScope`, `bySource`, `freshness`, `trustAndFreshness` (`staleCount`, `closedCount`, `olderThan30dCount`, `olderThan30dShare`, `possibleRepostCount`, `possibleRepostShare`, `ghostRiskCount`, `ghostRiskShare`), `unknownEligibilityCount`, `unknownEligibilityShare`, `unclassifiedBySource`, and `targetGaps` across all 7 target segments (`kerala-nursing`, `india-fresher-it`, `india-remote`, `gulf-nursing`, `uk-ireland-nursing`, `india-government`, `global-remote`).
