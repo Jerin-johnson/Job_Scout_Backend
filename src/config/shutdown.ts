@@ -1,24 +1,25 @@
+import { Server } from "node:http";
 import { logger } from "../shared/utils/logger.js";
 import { disconnectMongo } from "./database.js";
 import { disconnectRedis } from "./redis.js";
 
-const shutdownHandlers = [];
+const shutdownHandlers: Array<() => Promise<void> | void> = [];
 let isShuttingDown = false;
 
-export function registerShutdownHandler(fn) {
+export function registerShutdownHandler(fn: () => Promise<void> | void): void {
   shutdownHandlers.push(fn);
 }
 
-export function closeHttpServer(server) {
+export function closeHttpServer(server: Server | null): Promise<void> {
   if (!server) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
+    server.close((error) => (error ? reject(error) : resolve()));
     server.closeIdleConnections?.();
   });
 }
 
-export function setupGracefulShutdown(server = null) {
-  const shutdown = async (signal) => {
+export function setupGracefulShutdown(server: Server | null = null): void {
+  const shutdown = async (signal: NodeJS.Signals | string): Promise<void> => {
     if (isShuttingDown) return;
     isShuttingDown = true;
     logger.info({ signal }, "Received termination signal, starting graceful shutdown...");
@@ -28,8 +29,9 @@ export function setupGracefulShutdown(server = null) {
       try {
         await closeHttpServer(server);
         logger.info("HTTP server drained and closed");
-      } catch (err) {
-        logger.error({ err: err.message }, "HTTP server close failed");
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err: message }, "HTTP server close failed");
       }
     }
 
@@ -37,22 +39,25 @@ export function setupGracefulShutdown(server = null) {
     for (const handler of shutdownHandlers) {
       try {
         await handler();
-      } catch (err) {
-        logger.error({ err: err.message }, "Error during shutdown handler execution");
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err: message }, "Error during shutdown handler execution");
       }
     }
 
     // 3. Disconnect database & cache
     try {
       await disconnectMongo();
-    } catch (err) {
-      logger.error({ err: err.message }, "Error closing MongoDB connection");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err: message }, "Error closing MongoDB connection");
     }
 
     try {
       await disconnectRedis();
-    } catch (err) {
-      logger.error({ err: err.message }, "Error closing Redis connection");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err: message }, "Error closing Redis connection");
     }
 
     logger.info("Graceful shutdown completed successfully. Process exiting.");

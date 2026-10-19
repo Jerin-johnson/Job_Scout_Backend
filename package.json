@@ -16,7 +16,7 @@
     "worker": "node dist/src/main/worker.js",
     "worker:dev": "tsx watch src/main/worker.ts",
     "smoke": "node scripts/smoke.js",
-    "test": "node --import ./tests/test-env.js --test tests/*.test.js",
+    "test": "node --import tsx --import ./tests/test-env.js --test tests/*.test.js",
     "ensure-indexes": "node scripts/ensure-indexes.js",
     "ensure-indexes:report": "node scripts/ensure-indexes.js --dry-run",
     "jobs:migrate": "node scripts/migrate-job-catalog.js",

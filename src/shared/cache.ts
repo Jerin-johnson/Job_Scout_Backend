@@ -23,10 +23,16 @@ export const TTL = {
   LOCK: 15, // 10-30s
   VERSION: 2592000, // 30d
   SHORT: 300, // 5m
-};
+} as const;
 
 // Hit / Miss telemetry metrics
-const metrics = {
+const metrics: {
+  hits: number;
+  misses: number;
+  errors: number;
+  bypasses: number;
+  layers: Record<string, { hits: number; misses: number }>;
+} = {
   hits: 0,
   misses: 0,
   errors: 0,
@@ -43,7 +49,7 @@ const metrics = {
   },
 };
 
-function recordMetric(layer, type) {
+function recordMetric(layer: string, type: "hit" | "miss"): void {
   if (type === "hit") {
     metrics.hits++;
     if (metrics.layers[layer]) metrics.layers[layer].hits++;
@@ -59,32 +65,32 @@ function recordMetric(layer, type) {
  * Typed cache key builders
  */
 export const CacheKeys = {
-  version: (userId, scope) => `${CACHE_NAMESPACE}ver:${userId}:${scope}`,
-  response: (userId, resource, ver) => `${CACHE_NAMESPACE}resp:${userId}:${resource}:v${ver}`,
-  pinnedMemory: (userId, ver) => `${CACHE_NAMESPACE}mem:pinned:${userId}:v${ver}`,
-  session: (userId, threadId) => `${CACHE_NAMESPACE}sess:${userId}:${threadId}`,
-  interviewSession: (userId, interviewId) => `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
-  exactQuery: (sha256) => `${CACHE_NAMESPACE}exact:${sha256}`,
-  jobDescription: (hash) => `${CACHE_NAMESPACE}jd:${hash}`,
-  embedding: (hash, provider = "legacy", model = "unknown", dimension = "unknown") =>
+  version: (userId: string, scope: string) => `${CACHE_NAMESPACE}ver:${userId}:${scope}`,
+  response: (userId: string, resource: string, ver: string | number) => `${CACHE_NAMESPACE}resp:${userId}:${resource}:v${ver}`,
+  pinnedMemory: (userId: string, ver: string | number) => `${CACHE_NAMESPACE}mem:pinned:${userId}:v${ver}`,
+  session: (userId: string, threadId: string) => `${CACHE_NAMESPACE}sess:${userId}:${threadId}`,
+  interviewSession: (userId: string, interviewId: string) => `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
+  exactQuery: (sha256: string) => `${CACHE_NAMESPACE}exact:${sha256}`,
+  jobDescription: (hash: string) => `${CACHE_NAMESPACE}jd:${hash}`,
+  embedding: (hash: string, provider: string = "legacy", model: string = "unknown", dimension: string | number = "unknown") =>
     `${CACHE_NAMESPACE}emb:${provider}:${model}:${dimension}:${hash}`,
-  company: (slug) => `${CACHE_NAMESPACE}co:${slug}`,
+  company: (slug: string) => `${CACHE_NAMESPACE}co:${slug}`,
   jobDemand: () => `${CACHE_NAMESPACE}job-demand:v1`,
-  jobDemandVersion: (catalogVersion = 1) =>
+  jobDemandVersion: (catalogVersion: number = 1) =>
     `${CACHE_NAMESPACE}job-demand:catalog-v${catalogVersion}`,
-  catalogTotal: (catalogVersion = 1, filterSig = "all") =>
+  catalogTotal: (catalogVersion: number = 1, filterSig: string = "all") =>
     `${CACHE_NAMESPACE}job-catalog:total:v${catalogVersion}:${filterSig}`,
-  catalogFacets: (catalogVersion = 1, sourcesSig = "all") =>
+  catalogFacets: (catalogVersion: number = 1, sourcesSig: string = "all") =>
     `${CACHE_NAMESPACE}job-catalog:facets:v${catalogVersion}:${sourcesSig}`,
-  resumeParse: (fileHash) => `${CACHE_NAMESPACE}rp:${fileHash}`,
-  board: (userId, ver) => `${CACHE_NAMESPACE}board:${userId}:v${ver}`,
-  lock: (key) => `${CACHE_NAMESPACE}lock:${key}`,
+  resumeParse: (fileHash: string) => `${CACHE_NAMESPACE}rp:${fileHash}`,
+  board: (userId: string, ver: string | number) => `${CACHE_NAMESPACE}board:${userId}:v${ver}`,
+  lock: (key: string) => `${CACHE_NAMESPACE}lock:${key}`,
 };
 
 /**
  * Detect cache layer from key
  */
-function detectLayer(key) {
+function detectLayer(key: string): string {
   if (key.includes("resp:")) return "response";
   if (key.includes("mem:pinned:")) return "memory";
   if (key.includes("sess:")) return "session";
@@ -98,10 +104,10 @@ function detectLayer(key) {
 /**
  * In-memory fallback cache when Redis is disconnected or in test environments
  */
-const inMemoryCache = new Map();
-const inMemoryExpirations = new Map();
+const inMemoryCache = new Map<string, unknown>();
+const inMemoryExpirations = new Map<string, number>();
 
-function cleanInMemoryExpired(key) {
+function cleanInMemoryExpired(key: string): boolean {
   const exp = inMemoryExpirations.get(key);
   if (exp && Date.now() > exp) {
     inMemoryCache.delete(key);
@@ -114,7 +120,7 @@ function cleanInMemoryExpired(key) {
 /**
  * Get value from cache with automatic decompression if compressed
  */
-export async function get(key) {
+export async function get<T = unknown>(key: string): Promise<T | null> {
   const layer = detectLayer(key);
 
   if (!isRedisReady()) {
@@ -122,7 +128,7 @@ export async function get(key) {
     const inMemVal = inMemoryCache.get(key);
     if (inMemVal !== undefined) {
       recordMetric(layer, "hit");
-      return inMemVal;
+      return inMemVal as T;
     }
     recordMetric(layer, "miss");
     return null;
@@ -140,7 +146,7 @@ export async function get(key) {
     recordMetric(layer, "hit");
 
     // Check compression flag prefix: 0x1f 0x8b (Gzip magic header)
-    let jsonStr;
+    let jsonStr: string;
     if (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
       const decompressed = await gunzip(raw);
       jsonStr = decompressed.toString("utf8");
@@ -148,10 +154,11 @@ export async function get(key) {
       jsonStr = raw.toString("utf8");
     }
 
-    return JSON.parse(jsonStr);
-  } catch (err) {
+    return JSON.parse(jsonStr) as T;
+  } catch (err: unknown) {
     metrics.errors++;
-    logger.warn({ err: err.message, key }, "Cache GET failed; failing open");
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message, key }, "Cache GET failed; failing open");
     return null;
   }
 }
@@ -159,7 +166,7 @@ export async function get(key) {
 /**
  * Set value in cache with optional compression (> 2KB)
  */
-export async function set(key, value, ttlSeconds = TTL.SHORT) {
+export async function set<T = unknown>(key: string, value: T, ttlSeconds: number = TTL.SHORT): Promise<boolean> {
   const serialized = JSON.stringify(value);
 
   if (!isRedisReady()) {
@@ -181,9 +188,10 @@ export async function set(key, value, ttlSeconds = TTL.SHORT) {
       await redis.set(key, serialized, "EX", ttlSeconds);
     }
     return true;
-  } catch (err) {
+  } catch (err: unknown) {
     metrics.errors++;
-    logger.warn({ err: err.message, key }, "Cache SET failed; failing open");
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message, key }, "Cache SET failed; failing open");
     return false;
   }
 }
@@ -191,7 +199,7 @@ export async function set(key, value, ttlSeconds = TTL.SHORT) {
 /**
  * Delete key from cache
  */
-export async function del(key) {
+export async function del(key: string): Promise<boolean> {
   inMemoryCache.delete(key);
   inMemoryExpirations.delete(key);
 
@@ -201,9 +209,10 @@ export async function del(key) {
     const redis = getRedisClient();
     await redis.del(key);
     return true;
-  } catch (err) {
+  } catch (err: unknown) {
     metrics.errors++;
-    logger.warn({ err: err.message, key }, "Cache DEL failed; failing open");
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message, key }, "Cache DEL failed; failing open");
     return false;
   }
 }
@@ -212,11 +221,11 @@ export async function del(key) {
  * Bump version number for scope invalidation
  * Returns new version number
  */
-export async function bumpVersion(userId, scope) {
+export async function bumpVersion(userId: string, scope: string): Promise<number> {
   const verKey = CacheKeys.version(userId, scope);
 
   if (!isRedisReady()) {
-    const current = (inMemoryCache.get(verKey) || 0) + 1;
+    const current = ((inMemoryCache.get(verKey) as number | undefined) || 0) + 1;
     inMemoryCache.set(verKey, current);
     return current;
   }
@@ -226,9 +235,10 @@ export async function bumpVersion(userId, scope) {
     const newVer = await redis.incr(verKey);
     await redis.expire(verKey, TTL.VERSION);
     return newVer;
-  } catch (err) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     logger.warn(
-      { err: err.message, verKey },
+      { err: message, verKey },
       "Cache bumpVersion failed; falling back to timestamp",
     );
     return Date.now();
@@ -238,19 +248,20 @@ export async function bumpVersion(userId, scope) {
 /**
  * Get current version number for scope
  */
-export async function getVersion(userId, scope) {
+export async function getVersion(userId: string, scope: string): Promise<number> {
   const verKey = CacheKeys.version(userId, scope);
 
   if (!isRedisReady()) {
-    return inMemoryCache.get(verKey) || 1;
+    return (inMemoryCache.get(verKey) as number | undefined) || 1;
   }
 
   try {
     const redis = getRedisClient();
     const ver = await redis.get(verKey);
     return ver ? parseInt(ver, 10) : 1;
-  } catch (err) {
-    logger.warn({ err: err.message, verKey }, "Cache getVersion failed; defaulting to 1");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message, verKey }, "Cache getVersion failed; defaulting to 1");
     return 1;
   }
 }
@@ -258,7 +269,7 @@ export async function getVersion(userId, scope) {
 /**
  * Acquire single-flight distributed lock with SET NX PX
  */
-export async function acquireLock(lockKey, ttlMs = 15000) {
+export async function acquireLock(lockKey: string, ttlMs: number = 15000): Promise<string | null> {
   const lockToken = Math.random().toString(36).substring(2);
 
   if (!isRedisReady()) {
@@ -269,8 +280,9 @@ export async function acquireLock(lockKey, ttlMs = 15000) {
     const redis = getRedisClient();
     const acquired = await redis.set(lockKey, lockToken, "PX", ttlMs, "NX");
     return acquired === "OK" ? lockToken : null;
-  } catch (err) {
-    logger.warn({ err: err.message, lockKey }, "Acquire lock failed; failing open");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message, lockKey }, "Acquire lock failed; failing open");
     return lockToken;
   }
 }
@@ -278,7 +290,7 @@ export async function acquireLock(lockKey, ttlMs = 15000) {
 /**
  * Release distributed lock
  */
-export async function releaseLock(lockKey, lockToken) {
+export async function releaseLock(lockKey: string, lockToken: string): Promise<boolean> {
   if (!isRedisReady()) return true;
 
   try {
@@ -292,8 +304,9 @@ export async function releaseLock(lockKey, lockToken) {
     `;
     await redis.eval(luaScript, 1, lockKey, lockToken);
     return true;
-  } catch (err) {
-    logger.warn({ err: err.message, lockKey }, "Release lock failed; ignored");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message, lockKey }, "Release lock failed; ignored");
     return false;
   }
 }
@@ -301,9 +314,9 @@ export async function releaseLock(lockKey, lockToken) {
 /**
  * Get cached value or compute and set, protected by single-flight lock
  */
-export async function getOrSet(key, computeFn, ttlSeconds = TTL.SHORT) {
+export async function getOrSet<T>(key: string, computeFn: () => Promise<T>, ttlSeconds: number = TTL.SHORT): Promise<T> {
   // 1. Try reading cache first
-  const cached = await get(key);
+  const cached = await get<T>(key);
   if (cached !== null) {
     return cached;
   }
@@ -317,7 +330,7 @@ export async function getOrSet(key, computeFn, ttlSeconds = TTL.SHORT) {
     for (let i = 0; i < 3; i++) {
       const jitter = Math.floor(Math.random() * 50) + 50;
       await new Promise((res) => setTimeout(res, jitter));
-      const retryCached = await get(key);
+      const retryCached = await get<T>(key);
       if (retryCached !== null) return retryCached;
     }
     // Attempt lock one final time
@@ -326,7 +339,7 @@ export async function getOrSet(key, computeFn, ttlSeconds = TTL.SHORT) {
 
   try {
     // Re-check once lock is held
-    const doubleCheck = await get(key);
+    const doubleCheck = await get<T>(key);
     if (doubleCheck !== null) return doubleCheck;
 
     // 3. Compute fresh value
@@ -334,7 +347,7 @@ export async function getOrSet(key, computeFn, ttlSeconds = TTL.SHORT) {
 
     // 4. Cache fresh value
     if (freshValue !== undefined && freshValue !== null) {
-      await set(key, freshValue, ttlSeconds);
+      await set<T>(key, freshValue, ttlSeconds);
     }
 
     return freshValue;
@@ -348,7 +361,15 @@ export async function getOrSet(key, computeFn, ttlSeconds = TTL.SHORT) {
 /**
  * Get cache metrics for /admin/metrics endpoint
  */
-export function getCacheMetrics() {
+export function getCacheMetrics(): {
+  hits: number;
+  misses: number;
+  errors: number;
+  bypasses: number;
+  layers: Record<string, { hits: number; misses: number }>;
+  totalRequests: number;
+  hitRatio: number;
+} {
   const total = metrics.hits + metrics.misses;
   const hitRatio = total > 0 ? (metrics.hits / total).toFixed(4) : "0.0000";
 

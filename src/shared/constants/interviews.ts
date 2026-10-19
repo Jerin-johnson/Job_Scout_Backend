@@ -1,3 +1,40 @@
+export interface RubricDimension {
+  name: string;
+  weight: number;
+  anchors: { 1: string; 3: string; 5: string };
+}
+
+export interface BuildModeParams {
+  id: string;
+  label: string;
+  description: string;
+  persona: string;
+  tone: string;
+  pacing: string;
+  weakAnswer: string;
+  phases: Record<string, number>;
+  focus: string;
+  rubric: RubricDimension[];
+  redFlags: string[];
+}
+
+export interface InterviewModeConfig {
+  id: string;
+  label: string;
+  description: string;
+  promptVersion: string;
+  persona: { name: string; tone: string; pacing: string; reactsToWeakAnswers: string };
+  phases: Record<string, number>;
+  questionStrategy: string[];
+  difficultyCalibration: {
+    byLevel: Record<string, string>;
+    byRoleFamily: Record<string, string>;
+  };
+  rubric: RubricDimension[];
+  redFlags: string[];
+  antiPatterns: string[];
+}
+
 export const INTERVIEW_CONSENT_VERSION = "2026-10-15-v1";
 export const INTERVIEW_REPORT_SCHEMA_VERSION = "2";
 
@@ -29,7 +66,7 @@ const COMMON_RULES = [
   "Never give hints or feedback mid-interview. Ask one question at a time, never repeat a question or topic, and keep each spoken-style turn to at most two sentences.",
 ];
 
-function dimension(name, weight, one, three, five) {
+function dimension(name: string, weight: number, one: string, three: string, five: string): RubricDimension {
   return { name, weight, anchors: { 1: one, 3: three, 5: five } };
 }
 
@@ -45,7 +82,7 @@ function buildMode({
   focus,
   rubric,
   redFlags,
-}) {
+}: BuildModeParams): InterviewModeConfig {
   return {
     id,
     label,
@@ -344,7 +381,7 @@ export const INTERVIEW_MODES = Object.values(INTERVIEW_MODE_CONFIGS).map(
   ({ id, label, description, promptVersion }) => ({ id, label, description, promptVersion }),
 );
 
-export const INTERVIEW_TRANSITIONS = {
+export const INTERVIEW_TRANSITIONS: Record<string, string[]> = {
   ready: ["in_progress", "cancelled"],
   in_progress: ["completed", "expired", "cancelled"],
   completed: [],
@@ -352,6 +389,6 @@ export const INTERVIEW_TRANSITIONS = {
   cancelled: [],
 };
 
-export function canTransitionInterview(from, to) {
+export function canTransitionInterview(from: string, to: string): boolean {
   return INTERVIEW_TRANSITIONS[from]?.includes(to) ?? false;
 }

@@ -4,21 +4,22 @@ import { env } from "../../config/env.js";
 const ALGORITHM = "aes-256-gcm";
 const CURRENT_KEY_VERSION = "v1";
 
-function getEncryptionKey() {
+function getEncryptionKey(): Buffer {
   const rawKey = env.RESUME_ENCRYPTION_KEY;
-  // If 64 hex chars, convert from hex; if 32 chars utf8, convert from utf8
   if (rawKey.length === 64) {
     return Buffer.from(rawKey, "hex");
   }
   return crypto.createHash("sha256").update(rawKey).digest();
 }
 
-/**
- * Encrypt plaintext using AES-256-GCM with key versioning
- * @param {string} text - Plaintext to encrypt
- * @returns {{ cipherText: string, iv: string, tag: string, keyVersion: string }}
- */
-export function encryptText(text) {
+export interface EncryptedPayload {
+  cipherText: string;
+  iv: string;
+  tag: string;
+  keyVersion?: string;
+}
+
+export function encryptText(text: string): { cipherText: string; iv: string; tag: string; keyVersion: string } {
   const iv = crypto.randomBytes(12);
   const key = getEncryptionKey();
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
@@ -35,12 +36,7 @@ export function encryptText(text) {
   };
 }
 
-/**
- * Decrypt AES-256-GCM ciphertext
- * @param {{ cipherText: string, iv: string, tag: string, keyVersion?: string }} encryptedPayload
- * @returns {string} Plaintext
- */
-export function decryptText(encryptedPayload) {
+export function decryptText(encryptedPayload: EncryptedPayload): string {
   const key = getEncryptionKey();
   const iv = Buffer.from(encryptedPayload.iv, "base64");
   const authTag = Buffer.from(encryptedPayload.tag, "base64");
@@ -54,9 +50,6 @@ export function decryptText(encryptedPayload) {
   return decrypted;
 }
 
-/**
- * Compute SHA256 hash of buffer or string
- */
-export function computeSha256(data) {
+export function computeSha256(data: string | Buffer): string {
   return crypto.createHash("sha256").update(data).digest("hex");
 }

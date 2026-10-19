@@ -1,4 +1,10 @@
-export function validateResumeMagicBytes(buffer) {
+export interface FileValidationResult {
+  valid: boolean;
+  mimeType: string | null;
+  error?: string;
+}
+
+export function validateResumeMagicBytes(buffer?: Buffer | null): FileValidationResult {
   if (!buffer || buffer.length < 4) {
     return { valid: false, mimeType: null, error: "File buffer is too small or empty" };
   }
@@ -26,7 +32,7 @@ export function validateResumeMagicBytes(buffer) {
 /**
  * SSRF Guard: Blocks attempts to query private or link-local networks
  */
-export function isPrivateIp(ipOrHost) {
+export function isPrivateIp(ipOrHost?: string | null): boolean {
   if (!ipOrHost) return true;
 
   const blockedPatterns = [
