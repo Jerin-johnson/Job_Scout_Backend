@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import { getRedisClient, isRedisReady } from "../config/redis.js";
 import { isMongoReady } from "../config/database.js";
-import { MatchRefresh } from "../models/MatchRefresh.js";
+import { MatchRefresh } from "../infrastructure/database/mongoose/models/MatchRefreshModel.js";
 import {
   findAffectedUsersForNewJobs,
   INCREMENTAL_MATCH_BUDGET,
@@ -57,7 +57,10 @@ export async function requestMatchRefresh(
 ): Promise<MatchRefreshRecordLike | null> {
   const jobQueue = getQueue();
   const now = new Date();
-  const current = (await MatchRefresh.findOne({ userId, profileVersion }).lean()) as MatchRefreshRecordLike | null;
+  const current = (await MatchRefresh.findOne({
+    userId,
+    profileVersion,
+  }).lean()) as MatchRefreshRecordLike | null;
   if (current && ["queued", "running"].includes(current.status)) return current;
   if (
     !broaden &&
@@ -91,11 +94,20 @@ export async function requestMatchRefresh(
   } catch (cause) {
     const error = cause as { code?: number };
     if (error?.code !== 11000) throw cause;
-    const coalesced = (await MatchRefresh.findOne({ userId, profileVersion }).lean()) as MatchRefreshRecordLike | null;
+    const coalesced = (await MatchRefresh.findOne({
+      userId,
+      profileVersion,
+    }).lean()) as MatchRefreshRecordLike | null;
     if (coalesced && ["queued", "running"].includes(coalesced.status)) return coalesced;
     throw cause;
   }
-  if (!record) return ((await MatchRefresh.findOne({ userId, profileVersion }).lean()) as MatchRefreshRecordLike | null) || null;
+  if (!record)
+    return (
+      ((await MatchRefresh.findOne({
+        userId,
+        profileVersion,
+      }).lean()) as MatchRefreshRecordLike | null) || null
+    );
   try {
     await jobQueue.add(
       "refresh",
@@ -114,7 +126,9 @@ export async function requestMatchRefresh(
     });
     throw error;
   }
-  return record.toObject ? (record.toObject() as unknown as MatchRefreshRecordLike) : (record as unknown as MatchRefreshRecordLike);
+  return record.toObject
+    ? (record.toObject() as unknown as MatchRefreshRecordLike)
+    : (record as unknown as MatchRefreshRecordLike);
 }
 
 export async function getMatchRefresh(
@@ -122,14 +136,21 @@ export async function getMatchRefresh(
   profileVersion: number,
 ): Promise<MatchRefreshRecordLike | null> {
   if (!isMongoReady()) return null;
-  return (await MatchRefresh.findOne({ userId, profileVersion }).lean()) as MatchRefreshRecordLike | null;
+  return (await MatchRefresh.findOne({
+    userId,
+    profileVersion,
+  }).lean()) as MatchRefreshRecordLike | null;
 }
 
 export async function markMatchRefresh(
   attemptId: string,
   updates: Record<string, unknown>,
 ): Promise<MatchRefreshRecordLike | null> {
-  return (await MatchRefresh.findOneAndUpdate({ attemptId }, { $set: updates }, { new: true }).lean()) as MatchRefreshRecordLike | null;
+  return (await MatchRefresh.findOneAndUpdate(
+    { attemptId },
+    { $set: updates },
+    { new: true },
+  ).lean()) as MatchRefreshRecordLike | null;
 }
 
 export async function enqueueMatchRefreshForUser(

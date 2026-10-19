@@ -4,15 +4,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { User } from "../src/models/User.js";
-import { Job } from "../src/models/Job.js";
-import { Match } from "../src/models/Match.js";
-import { Profile } from "../src/models/Profile.js";
-import { MatchRefresh } from "../src/models/MatchRefresh.js";
+import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
+import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
+import { Match } from "../src/infrastructure/database/mongoose/models/MatchModel.js";
+import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
+import { MatchRefresh } from "../src/infrastructure/database/mongoose/models/MatchRefreshModel.js";
 import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
 import { CacheKeys } from "../src/shared/cache.js";
-import { profileController } from "../src/controllers/profileController.js";
-import { jobController } from "../src/controllers/jobController.js";
+import { profileController } from "../src/presentation/http/controllers/profileController.js";
+import { jobController } from "../src/presentation/http/controllers/jobController.js";
 import { persistMatchesBulk } from "../src/ai/graphs/discoveryGraph.js";
 import { discoveryGraph } from "../src/ai/graphs/discoveryGraph.js";
 import { embeddingService } from "../src/services/embeddingService.js";
@@ -102,13 +102,21 @@ test("confirming a suggested target role changes only targetRoles and preserves 
   const response = {
     statusCode: 0,
     body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
   };
   await profileController.confirmTargetRoles(
     { user: user.toObject(), body: { targetRoles: ["Software Engineer"] } },
     response,
-    (error) => { throw error; },
+    (error) => {
+      throw error;
+    },
   );
   const saved = await Profile.findOne({ userId: user._id }).lean();
   assert.equal(response.statusCode, 200);
@@ -291,7 +299,7 @@ test("fixture refresh and cached match reads meet the Phase 1 latency targets", 
     }
     readTimes.sort((a, b) => a - b);
     const p95Ms = readTimes[Math.ceil(readTimes.length * 0.95) - 1];
-    console.log(
+    console.info(
       `Phase 1 fixture performance: refresh=${refreshMs.toFixed(1)}ms; cached-match-read-p95=${p95Ms.toFixed(1)}ms; fixture-jobs=180`,
     );
     assert.ok(refreshMs < 3000, `refresh exceeded 3000ms (${refreshMs.toFixed(1)}ms)`);

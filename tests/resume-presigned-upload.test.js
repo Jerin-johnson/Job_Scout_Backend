@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { profileController } from "../src/controllers/profileController.js";
-import { profileRepository } from "../src/repositories/profileRepository.js";
-import { userRepository } from "../src/repositories/userRepository.js";
+import { profileController } from "../src/presentation/http/controllers/ProfileController.js";
+import { profileRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
+import { userRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { storageService } from "../src/services/storageService.js";
 
 function mockResponse() {
@@ -23,7 +23,9 @@ function mockResponse() {
 test("presign creates a short-lived user-scoped key and signs only the validated content type", async () => {
   const original = storageService.createPresignedUpload;
   const originalFindUser = userRepository.findById;
-  userRepository.findById = async () => ({ resumeAiConsent: { version: "resume-ai-processing-v1", acceptedAt: new Date() } });
+  userRepository.findById = async () => ({
+    resumeAiConsent: { version: "resume-ai-processing-v1", acceptedAt: new Date() },
+  });
   let signedInput;
   storageService.createPresignedUpload = async (input) => {
     signedInput = input;
@@ -72,7 +74,11 @@ test("presign rejects oversized files before requesting an S3 URL", async () => 
       },
     };
     let nextError;
-    await profileController.createResumeUploadUrl(req, mockResponse(), (error) => (nextError = error));
+    await profileController.createResumeUploadUrl(
+      req,
+      mockResponse(),
+      (error) => (nextError = error),
+    );
     assert.equal(nextError?.name, "ZodError");
   } finally {
     storageService.createPresignedUpload = original;
@@ -81,7 +87,9 @@ test("presign rejects oversized files before requesting an S3 URL", async () => 
 
 test("completing a previously processed upload is idempotent and scoped to the authenticated user", async () => {
   const findUserOriginal = userRepository.findById;
-  userRepository.findById = async () => ({ resumeAiConsent: { version: "resume-ai-processing-v1", acceptedAt: new Date() } });
+  userRepository.findById = async () => ({
+    resumeAiConsent: { version: "resume-ai-processing-v1", acceptedAt: new Date() },
+  });
   const findExistingOriginal = profileRepository.findResumeByS3KeyAndUserId;
   const findProfileOriginal = profileRepository.findByUserId;
   const metadataOriginal = storageService.getObjectMetadata;

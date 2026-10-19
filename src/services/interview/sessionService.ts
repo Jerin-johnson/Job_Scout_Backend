@@ -2,8 +2,8 @@ import mongoose from "mongoose";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { invokeLLM, type UserLike } from "../../ai/llm.js";
-import { profileRepository } from "../../repositories/profileRepository.js";
-import { interviewRepository as repo } from "../../repositories/interviewRepository.js";
+import { profileRepository } from "../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
+import { interviewRepository as repo } from "../../infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
 import {
   INTERVIEW_CONSENT_VERSION,
   INTERVIEW_MODE_CONFIGS,
@@ -146,9 +146,13 @@ function idOf(user?: UserLikeSession | null): string {
 }
 
 function publicSession(session: unknown): PublicSessionDTO {
-  const value = (session && typeof session === "object" && "toObject" in session && typeof (session as { toObject: () => unknown }).toObject === "function")
-    ? (session as { toObject: () => Record<string, unknown> }).toObject()
-    : (session as Record<string, unknown>);
+  const value =
+    session &&
+    typeof session === "object" &&
+    "toObject" in session &&
+    typeof (session as { toObject: () => unknown }).toObject === "function"
+      ? (session as { toObject: () => Record<string, unknown> }).toObject()
+      : (session as Record<string, unknown>);
   return {
     id: String(value._id),
     resumeId: String(value.resumeId),
@@ -170,7 +174,8 @@ function publicSession(session: unknown): PublicSessionDTO {
 
 function fallbackQuestions(mode: string, role: string, level: string): string[] {
   const levelKey = level as "fresher" | "mid" | "senior";
-  const levelPhrase = { fresher: "early-career", mid: "mid-level", senior: "senior" }[levelKey] || "mid-level";
+  const levelPhrase =
+    { fresher: "early-career", mid: "mid-level", senior: "senior" }[levelKey] || "mid-level";
   const common = [
     `Walk me through a ${role} project that best demonstrates your ${levelPhrase} capabilities. What was your specific contribution?`,
     "Describe a difficult problem you solved. How did you investigate it, and what measurable result followed?",
@@ -213,7 +218,12 @@ function estimateTokens(text: unknown, outputReserve = 0): number {
 }
 
 function errorIsDuplicate(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === 11000;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === 11000
+  );
 }
 
 export function localDayKey(timezone = "UTC", now = new Date()): string {
@@ -308,7 +318,9 @@ async function createQuestionPlan({
   const modeConfig = INTERVIEW_MODE_CONFIGS[modeKey] || INTERVIEW_MODE_CONFIGS.hr;
   const questions = fallbackQuestions(mode, role, level);
   try {
-    const roleFamily = inferInterviewRoleFamily(role) as keyof typeof modeConfig.difficultyCalibration.byRoleFamily;
+    const roleFamily = inferInterviewRoleFamily(
+      role,
+    ) as keyof typeof modeConfig.difficultyCalibration.byRoleFamily;
     const result = await invokeLLM({
       user,
       tier: process.env.MOCK_INTERVIEW_QUESTION_TIER || "small",
@@ -368,16 +380,23 @@ export interface SessionRecordLike {
 }
 
 export const interviewSessionService = {
-  async create(user: UserLikeSession | null | undefined, input: CreateSessionInput, { idempotencyKey }: { idempotencyKey?: string } = {}): Promise<PublicSessionDTO> {
+  async create(
+    user: UserLikeSession | null | undefined,
+    input: CreateSessionInput,
+    { idempotencyKey }: { idempotencyKey?: string } = {},
+  ): Promise<PublicSessionDTO> {
     const resumeId = input.resumeId || "";
-    if (!mongoose.isValidObjectId(resumeId))
-      fail(400, "INVALID_RESUME", "Choose a valid resume");
+    if (!mongoose.isValidObjectId(resumeId)) fail(400, "INVALID_RESUME", "Choose a valid resume");
     const userId = idOf(user);
     const resume = await profileRepository.findResumeByIdAndUserId(resumeId, userId);
     if (!resume) fail(404, "RESUME_NOT_FOUND", "Resume not found");
     let resumeText: string;
     try {
-      resumeText = decryptText((resume as unknown as { encryptedRawText: unknown }).encryptedRawText as Parameters<typeof decryptText>[0]);
+      resumeText = decryptText(
+        (resume as unknown as { encryptedRawText: unknown }).encryptedRawText as Parameters<
+          typeof decryptText
+        >[0],
+      );
     } catch {
       fail(422, "RESUME_UNAVAILABLE", "The selected resume could not be read");
     }
@@ -404,7 +423,7 @@ export const interviewSessionService = {
         : "mock_interview";
     await quotaService.checkQuota(user, llmFeature);
     const role = (input.role || "").trim();
-    const level = ((input.level || "mid") as "fresher" | "mid" | "senior");
+    const level = (input.level || "mid") as "fresher" | "mid" | "senior";
     const mode = input.mode || "behavioral";
     const durationMinutes = input.durationMinutes || 15;
     const session = (await repo.createSession({
@@ -445,7 +464,11 @@ export const interviewSessionService = {
     return publicSession(session);
   },
 
-  async start(user: UserLikeSession | null | undefined, idInput: string | string[], timezoneInput?: string): Promise<{ session: PublicSessionDTO; question: { sequence: number; content: string } }> {
+  async start(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+    timezoneInput?: string,
+  ): Promise<{ session: PublicSessionDTO; question: { sequence: number; content: string } }> {
     const id = normalizeId(idInput);
     const userId = idOf(user);
     let session = (await repo.findSession(id, userId)) as unknown as SessionRecordLike | null;
@@ -479,9 +502,17 @@ export const interviewSessionService = {
         throw error;
       }
       try {
-        session = (await repo.updateStartReservation(id, userId, day, reservation.isFreeTrial ?? false)) as unknown as SessionRecordLike | null;
+        session = (await repo.updateStartReservation(
+          id,
+          userId,
+          day,
+          reservation.isFreeTrial ?? false,
+        )) as unknown as SessionRecordLike | null;
         if (!session) {
-          const current = (await repo.findSession(id, userId)) as unknown as SessionRecordLike | null;
+          const current = (await repo.findSession(
+            id,
+            userId,
+          )) as unknown as SessionRecordLike | null;
           if (current?.status === "in_progress") return this.start(user, id, timezone);
           await repo.releaseStartQuota({ userId, sessionId: id, day, isPremium });
           fail(409, "INVALID_STATE", "Interview session cannot be started in its current state");
@@ -492,7 +523,8 @@ export const interviewSessionService = {
             userId,
             now,
             new Date(now.getTime() + session.durationMinutes * 60_000),
-          )) as unknown as SessionRecordLike | null) || ((await repo.findSession(id, userId)) as unknown as SessionRecordLike | null);
+          )) as unknown as SessionRecordLike | null) ||
+          ((await repo.findSession(id, userId)) as unknown as SessionRecordLike | null);
       } catch (error) {
         await repo.releaseStartQuota({ userId, sessionId: id, day, isPremium });
         throw error;
@@ -506,7 +538,10 @@ export const interviewSessionService = {
       await repo.setStatus(id, userId, "in_progress", "expired");
       fail(410, "SESSION_EXPIRED", "The interview time limit has elapsed");
     }
-    let first = (await repo.findPrompt(id, userId, session.currentQuestionIndex)) as unknown as { sequence: number; content: string } | null;
+    let first = (await repo.findPrompt(id, userId, session.currentQuestionIndex)) as unknown as {
+      sequence: number;
+      content: string;
+    } | null;
     if (!first) {
       const sequence = await repo.allocateSequence(id, userId);
       try {
@@ -522,7 +557,10 @@ export const interviewSessionService = {
         })) as unknown as { sequence: number; content: string };
       } catch (error) {
         if (!errorIsDuplicate(error)) throw error;
-        first = (await repo.findPrompt(id, userId, session.currentQuestionIndex)) as unknown as { sequence: number; content: string } | null;
+        first = (await repo.findPrompt(id, userId, session.currentQuestionIndex)) as unknown as {
+          sequence: number;
+          content: string;
+        } | null;
       }
     }
     return {
@@ -534,7 +572,13 @@ export const interviewSessionService = {
   async answer(
     user: UserLikeSession | null | undefined,
     idInput: string | string[],
-    { answer, idempotencyKey, source = "text", audioDurationMs = null, startedAtMs = null }: AnswerInput,
+    {
+      answer,
+      idempotencyKey,
+      source = "text",
+      audioDurationMs = null,
+      startedAtMs = null,
+    }: AnswerInput,
   ): Promise<unknown> {
     const id = normalizeId(idInput);
     const userId = idOf(user);
@@ -563,7 +607,10 @@ export const interviewSessionService = {
           const deadline = Date.now() + 30_000;
           while (Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 200));
-            const replay = (await repo.findMessageByIdempotency(id, idempotencyKey)) as unknown as typeof prior;
+            const replay = (await repo.findMessageByIdempotency(
+              id,
+              idempotencyKey,
+            )) as unknown as typeof prior;
             if (replay && !replay.evaluation?.processing) {
               if (replay.idempotentResponse) return replay.idempotentResponse;
               const refreshed = await repo.findSession(id, userId);
@@ -572,7 +619,11 @@ export const interviewSessionService = {
           }
           fail(409, "ANSWER_PROCESSING", "This answer is still being evaluated; retry shortly");
         }
-        const priorQuestion = (await repo.findQuestionBefore(id, userId, prior.sequence)) as unknown as { content: string; promptIndex?: number } | null;
+        const priorQuestion = (await repo.findQuestionBefore(
+          id,
+          userId,
+          prior.sequence,
+        )) as unknown as { content: string; promptIndex?: number } | null;
         if (!priorQuestion)
           fail(409, "ANSWER_PROCESSING", "This answer is still being evaluated; retry shortly");
         session = (await repo.claimQuestion(
@@ -592,7 +643,12 @@ export const interviewSessionService = {
         return this.finalizeAnswer(
           user,
           session,
-          prior as unknown as { _id: unknown; content: string; idempotencyKey?: string; claimKey?: string | null },
+          prior as unknown as {
+            _id: unknown;
+            content: string;
+            idempotencyKey?: string;
+            claimKey?: string | null;
+          },
           priorQuestion.content,
           (prior.promptIndex ?? priorQuestion.promptIndex ?? session.currentQuestionIndex) + 1,
         );
@@ -605,12 +661,22 @@ export const interviewSessionService = {
       await repo.setStatus(id, userId, "in_progress", "expired");
       fail(410, "SESSION_EXPIRED", "The interview time limit has elapsed");
     }
-    const latestQuestion = (await repo.findLatestInterviewerMessage(id, userId)) as unknown as { content: string } | null;
+    const latestQuestion = (await repo.findLatestInterviewerMessage(id, userId)) as unknown as {
+      content: string;
+    } | null;
     if (!latestQuestion) fail(409, "INVALID_STATE", "Start the interview before answering");
     const questionIndex = session.currentQuestionIndex;
-    session = (await repo.claimQuestion(id, userId, questionIndex, idempotencyKey)) as unknown as SessionRecordLike | null;
+    session = (await repo.claimQuestion(
+      id,
+      userId,
+      questionIndex,
+      idempotencyKey,
+    )) as unknown as SessionRecordLike | null;
     if (!session) {
-      const currentClaim = (await repo.findSession(id, userId)) as unknown as SessionRecordLike | null;
+      const currentClaim = (await repo.findSession(
+        id,
+        userId,
+      )) as unknown as SessionRecordLike | null;
       if (currentClaim?.activeAnswerClaimKey !== idempotencyKey)
         fail(
           409,
@@ -661,7 +727,12 @@ export const interviewSessionService = {
       fail(409, "INVALID_STATE", "Interview is no longer accepting answers");
     }
 
-    let message: { _id: unknown; content: string; idempotencyKey?: string; claimKey?: string | null };
+    let message: {
+      _id: unknown;
+      content: string;
+      idempotencyKey?: string;
+      claimKey?: string | null;
+    };
     try {
       message = (await repo.createMessage({
         interviewId: id,
@@ -729,7 +800,8 @@ export const interviewSessionService = {
       turn: turnNumber,
     });
     const nextIndex = turnNumber;
-    const timedOut = session.status === "in_progress" && session.endsAt && Date.now() >= session.endsAt.getTime();
+    const timedOut =
+      session.status === "in_progress" && session.endsAt && Date.now() >= session.endsAt.getTime();
     if (timedOut) {
       await repo.setStatus(id, userId, "in_progress", "expired");
       session.status = "expired";
@@ -743,7 +815,11 @@ export const interviewSessionService = {
       maxTurns: session.questionPlan.length,
     };
     if (!isComplete && payload.nextQuestion) {
-      const existingResponse = await repo.findResponseTo(id, userId, message._id as string | mongoose.Types.ObjectId);
+      const existingResponse = await repo.findResponseTo(
+        id,
+        userId,
+        message._id as string | mongoose.Types.ObjectId,
+      );
       if (!existingResponse) {
         const nextSequence = await repo.allocateSequence(id, userId);
         try {
@@ -768,7 +844,11 @@ export const interviewSessionService = {
       session.currentQuestionIndex = nextIndex;
     }
     const response = { session: publicSession(session), ...payload };
-    await repo.updateMessageEvaluation(message._id as string | mongoose.Types.ObjectId, payload, response);
+    await repo.updateMessageEvaluation(
+      message._id as string | mongoose.Types.ObjectId,
+      payload,
+      response,
+    );
     await repo.finishAnswerClaim(
       id,
       userId,
@@ -803,7 +883,9 @@ export const interviewSessionService = {
       const modeKey = session.mode as keyof typeof INTERVIEW_MODE_CONFIGS;
       const modeConfig = INTERVIEW_MODE_CONFIGS[modeKey];
       const levelKey = session.level as keyof typeof modeConfig.difficultyCalibration.byLevel;
-      const roleFamily = inferInterviewRoleFamily(session.role) as keyof typeof modeConfig.difficultyCalibration.byRoleFamily;
+      const roleFamily = inferInterviewRoleFamily(
+        session.role,
+      ) as keyof typeof modeConfig.difficultyCalibration.byRoleFamily;
       const result = await invokeLLM({
         user,
         tier: process.env.MOCK_INTERVIEW_EVALUATION_TIER || "small",
@@ -833,18 +915,34 @@ export const interviewSessionService = {
     }
   },
 
-  async complete(user: UserLikeSession | null | undefined, idInput: string | string[], { retryFallback = false }: { retryFallback?: boolean } = {}): Promise<InterviewReportData> {
+  async complete(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+    { retryFallback = false }: { retryFallback?: boolean } = {},
+  ): Promise<InterviewReportData> {
     const id = normalizeId(idInput);
     const userId = idOf(user);
-    const existingReport = (await repo.findReport(id, userId)) as unknown as { report: InterviewReportData } | null;
+    const existingReport = (await repo.findReport(id, userId)) as unknown as {
+      report: InterviewReportData;
+    } | null;
     if (existingReport && !(retryFallback && existingReport.report.generatedBy === "fallback"))
       return existingReport.report;
     let session = (await repo.findSession(id, userId)) as unknown as SessionRecordLike | null;
     if (!session) fail(404, "NOT_FOUND", "Interview session not found");
     if (!["in_progress", "completed", "expired"].includes(session.status))
       fail(409, "INVALID_STATE", `Interview is ${session.status}`);
-    if (session.status === "in_progress" && session.endsAt && Date.now() >= session.endsAt.getTime()) {
-      session = ((await repo.setStatus(id, userId, "in_progress", "expired")) as unknown as SessionRecordLike | null) || session;
+    if (
+      session.status === "in_progress" &&
+      session.endsAt &&
+      Date.now() >= session.endsAt.getTime()
+    ) {
+      session =
+        ((await repo.setStatus(
+          id,
+          userId,
+          "in_progress",
+          "expired",
+        )) as unknown as SessionRecordLike | null) || session;
     }
     const messages = (await repo.listMessages(id, userId)) as unknown as Array<{
       role: string;
@@ -938,7 +1036,12 @@ export const interviewSessionService = {
           );
         if (parsed.success && groundedEvidence) {
           const overallScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-          const readiness = overallScore >= 80 ? "interview_ready" : overallScore >= 60 ? "developing" : "needs_practice";
+          const readiness =
+            overallScore >= 80
+              ? "interview_ready"
+              : overallScore >= 60
+                ? "developing"
+                : "needs_practice";
           report = { ...parsed.data, generatedBy: "ai", overallScore, readiness };
           break;
         }
@@ -983,23 +1086,40 @@ export const interviewSessionService = {
       return created.report;
     } catch (error) {
       if (!errorIsDuplicate(error)) throw error;
-      const winningReport = (await repo.findReport(id, userId)) as unknown as { report: InterviewReportData } | null;
+      const winningReport = (await repo.findReport(id, userId)) as unknown as {
+        report: InterviewReportData;
+      } | null;
       if (winningReport) return winningReport.report;
       throw error;
     }
   },
 
-  async history(user: UserLikeSession | null | undefined, page?: number, limit?: number): Promise<PublicSessionDTO[]> {
+  async history(
+    user: UserLikeSession | null | undefined,
+    page?: number,
+    limit?: number,
+  ): Promise<PublicSessionDTO[]> {
     const userId = idOf(user);
-    const sessions = (await repo.listSessions(userId, { page, limit })) as unknown as Array<{ status: string; endsAt?: Date | null; _id: string }>;
+    const sessions = (await repo.listSessions(userId, { page, limit })) as unknown as Array<{
+      status: string;
+      endsAt?: Date | null;
+      _id: string;
+    }>;
     for (const session of sessions) {
-      if (session.status === "in_progress" && session.endsAt && new Date(session.endsAt) <= new Date())
+      if (
+        session.status === "in_progress" &&
+        session.endsAt &&
+        new Date(session.endsAt) <= new Date()
+      )
         await repo.setStatus(session._id, userId, "in_progress", "expired");
     }
     return ((await repo.listSessions(userId, { page, limit })) as unknown[]).map(publicSession);
   },
 
-  async detail(user: UserLikeSession | null | undefined, idInput: string | string[]): Promise<{
+  async detail(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+  ): Promise<{
     session: PublicSessionDTO;
     messages: Array<{
       _id: string;
@@ -1061,10 +1181,15 @@ export const interviewSessionService = {
     };
   },
 
-  async delete(user: UserLikeSession | null | undefined, idInput: string | string[]): Promise<{ deleted: boolean }> {
+  async delete(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+  ): Promise<{ deleted: boolean }> {
     const id = normalizeId(idInput);
     const userId = idOf(user);
-    const session = (await repo.findSessionForDeletion(id, userId)) as unknown as { resumeFileHash?: string } | null;
+    const session = (await repo.findSessionForDeletion(id, userId)) as unknown as {
+      resumeFileHash?: string;
+    } | null;
     if (!session) fail(404, "NOT_FOUND", "Interview session not found");
     if (!(await repo.deleteSession(id, idOf(user))))
       fail(404, "NOT_FOUND", "Interview session not found");
@@ -1075,7 +1200,11 @@ export const interviewSessionService = {
     return { deleted: true };
   },
 
-  async pin(user: UserLikeSession | null | undefined, idInput: string | string[], pinned: boolean): Promise<{ pinned: boolean; retentionExpiresAt: Date | null }> {
+  async pin(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+    pinned: boolean,
+  ): Promise<{ pinned: boolean; retentionExpiresAt: Date | null }> {
     const id = normalizeId(idInput);
     const retentionDays = Math.max(
       1,
@@ -1087,14 +1216,21 @@ export const interviewSessionService = {
   },
 
   async expireIfNeeded(session: SessionRecordLike, userId: string): Promise<SessionRecordLike> {
-    if (session.status === "in_progress" && session.endsAt && new Date(session.endsAt) <= new Date()) {
+    if (
+      session.status === "in_progress" &&
+      session.endsAt &&
+      new Date(session.endsAt) <= new Date()
+    ) {
       const updated = await repo.setStatus(session._id, userId, "in_progress", "expired");
       if (updated) session.status = "expired";
     }
     return session;
   },
 
-  async report(user: UserLikeSession | null | undefined, idInput: string | string[]): Promise<unknown> {
+  async report(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+  ): Promise<unknown> {
     const id = normalizeId(idInput);
     const userId = idOf(user);
     const session = (await repo.findSession(id, userId)) as unknown as SessionRecordLike | null;

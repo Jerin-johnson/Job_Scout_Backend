@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { InteractionEvent } from "../../models/InteractionEvent.js";
+import { InteractionEvent } from "../../infrastructure/database/mongoose/models/InteractionEventModel.js";
 
 const ALLOWED_EVENTS = new Set([
   "impression",
@@ -14,7 +14,9 @@ const ALLOWED_EVENTS = new Set([
 export const JOB_ANALYTICS_CONSENT_VERSION = "job-analytics-v1";
 
 export function interactionActorKey(userId: string | unknown): string {
-  return createHash("sha256").update(`jobscout-interaction-v1:${String(userId)}`).digest("hex");
+  return createHash("sha256")
+    .update(`jobscout-interaction-v1:${String(userId)}`)
+    .digest("hex");
 }
 
 export interface RecordInteractionParams {
@@ -47,7 +49,9 @@ export async function recordInteraction({
       source: /^[a-z0-9_-]{1,40}$/i.test(source || "") ? source : "unknown",
       occupation: /^[a-z0-9_-]{1,40}$/i.test(occupation || "") ? occupation : "unknown",
       country: /^[A-Z]{2}$/.test(country || "") ? country : "unknown",
-      scoreBand: ["strong", "good", "fair", "low"].includes(scoreBand || "") ? scoreBand : "unknown",
+      scoreBand: ["strong", "good", "fair", "low"].includes(scoreBand || "")
+        ? scoreBand
+        : "unknown",
     });
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { Job } from "../../models/Job.js";
+import { Job } from "../../infrastructure/database/mongoose/models/JobModel.js";
 
 /**
  * Remove the legacy globally-unique content hash index. A content hash detects

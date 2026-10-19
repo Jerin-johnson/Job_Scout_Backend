@@ -2,10 +2,10 @@ import * as Sentry from "@sentry/node";
 import { getRedisClient, isRedisReady } from "../config/redis.js";
 import { env } from "../config/env.js";
 import { PLAN_CONFIG, PLANS } from "../shared/constants/plans.js";
-import { UsageEvent } from "../models/UsageEvent.js";
+import { UsageEvent } from "../infrastructure/database/mongoose/models/UsageEventModel.js";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
-import { interviewRepository } from "../repositories/interviewRepository.js";
+import { interviewRepository } from "../infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
 import { MODEL_PRICING_VERSION } from "../ai/modelPricingCatalog.js";
 
 // In-memory counters for offline/test mode
@@ -91,7 +91,9 @@ export interface RecordUsageOptions {
 }
 
 function quotaStoreError(): QuotaError {
-  const error: QuotaError = new Error("AI usage controls are temporarily unavailable. Please retry shortly.");
+  const error: QuotaError = new Error(
+    "AI usage controls are temporarily unavailable. Please retry shortly.",
+  );
   error.statusCode = 503;
   error.code = "AI_USAGE_STORE_UNAVAILABLE";
   error.retryable = true;
@@ -148,7 +150,9 @@ function getMonthKey(date = new Date()): string {
 export const quotaService = {
   async assertAIEnabled(): Promise<boolean> {
     if (env.AI_KILL_SWITCH) {
-      const err: QuotaError = new Error("AI services are temporarily unavailable. Please try again later.");
+      const err: QuotaError = new Error(
+        "AI services are temporarily unavailable. Please try again later.",
+      );
       err.statusCode = 503;
       err.code = "AI_KILL_SWITCH_ACTIVE";
       throw err;
@@ -326,7 +330,10 @@ export const quotaService = {
   async checkQuota(
     user?: QuotaUserLike | null,
     feature = "chat",
-    { estimatedCostUsd = 0, featureQuotaAccepted = false }: { estimatedCostUsd?: number; featureQuotaAccepted?: boolean } = {},
+    {
+      estimatedCostUsd = 0,
+      featureQuotaAccepted = false,
+    }: { estimatedCostUsd?: number; featureQuotaAccepted?: boolean } = {},
   ): Promise<boolean> {
     // 1. Check Global AI Kill Switch
     await this.assertAIEnabled();
@@ -478,7 +485,9 @@ export const quotaService = {
     userPlan: string = PLANS.FREE,
   ): Promise<number> {
     if (!idempotencyKey) {
-      const error: QuotaError = new Error("An idempotency key is required to count an AI operation");
+      const error: QuotaError = new Error(
+        "An idempotency key is required to count an AI operation",
+      );
       error.statusCode = 400;
       error.code = "IDEMPOTENCY_KEY_REQUIRED";
       throw error;
@@ -524,7 +533,7 @@ export const quotaService = {
 
     try {
       const redis = getRedisClient();
-      const evalResult = await redis.eval(
+      const evalResult = (await redis.eval(
         IDEMPOTENT_INCREMENT_SCRIPT,
         2,
         key,
@@ -532,7 +541,7 @@ export const quotaService = {
         limit,
         ttl,
         86400,
-      ) as [number, number];
+      )) as [number, number];
       const [count, state] = evalResult;
       if (Number(state) === -1) throw quotaLimitError(feature, Number(count), limit);
       return Number(count);

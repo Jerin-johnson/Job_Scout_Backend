@@ -1,11 +1,11 @@
-import { JobMatchReport } from "../models/JobMatchReport.js";
-import { Profile } from "../models/Profile.js";
-import { Resume } from "../models/Resume.js";
+import { JobMatchReport } from "../infrastructure/database/mongoose/models/JobMatchReportModel.js";
+import { Profile } from "../infrastructure/database/mongoose/models/ProfileModel.js";
+import { Resume } from "../infrastructure/database/mongoose/models/ResumeModel.js";
 import { CacheKeys, del } from "../shared/cache.js";
 import { storageService } from "./storageService.js";
 import { enqueueMatchRefreshForUser } from "./matchRefreshService.js";
 import { invalidateCandidateContext } from "../ai/candidateContext.js";
-import { userRepository } from "../repositories/userRepository.js";
+import { userRepository } from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { isMongoReady } from "../config/database.js";
 
 export async function deleteResumeForUser({
@@ -24,7 +24,10 @@ export async function deleteResumeForUser({
   await del(CacheKeys.resumeParse(`${userId}:${resume.fileHash}:resume-match-v1`));
   // Profile facts do not yet carry source-resume provenance. Clear all extracted
   // facts on any resume removal rather than leave facts from the deleted source.
-  await Profile.updateOne({ userId }, { $set: { roles: [], skills: [], education: [] }, $inc: { version: 1 } });
+  await Profile.updateOne(
+    { userId },
+    { $set: { roles: [], skills: [], education: [] }, $inc: { version: 1 } },
+  );
   await invalidateCandidateContext(userId);
   const updatedUser = await userRepository.bumpProfileVersion(userId);
   if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
@@ -39,10 +42,15 @@ export async function deleteAllUserResumeData(userId: string): Promise<number> {
     fileHash: string;
   }>;
   for (let offset = 0; offset < resumes.length; offset += 10) {
-    await Promise.all(resumes.slice(offset, offset + 10).map((resume) => storageService.deleteFile({ key: resume.s3Key })));
+    await Promise.all(
+      resumes
+        .slice(offset, offset + 10)
+        .map((resume) => storageService.deleteFile({ key: resume.s3Key })),
+    );
   }
   await JobMatchReport.deleteMany({ userId });
   await Resume.deleteMany({ userId });
-  for (const resume of resumes) await del(CacheKeys.resumeParse(`${userId}:${resume.fileHash}:resume-match-v1`));
+  for (const resume of resumes)
+    await del(CacheKeys.resumeParse(`${userId}:${resume.fileHash}:resume-match-v1`));
   return resumes.length;
 }

@@ -235,3 +235,29 @@ Application and Domain errors extend a typed `AppError` base class. The presenta
 - **Marginal Catalog Costs:** Catalog storage is optimized via split collections (`Job`, `JobDetail`, `JobVector`). Hot documents remain $\le 2\text{ KB}$ for fast index scans.
 - **Process Separation:** API and Worker are isolated, preventing ingestion spikes from degrading user request latency.
 - **Ingestion Resilience:** Source feeds use circuit breakers (`opossum`), backoff, dead-letter queues, and per-source rate budgets.
+
+---
+
+## 8. Quality Controls, Boundaries & Forwarding Compatibility
+
+### 8.1 Canonical Mongoose Models vs. Forwarder Facades
+
+All canonical Mongoose models, schemas, and compound indexes reside under `src/infrastructure/database/mongoose/models/*Model.ts`.
+To maintain non-breaking operational compatibility across existing maintenance scripts (`scripts/*.js`) and background workers, `src/models/*.ts` provides thin, 1-line re-export forwarders to the canonical infrastructure models.
+
+### 8.2 Consolidated Presentation Layer
+
+The HTTP presentation layer is consolidated under `src/presentation/http/`:
+
+- `routes/index.ts`: The unified API router mounted at `/api/v1` in `src/main/app.ts`.
+- `controllers/`: Handles request parsing, invokes application use cases, and returns structured API envelopes.
+- `middleware/`: Houses HTTP-specific middlewares (`authMiddleware`, `errorHandlerMiddleware`, `csrfProtection`).
+
+### 8.3 Automated Architectural Boundaries (`npm run check:architecture`)
+
+Clean Architecture dependencies are strictly validated by `scripts/check-architecture.mjs`:
+
+- **Domain Independence:** `src/domain` has zero imports from Mongoose, Express, Redis, BullMQ, AWS, or AI SDKs.
+- **Use Case Abstraction:** `src/application/useCases` depends on domain interfaces rather than concrete infrastructure adapters.
+- **Infrastructure Decoupling:** `src/infrastructure` has zero imports from presentation controllers.
+- **Strict Typing:** Strictly 0 explicit `any` type annotations across all 258 `src/` source files.

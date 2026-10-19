@@ -1,4 +1,4 @@
-import { TrackedCompany } from "../../models/TrackedCompany.js";
+import { TrackedCompany } from "../../infrastructure/database/mongoose/models/TrackedCompanyModel.js";
 
 export type AtsPlatform = "greenhouse" | "lever" | "ashby";
 
@@ -16,7 +16,8 @@ interface AtsConfig {
 const ATS_URLS: Record<AtsPlatform, AtsConfig> = {
   greenhouse: {
     match: /^\/([a-z0-9_-]+)\/?$/i,
-    endpoint: (slug: string) => `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`,
+    endpoint: (slug: string) =>
+      `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`,
   },
   lever: {
     match: /^\/([a-z0-9_-]+)\/?$/i,
@@ -45,7 +46,11 @@ export function detectAtsCareersUrl(input: string): DetectedAtsUrl | null {
           : "jobs.ashbyhq.com";
     const match = url.host.toLowerCase() === expectedHost && url.pathname.match(config.match);
     if (match) {
-      return { platform: platformKey, slug: match[1].toLowerCase(), careersUrl: `${url.origin}${url.pathname}` };
+      return {
+        platform: platformKey,
+        slug: match[1].toLowerCase(),
+        careersUrl: `${url.origin}${url.pathname}`,
+      };
     }
   }
   return null;
@@ -61,7 +66,10 @@ export async function verifyPublicBoard(
     method: "GET",
     redirect: "manual",
     signal: AbortSignal.timeout(5000),
-    headers: platform === "ashby" ? { "content-type": "application/json" } : { accept: "application/json" },
+    headers:
+      platform === "ashby"
+        ? { "content-type": "application/json" }
+        : { accept: "application/json" },
   });
   if (response.status >= 300 && response.status < 400) return false;
   if (!response.ok) return false;
@@ -104,7 +112,9 @@ export async function requestCompanyTracking(
 ): Promise<unknown> {
   const detected = detectAtsCareersUrl(careersUrl);
   if (!detected) {
-    const error = new Error("Paste a public Greenhouse, Lever or Ashby careers board URL.") as Error & {
+    const error = new Error(
+      "Paste a public Greenhouse, Lever or Ashby careers board URL.",
+    ) as Error & {
       statusCode?: number;
       code?: string;
     };
@@ -123,7 +133,9 @@ export async function requestCompanyTracking(
   }
   const company = await TrackedCompany.findOneAndUpdate(
     { platform: detected.platform, slug: detected.slug },
-    { $setOnInsert: { ...detected, status: "pending", requestedBy: userId, verifiedAt: new Date() } },
+    {
+      $setOnInsert: { ...detected, status: "pending", requestedBy: userId, verifiedAt: new Date() },
+    },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   )
     .select("platform slug careersUrl status createdAt")

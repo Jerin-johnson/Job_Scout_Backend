@@ -3,7 +3,10 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { OAuth2Client } from "google-auth-library";
 import { env } from "../config/env.js";
-import { userRepository, type UserRecord } from "../repositories/userRepository.js";
+import {
+  userRepository,
+  type UserRecord,
+} from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { logger } from "../shared/utils/logger.js";
 
 const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
@@ -119,7 +122,8 @@ export const authService = {
           idToken,
           audience: env.GOOGLE_CLIENT_ID,
         });
-        payload = ticket.getPayload() as { email?: string; sub?: string; name?: string } | undefined;
+        payload = ticket.getPayload() as
+          { email?: string; sub?: string; name?: string } | undefined;
       }
     } catch (cause) {
       const error = cause as Error;
@@ -153,7 +157,10 @@ export const authService = {
   async rotateRefreshToken(rawRefreshToken: string): Promise<AuthSessionResult> {
     let decoded: { userId: string; familyId: string };
     try {
-      decoded = jwt.verify(rawRefreshToken, env.JWT_REFRESH_SECRET) as { userId: string; familyId: string };
+      decoded = jwt.verify(rawRefreshToken, env.JWT_REFRESH_SECRET) as {
+        userId: string;
+        familyId: string;
+      };
     } catch (cause) {
       const err = cause as Error;
       const error: CustomHttpError = new Error(`Invalid refresh token: ${err.message}`);
@@ -178,7 +185,9 @@ export const authService = {
     if (!existingToken || existingToken.isRevoked) {
       logger.warn({ userId, familyId }, "Refresh token reuse detected! Revoking family.");
       await userRepository.revokeTokenFamily(user._id, familyId);
-      const error: CustomHttpError = new Error("Refresh token reuse detected. Please log in again.");
+      const error: CustomHttpError = new Error(
+        "Refresh token reuse detected. Please log in again.",
+      );
       error.statusCode = 401;
       error.code = "TOKEN_REUSE_DETECTED";
       throw error;
@@ -189,7 +198,10 @@ export const authService = {
     return this.generateSession(user, familyId);
   },
 
-  async generateSession(user: UserRecord, existingFamilyId: string | null = null): Promise<AuthSessionResult> {
+  async generateSession(
+    user: UserRecord,
+    existingFamilyId: string | null = null,
+  ): Promise<AuthSessionResult> {
     const familyId = existingFamilyId || crypto.randomUUID();
     const userId = user._id.toString();
 

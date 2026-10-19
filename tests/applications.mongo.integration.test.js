@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { Application } from "../src/models/Application.js";
-import { applicationController } from "../src/controllers/applicationController.js";
-import { applicationRepository } from "../src/repositories/applicationRepository.js";
+import { Application } from "../src/infrastructure/database/mongoose/models/ApplicationModel.js";
+import { applicationController } from "../src/presentation/http/controllers/ApplicationController.js";
+import { applicationRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
 import { setApplicationReminderQueueFactoryForTests } from "../src/services/applicationReminderQueue.js";
 
 let mongo;

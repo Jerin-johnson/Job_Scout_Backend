@@ -5,8 +5,8 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { env } from "../../config/env.js";
 import { isMongoReady } from "../../config/database.js";
 import { getCandidateContext, invalidateCandidateContext } from "../candidateContext.js";
-import { profileRepository } from "../../repositories/profileRepository.js";
-import { applicationRepository } from "../../repositories/applicationRepository.js";
+import { profileRepository } from "../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
+import { applicationRepository } from "../../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
 import { applicationReminderTransition } from "../../services/applicationLifecycle.js";
 import {
   scheduleApplicationReminder,
@@ -23,13 +23,13 @@ import {
 } from "../../services/resumeMatchService.js";
 import { interviewSessionService } from "../../services/interview/sessionService.js";
 import { longTermMemory } from "../memory/longTerm.js";
-import { Job } from "../../models/Job.js";
-import { JobDetail } from "../../models/JobDetail.js";
-import { HiddenJob } from "../../models/HiddenJob.js";
-import { JobMatchReport } from "../../models/JobMatchReport.js";
-import { InterviewSession } from "../../models/InterviewSession.js";
-import { InterviewReport } from "../../models/InterviewReport.js";
-import { AuditLog } from "../../models/AuditLog.js";
+import { Job } from "../../infrastructure/database/mongoose/models/JobModel.js";
+import { JobDetail } from "../../infrastructure/database/mongoose/models/JobDetailModel.js";
+import { HiddenJob } from "../../infrastructure/database/mongoose/models/HiddenJobModel.js";
+import { JobMatchReport } from "../../infrastructure/database/mongoose/models/JobMatchReportModel.js";
+import { InterviewSession } from "../../infrastructure/database/mongoose/models/InterviewSessionModel.js";
+import { InterviewReport } from "../../infrastructure/database/mongoose/models/InterviewReportModel.js";
+import { AuditLog } from "../../infrastructure/database/mongoose/models/AuditLogModel.js";
 import { CacheKeys, del } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
 
@@ -46,7 +46,11 @@ interface AuditLogEntry {
 const inMemoryConsumedActions = new Map<string, unknown>();
 const inMemoryAuditLogs: AuditLogEntry[] = [];
 
-function createHttpError(message: string, statusCode: number, code: string): Error & { statusCode: number; code: string } {
+function createHttpError(
+  message: string,
+  statusCode: number,
+  code: string,
+): Error & { statusCode: number; code: string } {
   const err = new Error(message) as Error & { statusCode: number; code: string };
   err.statusCode = statusCode;
   err.code = code;
@@ -135,7 +139,11 @@ function sanitizeDeep(value: unknown, depth = 0): unknown {
  * Wraps any tool output in an explicit untrusted delimiter block so prompt-injection
  * instructions inside job descriptions, application notes, or resume text are treated strictly as data.
  */
-export function wrapUntrustedToolResult(toolName: string, payload: unknown, maxChars = 2800): string {
+export function wrapUntrustedToolResult(
+  toolName: string,
+  payload: unknown,
+  maxChars = 2800,
+): string {
   const safeName = String(toolName || "tool").replace(/[^a-z0-9_]/gi, "_");
   const sanitized = sanitizeDeep(payload);
   const serialized = JSON.stringify(sanitized);
@@ -180,7 +188,10 @@ export function createActionToken({
 /**
  * Verifies an HMAC-SHA256 action confirmation token and enforces userId ownership and expiry.
  */
-export function verifyActionToken(token: string | unknown, expectedUserId: string | unknown): ActionEnvelope {
+export function verifyActionToken(
+  token: string | unknown,
+  expectedUserId: string | unknown,
+): ActionEnvelope {
   const tokenStr = String(token || "");
   if (!tokenStr || !tokenStr.includes(".")) {
     throw createHttpError("Invalid confirmation token format.", 400, "INVALID_ACTION_TOKEN");
@@ -193,7 +204,11 @@ export function verifyActionToken(token: string | unknown, expectedUserId: strin
   const a = Buffer.from(providedSig, "utf8");
   const b = Buffer.from(expectedSig, "utf8");
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    throw createHttpError("Confirmation token signature is invalid.", 403, "INVALID_ACTION_SIGNATURE");
+    throw createHttpError(
+      "Confirmation token signature is invalid.",
+      403,
+      "INVALID_ACTION_SIGNATURE",
+    );
   }
   let envelope: ActionEnvelope;
   try {
@@ -208,10 +223,18 @@ export function verifyActionToken(token: string | unknown, expectedUserId: strin
     !envelope.userId ||
     !envelope.actionType
   ) {
-    throw createHttpError("Confirmation token is missing required claims.", 400, "INVALID_ACTION_TOKEN");
+    throw createHttpError(
+      "Confirmation token is missing required claims.",
+      400,
+      "INVALID_ACTION_TOKEN",
+    );
   }
   if (String(envelope.userId) !== String(expectedUserId)) {
-    throw createHttpError("Confirmation token does not belong to the current user.", 403, "ACTION_USER_MISMATCH");
+    throw createHttpError(
+      "Confirmation token does not belong to the current user.",
+      403,
+      "ACTION_USER_MISMATCH",
+    );
   }
   if (!Number.isFinite(envelope.expiresAt) || Date.now() > envelope.expiresAt) {
     throw createHttpError(
@@ -268,12 +291,19 @@ export interface ContextUserConfig {
   [key: string]: unknown;
 }
 
-function requireContextUser(config?: ContextUserConfig | unknown): { user: { _id?: unknown; id?: unknown; plan?: string; [key: string]: unknown }; userId: string } {
+function requireContextUser(config?: ContextUserConfig | unknown): {
+  user: { _id?: unknown; id?: unknown; plan?: string; [key: string]: unknown };
+  userId: string;
+} {
   const conf = config as ContextUserConfig | undefined;
   const user = conf?.configurable?.user;
   const userId = conf?.configurable?.userId || (user?._id || user?.id)?.toString();
   if (!userId) {
-    throw createHttpError("Authenticated userId is required in tool execution context.", 401, "UNAUTHORIZED");
+    throw createHttpError(
+      "Authenticated userId is required in tool execution context.",
+      401,
+      "UNAUTHORIZED",
+    );
   }
   return { user: user || { _id: userId, id: userId, plan: "free" }, userId: String(userId) };
 }
@@ -317,7 +347,10 @@ export async function executeChatToolByName(
     throw createHttpError(`Unknown chat tool: ${toolName}`, 400, "UNKNOWN_TOOL");
   }
   const parsedArgs = (found.schema as z.ZodTypeAny).parse(rawArgs || {});
-  return (found as unknown as { func: (args: unknown, conf: unknown) => Promise<unknown> }).func(parsedArgs, config);
+  return (found as unknown as { func: (args: unknown, conf: unknown) => Promise<unknown> }).func(
+    parsedArgs,
+    config,
+  );
 }
 
 /**
@@ -344,9 +377,13 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
   const notifyComplete = (
     runManager: unknown,
     callConfig: unknown,
-    payload: { toolName: string; sourceLabel?: string; proposedAction?: unknown; summary?: string | null },
-  ) =>
-    recordToolOutcome(extractConfig(runManager, callConfig, defaultConfig), payload);
+    payload: {
+      toolName: string;
+      sourceLabel?: string;
+      proposedAction?: unknown;
+      summary?: string | null;
+    },
+  ) => recordToolOutcome(extractConfig(runManager, callConfig, defaultConfig), payload);
 
   const getProfileSummaryTool = new DynamicStructuredTool({
     name: "get_profile_summary",
@@ -425,11 +462,15 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
         hasCompensation,
         missingFields,
         targetRoles:
-          cp.targetRoles?.map((r) => r.customRoleLabel || r.roleCode).filter((r): r is string => Boolean(r)) ||
+          cp.targetRoles
+            ?.map((r) => r.customRoleLabel || r.roleCode)
+            .filter((r): r is string => Boolean(r)) ||
           prefs.targetRoles ||
           [],
         preferredLocations:
-          cp.targetLocations?.map((l) => l.cityCode || l.countryCode || l.scope).filter((l): l is string => Boolean(l)) ||
+          cp.targetLocations
+            ?.map((l) => l.cityCode || l.countryCode || l.scope)
+            .filter((l): l is string => Boolean(l)) ||
           prefs.preferredLocations ||
           [],
         workMode: cp.workPreferences?.workMode || prefs.remotePreference || "any",
@@ -461,7 +502,9 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
       const profile = await profileRepository.findByUserId(userId);
       const hiddenJobIds = isMongoReady() ? await HiddenJob.distinct("jobId", { userId }) : [];
       const searchService = jobIngestionService as unknown as {
-        searchJobs: (opts: Record<string, unknown>) => Promise<{ jobs: CatalogJobResult[]; total: number }>;
+        searchJobs: (
+          opts: Record<string, unknown>,
+        ) => Promise<{ jobs: CatalogJobResult[]; total: number }>;
       };
       const searchResult = await searchService
         .searchJobs({
@@ -479,7 +522,10 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
       const jobs = (searchResult.jobs || []).slice(0, args.limit || 5).map((job) => {
         const match = profile ? scoreJobMatch(profile, job) : null;
         const eligibility = match?.eligibility || classifyEligibility(job, profile || {}).status;
-        const matchBand = (match as unknown as { scoreBand?: string; band?: string } | null)?.scoreBand ?? match?.band ?? null;
+        const matchBand =
+          (match as unknown as { scoreBand?: string; band?: string } | null)?.scoreBand ??
+          match?.band ??
+          null;
         return {
           jobId: String(job._id || job.sourceJobId || ""),
           title: job.title,
@@ -534,7 +580,10 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;
       const eligibility = classifyEligibility(job, profile || {});
-      const matchBand = (match as unknown as { scoreBand?: string; band?: string } | null)?.scoreBand ?? match?.band ?? null;
+      const matchBand =
+        (match as unknown as { scoreBand?: string; band?: string } | null)?.scoreBand ??
+        match?.band ??
+        null;
       const payload = {
         jobId: String(job._id),
         title: job.title,
@@ -855,7 +904,13 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
         InterviewSession.findOne({ _id: interviewId, userId }).lean(),
         InterviewReport.findOne({ interviewId, userId }).lean(),
       ]);
-      const session = sessionDoc as { _id: unknown; role?: string; level?: string; mode?: string; status?: string } | null;
+      const session = sessionDoc as {
+        _id: unknown;
+        role?: string;
+        level?: string;
+        mode?: string;
+        status?: string;
+      } | null;
       const reportDoc = reportDocRaw as { report?: Record<string, unknown> } | null;
       if (!session) {
         return wrapUntrustedToolResult("get_interview_report", {
@@ -931,21 +986,32 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
           company: role.company || "",
           startDate: role.startDate || "",
           endDate: role.endDate || (role.isCurrent ? "present" : ""),
-          achievements: (role.achievements || []).slice(0, 4).map((a: { factId?: string; bullet?: string }) => ({
-            factId: a.factId || "",
-            bullet: String(a.bullet || "").slice(0, 220),
-          })),
+          achievements: (role.achievements || [])
+            .slice(0, 4)
+            .map((a: { factId?: string; bullet?: string }) => ({
+              factId: a.factId || "",
+              bullet: String(a.bullet || "").slice(0, 220),
+            })),
         })),
         skills: rawSkills
           .slice(0, 25)
           .map((s: unknown) => (typeof s === "string" ? s : (s as { name?: string })?.name))
           .filter(Boolean),
-        education: rawEdu.slice(0, 5).map((e: { factId?: string; degree?: string; institution?: string; graduationYear?: unknown }) => ({
-          factId: e.factId || "",
-          degree: e.degree || "",
-          institution: e.institution || "",
-          graduationYear: e.graduationYear || null,
-        })),
+        education: rawEdu
+          .slice(0, 5)
+          .map(
+            (e: {
+              factId?: string;
+              degree?: string;
+              institution?: string;
+              graduationYear?: unknown;
+            }) => ({
+              factId: e.factId || "",
+              degree: e.degree || "",
+              institution: e.institution || "",
+              graduationYear: e.graduationYear || null,
+            }),
+          ),
       };
       notifyComplete(runManager, callConfig, {
         toolName: "get_resume_facts",
@@ -1389,7 +1455,11 @@ export async function confirmProposedAction({
   }
   const cleanIdempotencyKey = String(idempotencyKey || "").trim();
   if (!cleanIdempotencyKey || cleanIdempotencyKey.length < 8) {
-    throw createHttpError("A valid idempotencyKey (min 8 chars) is required to confirm an action.", 400, "INVALID_IDEMPOTENCY_KEY");
+    throw createHttpError(
+      "A valid idempotencyKey (min 8 chars) is required to confirm an action.",
+      400,
+      "INVALID_IDEMPOTENCY_KEY",
+    );
   }
 
   const envelope = verifyActionToken(token, userId);
@@ -1398,10 +1468,17 @@ export async function confirmProposedAction({
 
   // Check in-memory idempotency / replay store first
   if (inMemoryConsumedActions.has(idemKey)) {
-    return { ...(inMemoryConsumedActions.get(idemKey) as Record<string, unknown>), idempotentReplay: true };
+    return {
+      ...(inMemoryConsumedActions.get(idemKey) as Record<string, unknown>),
+      idempotentReplay: true,
+    };
   }
   if (inMemoryConsumedActions.has(nonceKey)) {
-    throw createHttpError("This confirmation card has already been used.", 409, "ACTION_ALREADY_CONFIRMED");
+    throw createHttpError(
+      "This confirmation card has already been used.",
+      409,
+      "ACTION_ALREADY_CONFIRMED",
+    );
   }
 
   if (isMongoReady() && mongoose.isValidObjectId(userId)) {
@@ -1419,7 +1496,11 @@ export async function confirmProposedAction({
       "metadata.nonce": envelope.nonce,
     }).lean()) as { metadata?: { result?: Record<string, unknown>; nonce?: string } } | null;
     if (existingByNonce) {
-      throw createHttpError("This confirmation card has already been used.", 409, "ACTION_ALREADY_CONFIRMED");
+      throw createHttpError(
+        "This confirmation card has already been used.",
+        409,
+        "ACTION_ALREADY_CONFIRMED",
+      );
     }
   }
 
@@ -1528,11 +1609,7 @@ export async function confirmProposedAction({
       throw createHttpError("Application not found.", 404, "NOT_FOUND");
     }
     const priority = p.priority || "medium";
-    const updated = await applicationRepository.update(
-      app._id,
-      { priority },
-      { activity: true },
-    );
+    const updated = await applicationRepository.update(app._id, { priority }, { activity: true });
     await del(CacheKeys.response(userId, "kanban", 1));
     await invalidateCandidateContext(userId);
     executionResult = {

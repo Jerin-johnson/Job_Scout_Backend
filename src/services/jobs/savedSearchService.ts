@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { randomBytes } from "node:crypto";
-import { SavedSearch } from "../../models/SavedSearch.js";
-import { User } from "../../models/User.js";
+import { SavedSearch } from "../../infrastructure/database/mongoose/models/SavedSearchModel.js";
+import { User } from "../../infrastructure/database/mongoose/models/UserModel.js";
 import { isMongoReady } from "../../config/database.js";
 import { PLANS, PLAN_CONFIG } from "../../shared/constants/plans.js";
 import { jobIngestionService } from "./jobIngestionService.js";
@@ -320,7 +320,9 @@ export const savedSearchService = {
     }
     const rows = [...inMemorySavedSearches.values()]
       .filter((row) => String(row.userId) === uid)
-      .sort((a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime())
+      .sort(
+        (a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime(),
+      )
       .slice(0, limits.savedSearchesMax);
     return {
       savedSearches: rows.map((row) => formatSavedSearchDto(row, true)),
@@ -328,7 +330,10 @@ export const savedSearchService = {
     };
   },
 
-  async create(user?: UserLike | null, payload: CreateSavedSearchPayload = {}): Promise<SavedSearchDto | null> {
+  async create(
+    user?: UserLike | null,
+    payload: CreateSavedSearchPayload = {},
+  ): Promise<SavedSearchDto | null> {
     const uid = String(user?._id || user?.id || "");
     if (!uid) {
       const error = new Error("Authentication required") as Error & { statusCode?: number };
@@ -516,7 +521,10 @@ export const savedSearchService = {
 
   async preview(
     filters: Record<string, unknown> = {},
-    { limit = 5, eligibilityCountryCodes = [] }: { limit?: number; eligibilityCountryCodes?: string[] } = {},
+    {
+      limit = 5,
+      eligibilityCountryCodes = [],
+    }: { limit?: number; eligibilityCountryCodes?: string[] } = {},
   ): Promise<{
     filters: SavedSearchFilters;
     total: number;
@@ -580,7 +588,9 @@ export const savedSearchService = {
     for (const savedSearch of rows) {
       const user: UserLike | null =
         isMongoReady() && mongoose.Types.ObjectId.isValid(String(savedSearch.userId))
-          ? ((await User.findById(savedSearch.userId).select("email name plan isDeleted").lean()) as unknown as UserLike)
+          ? ((await User.findById(savedSearch.userId)
+              .select("email name plan isDeleted")
+              .lean()) as unknown as UserLike)
           : { email: "candidate@example.com", name: "Candidate", plan: PLANS.FREE };
       if (!user || user.isDeleted) {
         skipped += 1;
