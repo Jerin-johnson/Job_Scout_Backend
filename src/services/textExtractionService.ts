@@ -6,12 +6,13 @@ export const textExtractionService = {
   /**
    * Extract text from PDF buffer
    */
-  async extractPdf(buffer) {
+  async extractPdf(buffer: Buffer | Uint8Array): Promise<string> {
     try {
-      const data = await pdfParse(buffer);
+      const data = await pdfParse(buffer as Buffer);
       return this.sanitizeExtractedText(data.text);
     } catch (err) {
-      logger.error({ err: err.message }, "Failed to extract text from PDF");
+      const error = err as Error;
+      logger.error({ err: error.message }, "Failed to extract text from PDF");
       throw new Error("Unable to parse PDF content. The document may be corrupted or encrypted.");
     }
   },
@@ -19,12 +20,13 @@ export const textExtractionService = {
   /**
    * Extract text from DOCX buffer
    */
-  async extractDocx(buffer) {
+  async extractDocx(buffer: Buffer | Uint8Array): Promise<string> {
     try {
-      const result = await mammoth.extractRawText({ buffer });
+      const result = await mammoth.extractRawText({ buffer: buffer as Buffer });
       return this.sanitizeExtractedText(result.value);
     } catch (err) {
-      logger.error({ err: err.message }, "Failed to extract text from DOCX");
+      const error = err as Error;
+      logger.error({ err: error.message }, "Failed to extract text from DOCX");
       throw new Error("Unable to parse DOCX content. The document may be corrupted.");
     }
   },
@@ -33,7 +35,7 @@ export const textExtractionService = {
    * Sanitize untrusted input: strip control characters, normalize whitespace,
    * prevent prompt injection wrappers.
    */
-  sanitizeExtractedText(rawText) {
+  sanitizeExtractedText(rawText?: string | null): string {
     if (!rawText) return "";
 
     return (

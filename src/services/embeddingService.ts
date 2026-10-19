@@ -8,8 +8,42 @@ import { invokeWithTransientRetry } from "../ai/providerErrors.js";
 const MOCK_DIMENSION = 1536;
 const SYSTEM_USAGE_ID = "000000000000000000000000";
 
+export interface UserLike {
+  _id?: { toString(): string } | string;
+  id?: { toString(): string } | string;
+  plan?: string;
+  [key: string]: unknown;
+}
+
+export type UUID = `${string}-${string}-${string}-${string}-${string}`;
+
+export interface EmbeddingMetadata {
+  provider: string;
+  model: string;
+  dimension: number;
+}
+
+export interface EmbeddingResult {
+  vector: number[];
+  metadata: EmbeddingMetadata;
+}
+
+export interface EmbeddingConfig {
+  provider: string;
+  model: string;
+  dimension: number;
+  supportsOutputDimension?: boolean;
+  apiKey?: string;
+}
+
+export interface EmbeddingOptions {
+  user?: UserLike | null;
+  feature?: string;
+  requestId?: UUID | string;
+}
+
 /** Compute cosine similarity between two vectors. */
-export function cosineSimilarity(vecA, vecB) {
+export function cosineSimilarity(vecA?: number[] | null, vecB?: number[] | null): number {
   if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
   let dotProduct = 0;
   let normA = 0;
@@ -24,8 +58,8 @@ export function cosineSimilarity(vecA, vecB) {
 }
 
 /** Deterministic vectors are explicitly limited to local/test mock mode. */
-function generateMockEmbedding(text, dimensions = MOCK_DIMENSION) {
-  const embedding = new Array(dimensions).fill(0);
+function generateMockEmbedding(text: string, dimensions = MOCK_DIMENSION): number[] {
+  const embedding = new Array<number>(dimensions).fill(0);
   let hash = 0;
   for (let i = 0; i < text.length; i += 1) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
@@ -35,10 +69,10 @@ function generateMockEmbedding(text, dimensions = MOCK_DIMENSION) {
   return embedding;
 }
 
-function embeddingConfig() {
+function embeddingConfig(): EmbeddingConfig {
   if (env.EMBEDDING_PROVIDER === "voyage") {
     const flexibleModels = new Set(["voyage-4-large", "voyage-4", "voyage-4-lite", "voyage-3-large", "voyage-3.5", "voyage-3.5-lite", "voyage-code-3"]);
-    const fixedDimensions = { "voyage-large-2-instruct": 1024, "voyage-large-2": 1536, "voyage-3": 1024, "voyage-3-lite": 512, "voyage-multilingual-2": 1024 };
+    const fixedDimensions: Record<string, number> = { "voyage-large-2-instruct": 1024, "voyage-large-2": 1536, "voyage-3": 1024, "voyage-3-lite": 512, "voyage-multilingual-2": 1024 };
     const model = env.VOYAGE_EMBEDDING_MODEL;
     return {
       provider: "voyage",
@@ -56,24 +90,32 @@ function embeddingConfig() {
   };
 }
 
-function notConfiguredError() {
-  const error = new Error("The configured embedding provider is not available.");
+interface CustomHttpError extends Error {
+  statusCode?: number;
+  code?: string;
+}
+
+function notConfiguredError(): CustomHttpError {
+  const error: CustomHttpError = new Error("The configured embedding provider is not available.");
   error.statusCode = 503;
   error.code = "EMBEDDING_PROVIDER_NOT_CONFIGURED";
   return error;
 }
 
-function estimateInputTokens(text) {
+function estimateInputTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
 export const embeddingService = {
   getConfig: embeddingConfig,
 
-  async getEmbeddingsWithMetadata(texts, { user, feature = "embedding", requestId = randomUUID() } = {}) {
+  async getEmbeddingsWithMetadata(
+    texts: string[],
+    { user, feature = "embedding", requestId = randomUUID() }: EmbeddingOptions = {},
+  ): Promise<EmbeddingResult[]> {
     const normalizedTexts = (Array.isArray(texts) ? texts : []).map((text) => String(text || "").trim());
     if (normalizedTexts.some((text) => !text)) {
-      const error = new Error("Embedding inputs must not be empty.");
+      const error: CustomHttpError = new Error("Embedding inputs must not be empty.");
       error.statusCode = 400;
       error.code = "EMPTY_EMBEDDING_INPUT";
       throw error;
@@ -82,8 +124,9 @@ export const embeddingService = {
     const startedAt = performance.now();
     const config = embeddingConfig();
     const rate = getModelRate(config.provider, config.model);
+    const rateInputUsd = rate.inputUsdPerMillion ?? 0;
     const inputTokens = normalizedTexts.reduce((sum, text) => sum + estimateInputTokens(text), 0);
-    const estimatedCostUsd = (inputTokens * rate.inputUsdPerMillion) / 1_000_000;
+    const estimatedCostUsd = (inputTokens * rateInputUsd) / 1_000_000;
     const availability = await this.assertAvailable({ user, feature, estimatedCostUsd });
 
     if (availability.mock) {
@@ -93,17 +136,21 @@ export const embeddingService = {
       }));
     }
 
-    let vectors;
+    let vectors: number[][] | undefined;
     let retryCount = 0;
     try {
       vectors = await invokeWithTransientRetry(async () => {
         if (config.provider === "voyage") {
           const { VoyageAIClient } = await import("voyageai");
           const client = new VoyageAIClient({ apiKey: config.apiKey, maxRetries: 0 });
-          const request = { input: normalizedTexts, model: config.model, maxRetries: 0 };
+          const request: { input: string[]; model: string; maxRetries: number; output_dimension?: number } = {
+            input: normalizedTexts,
+            model: config.model,
+            maxRetries: 0,
+          };
           if (config.supportsOutputDimension) request.output_dimension = config.dimension;
           const response = await client.embed(request);
-          return response.data?.map((item) => item.embedding);
+          return (response.data || []).map((item) => (item.embedding || []) as number[]);
         }
         const { OpenAIEmbeddings } = await import("@langchain/openai");
         const embeddings = new OpenAIEmbeddings({
@@ -118,14 +165,15 @@ export const embeddingService = {
         onRetry: (count) => { retryCount = count; },
       });
     } catch (error) {
-      logger.warn({ provider: config.provider, model: config.model, errorCode: error?.code }, "Embedding batch request failed");
+      const err = error as CustomHttpError;
+      logger.warn({ provider: config.provider, model: config.model, errorCode: err?.code }, "Embedding batch request failed");
       await quotaService.recordUsage({
         userId: user?._id?.toString() || user?.id?.toString() || SYSTEM_USAGE_ID,
         userPlan: user?.plan,
         feature,
         provider: config.provider,
         model: `${config.provider}/${config.model}`,
-        requestId,
+        requestId: requestId as UUID,
         attemptId: randomUUID(),
         status: "failed",
         outcome: "provider_error",
@@ -139,19 +187,19 @@ export const embeddingService = {
       throw error;
     }
     if (!Array.isArray(vectors) || vectors.length !== normalizedTexts.length || vectors.some((vector) => !Array.isArray(vector) || !vector.length || vector.some((value) => !Number.isFinite(value)))) {
-      const error = new Error("Embedding provider returned an invalid vector batch.");
+      const error: CustomHttpError = new Error("Embedding provider returned an invalid vector batch.");
       error.statusCode = 502;
       error.code = "INVALID_EMBEDDING_RESPONSE";
       throw error;
     }
-    const costUsd = (inputTokens * rate.inputUsdPerMillion) / 1_000_000;
+    const costUsd = (inputTokens * rateInputUsd) / 1_000_000;
     await quotaService.recordUsage({
       userId: user?._id?.toString() || user?.id?.toString() || SYSTEM_USAGE_ID,
       userPlan: user?.plan,
       feature,
       provider: config.provider,
       model: `${config.provider}/${config.model}`,
-      requestId,
+      requestId: requestId as UUID,
       attemptId: randomUUID(),
       status: "success",
       outcome: "success",
@@ -165,30 +213,42 @@ export const embeddingService = {
     return vectors.map((vector) => ({ vector, metadata: { provider: config.provider, model: config.model, dimension: vector.length } }));
   },
 
-  async assertAvailable({ user, feature = "embedding", estimatedCostUsd = 0 } = {}) {
+  async assertAvailable({
+    user,
+    feature = "embedding",
+    estimatedCostUsd = 0,
+  }: {
+    user?: UserLike | null;
+    feature?: string;
+    estimatedCostUsd?: number;
+  } = {}): Promise<EmbeddingConfig & { rate: ReturnType<typeof getModelRate>; mock: boolean }> {
     if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd });
     else await quotaService.assertAIEnabled();
     const config = embeddingConfig();
     const rate = getModelRate(config.provider, config.model);
-    const configured = Boolean(config.apiKey) && !/^dummy/i.test(config.apiKey);
+    const configured = Boolean(config.apiKey) && !/^dummy/i.test(config.apiKey || "");
     const mockAllowed = env.NODE_ENV !== "production" && env.AI_ALLOW_MOCKS;
     if (!configured && !mockAllowed) throw notConfiguredError();
     return { ...config, rate, mock: !configured };
   },
 
-  async getEmbeddingWithMetadata(text, { user, feature = "embedding", requestId = randomUUID() } = {}) {
+  async getEmbeddingWithMetadata(
+    text: string,
+    { user, feature = "embedding", requestId = randomUUID() }: EmbeddingOptions = {},
+  ): Promise<EmbeddingResult> {
     const startedAt = performance.now();
     const normalizedText = String(text || "").trim();
     if (!normalizedText) {
-      const error = new Error("Embedding input must not be empty.");
+      const error: CustomHttpError = new Error("Embedding input must not be empty.");
       error.statusCode = 400;
       error.code = "EMPTY_EMBEDDING_INPUT";
       throw error;
     }
     const config = embeddingConfig();
     const rate = getModelRate(config.provider, config.model);
+    const rateInputUsd = rate.inputUsdPerMillion ?? 0;
     const inputTokens = estimateInputTokens(normalizedText);
-    const estimatedCostUsd = (inputTokens * rate.inputUsdPerMillion) / 1_000_000;
+    const estimatedCostUsd = (inputTokens * rateInputUsd) / 1_000_000;
     const availability = await this.assertAvailable({ user, feature, estimatedCostUsd });
 
     if (availability.mock) {
@@ -198,15 +258,15 @@ export const embeddingService = {
       };
     }
 
-    let vector;
+    let vector: number[] | undefined;
     let retryCount = 0;
     try {
       vector = await invokeWithTransientRetry(async () => {
         if (config.provider === "voyage") {
           const { VoyageAIClient } = await import("voyageai");
           const client = new VoyageAIClient({ apiKey: config.apiKey, maxRetries: 0 });
-          const response = await client.embed({ input: [normalizedText], model: config.model, maxRetries: 0 });
-          return response.data?.[0]?.embedding;
+          const response = await client.embed({ input: [normalizedText], model: config.model });
+          return response.data?.[0]?.embedding as number[] | undefined;
         }
         const { OpenAIEmbeddings } = await import("@langchain/openai");
         const embeddings = new OpenAIEmbeddings({
@@ -221,14 +281,15 @@ export const embeddingService = {
         onRetry: (count) => { retryCount = count; },
       });
     } catch (error) {
-      logger.warn({ provider: config.provider, model: config.model, errorCode: error?.code }, "Embedding provider request failed");
+      const err = error as CustomHttpError;
+      logger.warn({ provider: config.provider, model: config.model, errorCode: err?.code }, "Embedding provider request failed");
       await quotaService.recordUsage({
         userId: user?._id?.toString() || user?.id?.toString() || SYSTEM_USAGE_ID,
         userPlan: user?.plan,
         feature,
         provider: config.provider,
         model: `${config.provider}/${config.model}`,
-        requestId,
+        requestId: requestId as UUID,
         attemptId: randomUUID(),
         status: "failed",
         outcome: "provider_error",
@@ -242,21 +303,21 @@ export const embeddingService = {
       throw error;
     }
     if (!Array.isArray(vector) || vector.length === 0 || vector.some((value) => !Number.isFinite(value))) {
-      const error = new Error("Embedding provider returned an invalid vector.");
+      const error: CustomHttpError = new Error("Embedding provider returned an invalid vector.");
       error.statusCode = 502;
       error.code = "INVALID_EMBEDDING_RESPONSE";
       throw error;
     }
 
     const actualTokens = inputTokens;
-    const costUsd = (actualTokens * rate.inputUsdPerMillion) / 1_000_000;
+    const costUsd = (actualTokens * rateInputUsd) / 1_000_000;
     await quotaService.recordUsage({
       userId: user?._id?.toString() || user?.id?.toString() || SYSTEM_USAGE_ID,
       userPlan: user?.plan,
       feature,
       provider: config.provider,
       model: `${config.provider}/${config.model}`,
-      requestId,
+      requestId: requestId as UUID,
       attemptId: randomUUID(),
       status: "success",
       outcome: "success",
@@ -274,7 +335,7 @@ export const embeddingService = {
     };
   },
 
-  async getEmbedding(text, options) {
+  async getEmbedding(text: string, options?: EmbeddingOptions): Promise<number[]> {
     const result = await this.getEmbeddingWithMetadata(text, options);
     return result.vector;
   },

@@ -9,8 +9,8 @@ import { interviewRepository } from "../repositories/interviewRepository.js";
 import { MODEL_PRICING_VERSION } from "../ai/modelPricingCatalog.js";
 
 // In-memory counters for offline/test mode
-const inMemoryCounters = new Map();
-const inMemoryIdempotency = new Map();
+const inMemoryCounters = new Map<string, number>();
+const inMemoryIdempotency = new Map<string, number>();
 
 const IDEMPOTENT_INCREMENT_SCRIPT = `
 local prior = redis.call('GET', KEYS[2])
@@ -24,26 +24,93 @@ redis.call('SET', KEYS[2], next, 'EX', tonumber(ARGV[3]), 'NX')
 return { next, 1 }
 `;
 
-function quotaStoreError() {
-  const error = new Error("AI usage controls are temporarily unavailable. Please retry shortly.");
+export interface QuotaError extends Error {
+  statusCode?: number;
+  code?: string;
+  retryable?: boolean;
+}
+
+export interface QuotaUserLike {
+  _id?: unknown;
+  id?: unknown;
+  plan?: string | unknown;
+  planVersion?: string | unknown;
+}
+
+export interface ChatEntitlements {
+  plan: string;
+  toolsEnabled: boolean;
+  maxToolCallsPerTurn: number;
+  maxToolCallsDaily: number;
+  toolCallsUsedToday: number;
+  turnTokenBudget: number;
+  maxOutputTokens: number;
+  allowedModelTier: string;
+  degraded: boolean;
+  degradationReason: string | null;
+  dailySpendUsd: number;
+  dailyBudgetUsd: number;
+}
+
+export interface UsageReservation {
+  reservationId: string;
+  userId: string;
+  userPlan: string;
+  planVersion: string;
+  feature: string;
+  provider: string;
+  model: string;
+  requestId: string | null;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  estimatedCostUsd: number;
+  startedAt: number;
+}
+
+export interface RecordUsageOptions {
+  userId: string;
+  userPlan?: string;
+  planVersion?: string;
+  feature?: string;
+  provider?: string;
+  model?: string;
+  requestId?: string | null;
+  attemptId?: string | null;
+  status?: string;
+  outcome?: string;
+  usageIsEstimated?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd?: number;
+  latencyMs?: number;
+  retryCount?: number;
+  pricingVersion?: string;
+}
+
+function quotaStoreError(): QuotaError {
+  const error: QuotaError = new Error("AI usage controls are temporarily unavailable. Please retry shortly.");
   error.statusCode = 503;
   error.code = "AI_USAGE_STORE_UNAVAILABLE";
   error.retryable = true;
   return error;
 }
 
-function requireQuotaStore() {
+function requireQuotaStore(): boolean {
   if (isRedisReady()) return true;
   if (env.NODE_ENV !== "production" && env.AI_ALLOW_MOCKS) return false;
   throw quotaStoreError();
 }
 
-function inMemoryModeAllowed() {
-  return env.NODE_ENV !== "production" && env.AI_ALLOW_MOCKS;
+function inMemoryModeAllowed(): boolean {
+  return Boolean(env.NODE_ENV !== "production" && env.AI_ALLOW_MOCKS);
 }
 
-function counterLimit(plan, feature) {
-  const quotas = (PLAN_CONFIG[plan] || PLAN_CONFIG[PLANS.FREE]).quotas;
+function counterLimit(plan: string, feature: string): number {
+  const planKey = (plan in PLAN_CONFIG ? plan : PLANS.FREE) as keyof typeof PLAN_CONFIG;
+  const quotas = PLAN_CONFIG[planKey].quotas as unknown as Record<string, number>;
   if (feature === "chat") return quotas.chatMessagesDaily;
   if (feature === "chat_tool") return quotas.chatToolCallsDaily || 25;
   if (feature === "match_jobs") return quotas.dailyMatches;
@@ -52,7 +119,7 @@ function counterLimit(plan, feature) {
   return 0;
 }
 
-function quotaLimitError(feature, count, limit) {
+function quotaLimitError(feature: string, count: number, limit: number): QuotaError {
   const label =
     feature === "chat"
       ? "Daily chat"
@@ -63,25 +130,25 @@ function quotaLimitError(feature, count, limit) {
           : feature === "resume_match_suggestions"
             ? "Monthly resume match suggestions"
             : "Monthly tailored resume";
-  const error = new Error(`${label} quota reached (${count}/${limit}).`);
+  const error: QuotaError = new Error(`${label} quota reached (${count}/${limit}).`);
   error.statusCode = 429;
   error.code = "QUOTA_EXCEEDED";
   return error;
 }
 
-function getDayKey(date = new Date()) {
+function getDayKey(date = new Date()): string {
   return date.toISOString().split("T")[0];
 }
 
-function getMonthKey(date = new Date()) {
+function getMonthKey(date = new Date()): string {
   const parts = date.toISOString().split("T")[0].split("-");
   return `${parts[0]}-${parts[1]}`;
 }
 
 export const quotaService = {
-  async assertAIEnabled() {
+  async assertAIEnabled(): Promise<boolean> {
     if (env.AI_KILL_SWITCH) {
-      const err = new Error("AI services are temporarily unavailable. Please try again later.");
+      const err: QuotaError = new Error("AI services are temporarily unavailable. Please try again later.");
       err.statusCode = 503;
       err.code = "AI_KILL_SWITCH_ACTIVE";
       throw err;
@@ -90,19 +157,22 @@ export const quotaService = {
     return true;
   },
 
-  isChatToolsEnabled() {
+  isChatToolsEnabled(): boolean {
     return !env.AI_KILL_SWITCH && !env.AI_CHAT_TOOLS_KILL_SWITCH;
   },
 
-  async getChatEntitlements(user) {
-    const plan = user?.plan || PLANS.FREE;
-    const planConfig = PLAN_CONFIG[plan] || PLAN_CONFIG[PLANS.FREE];
-    const userId = user?._id ? user._id.toString() : user?.id ? user.id.toString() : "";
+  async getChatEntitlements(user?: QuotaUserLike | null): Promise<ChatEntitlements> {
+    const plan = (user?.plan as string) || PLANS.FREE;
+    const planKey = (plan in PLAN_CONFIG ? plan : PLANS.FREE) as keyof typeof PLAN_CONFIG;
+    const planConfig = PLAN_CONFIG[planKey];
+    const userId = user?._id ? String(user._id) : user?.id ? String(user.id) : "";
     const day = getDayKey();
     const dailySpend = userId ? await this.getDailySpendUsd(userId, day) : 0;
     const dailyBudget = planConfig.quotas.dailyUsdBudget || env.DAILY_USER_USD_BUDGET;
     const toolCallsToday = userId ? await this.getCounter(`quota:${userId}:chat_tool:${day}`) : 0;
-    const toolCallsDailyLimit = planConfig.quotas.chatToolCallsDaily || 25;
+    const chatQuotas = planConfig.quotas as unknown as Record<string, number>;
+    const chatFeatures = planConfig.features as unknown as Record<string, string>;
+    const toolCallsDailyLimit = chatQuotas.chatToolCallsDaily || 25;
     const nearBudget = dailyBudget > 0 && dailySpend >= dailyBudget * 0.8;
     const toolsExhausted = toolCallsToday >= toolCallsDailyLimit;
     const killSwitchActive = !this.isChatToolsEnabled();
@@ -110,16 +180,15 @@ export const quotaService = {
 
     return {
       plan,
-      toolsEnabled: !degraded && (planConfig.quotas.chatToolCallsPerTurn || 2) > 0,
-      maxToolCallsPerTurn: degraded ? 0 : planConfig.quotas.chatToolCallsPerTurn || 2,
-
+      toolsEnabled: !degraded && (chatQuotas.chatToolCallsPerTurn || 2) > 0,
+      maxToolCallsPerTurn: degraded ? 0 : chatQuotas.chatToolCallsPerTurn || 2,
       maxToolCallsDaily: toolCallsDailyLimit,
       toolCallsUsedToday: toolCallsToday,
       turnTokenBudget: nearBudget
-        ? Math.min(1800, planConfig.quotas.chatTurnTokenBudget || 4000)
-        : planConfig.quotas.chatTurnTokenBudget || 4000,
+        ? Math.min(1800, chatQuotas.chatTurnTokenBudget || 4000)
+        : chatQuotas.chatTurnTokenBudget || 4000,
       maxOutputTokens: nearBudget ? 450 : 1200,
-      allowedModelTier: nearBudget ? "small" : planConfig.features.chatModelTier || "small",
+      allowedModelTier: nearBudget ? "small" : chatFeatures.chatModelTier || "small",
       degraded,
       degradationReason: killSwitchActive
         ? "kill_switch"
@@ -142,15 +211,24 @@ export const quotaService = {
     estimatedInputTokens = 0,
     estimatedOutputTokens = 0,
     estimatedCostUsd = 0,
-  }) {
+  }: {
+    user?: QuotaUserLike | null;
+    feature?: string;
+    model?: string;
+    provider?: string;
+    requestId?: string | null;
+    estimatedInputTokens?: number;
+    estimatedOutputTokens?: number;
+    estimatedCostUsd?: number;
+  }): Promise<UsageReservation | null> {
     const userId = user?._id ? user._id.toString() : user?.id ? user.id.toString() : null;
     if (!userId) return null;
     const attemptId = `res_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     return {
       reservationId: attemptId,
       userId,
-      userPlan: user?.plan || PLANS.FREE,
-      planVersion: user?.planVersion || "unversioned",
+      userPlan: (user?.plan as string) || PLANS.FREE,
+      planVersion: (user?.planVersion as string) || "unversioned",
       feature,
       provider,
       model,
@@ -162,7 +240,10 @@ export const quotaService = {
     };
   },
 
-  async settleUsage(reservation, actual = {}) {
+  async settleUsage(
+    reservation: UsageReservation | null,
+    actual: Partial<RecordUsageOptions> = {},
+  ): Promise<boolean | null> {
     if (!reservation?.userId) return null;
     const latencyMs =
       actual.latencyMs ??
@@ -192,29 +273,33 @@ export const quotaService = {
   },
 
   async reserveInterviewSession(
-    user,
+    user: QuotaUserLike,
     {
       sessionId,
       day,
       allowFreeTrial = process.env.MOCK_INTERVIEW_FREE_TRIAL_ENABLED === "true",
-    } = {},
+    }: {
+      sessionId: string;
+      day: string;
+      allowFreeTrial?: boolean;
+    },
   ) {
-    const plan = user.plan || PLANS.FREE;
-    const userId = user._id ? user._id.toString() : user.id;
+    const plan = (user.plan as string) || PLANS.FREE;
+    const userId = user._id ? user._id.toString() : (user.id as string);
     const isPremium = plan === PLANS.PREMIUM;
     const limit = Math.max(
       1,
       Number.parseInt(process.env.MOCK_INTERVIEW_PREMIUM_DAILY_LIMIT || "3", 10) || 3,
     );
     if (!isPremium && !allowFreeTrial) {
-      const error = new Error("Mock interviews require Premium access");
+      const error: QuotaError = new Error("Mock interviews require Premium access");
       error.statusCode = 403;
       error.code = "PLAN_UPGRADE_REQUIRED";
       throw error;
     }
 
     if (!sessionId || !day) {
-      const error = new Error("A session id and user's local quota day are required");
+      const error: QuotaError = new Error("A session id and user's local quota day are required");
       error.statusCode = 400;
       error.code = "INVALID_QUOTA_RESERVATION";
       throw error;
@@ -227,7 +312,7 @@ export const quotaService = {
       limit,
     });
     if (!reservation) {
-      const error = new Error(`Daily mock interview limit reached (${limit} per day)`);
+      const error: QuotaError = new Error(`Daily mock interview limit reached (${limit} per day)`);
       error.statusCode = 429;
       error.code = "QUOTA_EXCEEDED";
       throw error;
@@ -238,13 +323,19 @@ export const quotaService = {
   /**
    * Check if user has quota for a specific feature before executing LLM/graph
    */
-  async checkQuota(user, feature, { estimatedCostUsd = 0, featureQuotaAccepted = false } = {}) {
+  async checkQuota(
+    user?: QuotaUserLike | null,
+    feature = "chat",
+    { estimatedCostUsd = 0, featureQuotaAccepted = false }: { estimatedCostUsd?: number; featureQuotaAccepted?: boolean } = {},
+  ): Promise<boolean> {
     // 1. Check Global AI Kill Switch
     await this.assertAIEnabled();
+    if (!user) return true;
 
-    const plan = user.plan || PLANS.FREE;
-    const planConfig = PLAN_CONFIG[plan] || PLAN_CONFIG[PLANS.FREE];
-    const userId = user._id ? user._id.toString() : user.id;
+    const plan = (user.plan as string) || PLANS.FREE;
+    const planKey = (plan in PLAN_CONFIG ? plan : PLANS.FREE) as keyof typeof PLAN_CONFIG;
+    const planConfig = PLAN_CONFIG[planKey];
+    const userId = user._id ? String(user._id) : user.id ? String(user.id) : "";
     const day = getDayKey();
     const month = getMonthKey();
 
@@ -270,7 +361,7 @@ export const quotaService = {
       }
     }
     if (dailySpend >= userBudget) {
-      const err = new Error(
+      const err: QuotaError = new Error(
         `Daily AI budget exceeded ($${dailySpend.toFixed(2)} / $${userBudget.toFixed(2)}). Upgrade your plan or wait until tomorrow.`,
       );
       err.statusCode = 429;
@@ -285,7 +376,7 @@ export const quotaService = {
         { globalSpend, cap: env.GLOBAL_DAILY_USD_CAP },
         "Global daily USD cap reached! Rejecting heavy actions.",
       );
-      const err = new Error(
+      const err: QuotaError = new Error(
         "Global service capacity reached for today. Please try again tomorrow.",
       );
       err.statusCode = 429;
@@ -315,11 +406,14 @@ export const quotaService = {
     }
 
     // 4. Feature-specific limits
+    const quotas = planConfig.quotas as unknown as Record<string, number>;
+    const features = planConfig.features as unknown as Record<string, boolean>;
+
     if (feature === "chat") {
       const count = await this.getCounter(`quota:${userId}:chat:${day}`);
-      const limit = planConfig.quotas.chatMessagesDaily;
+      const limit = quotas.chatMessagesDaily;
       if (count >= limit) {
-        const err = new Error(
+        const err: QuotaError = new Error(
           `Daily chat quota reached (${count}/${limit} messages). Upgrade to Pro for higher limits.`,
         );
         err.statusCode = 429;
@@ -328,9 +422,9 @@ export const quotaService = {
       }
     } else if (feature === "match_jobs") {
       const count = await this.getCounter(`quota:${userId}:match:${day}`);
-      const limit = planConfig.quotas.dailyMatches;
+      const limit = quotas.dailyMatches;
       if (count >= limit) {
-        const err = new Error(
+        const err: QuotaError = new Error(
           `Daily job match quota reached (${count}/${limit} matches). Upgrade your plan for more.`,
         );
         err.statusCode = 429;
@@ -339,9 +433,9 @@ export const quotaService = {
       }
     } else if (feature === "tailor_resume") {
       const count = await this.getCounter(`quota:${userId}:tailor:${month}`);
-      const limit = planConfig.quotas.tailoredDocsMonthly;
+      const limit = quotas.tailoredDocsMonthly;
       if (count >= limit) {
-        const err = new Error(
+        const err: QuotaError = new Error(
           `Monthly tailored resume quota reached (${count}/${limit} docs). Upgrade to continue tailoring.`,
         );
         err.statusCode = 429;
@@ -350,21 +444,21 @@ export const quotaService = {
       }
     } else if (feature === "resume_match_suggestions" && !featureQuotaAccepted) {
       const count = await this.getCounter(`quota:${userId}:resume-match-suggestions:${month}`);
-      const limit = planConfig.quotas.resumeMatchSuggestionsMonthly;
+      const limit = quotas.resumeMatchSuggestionsMonthly;
       if (count >= limit) throw quotaLimitError(feature, count, limit);
     } else if (
       feature === "interview_prep" ||
       feature === "mock_interview" ||
       feature === "mock_interview_trial"
     ) {
-      if (!planConfig.features.interviewPrep && feature === "interview_prep") {
-        const err = new Error("Interview prep requires a Pro or Premium subscription");
+      if (!features.interviewPrep && feature === "interview_prep") {
+        const err: QuotaError = new Error("Interview prep requires a Pro or Premium subscription");
         err.statusCode = 403;
         err.code = "PLAN_UPGRADE_REQUIRED";
         throw err;
       }
-      if (!planConfig.features.mockInterview && feature === "mock_interview") {
-        const err = new Error("Mock interviews require a Premium subscription");
+      if (!features.mockInterview && feature === "mock_interview") {
+        const err: QuotaError = new Error("Mock interviews require a Premium subscription");
         err.statusCode = 403;
         err.code = "PLAN_UPGRADE_REQUIRED";
         throw err;
@@ -377,17 +471,22 @@ export const quotaService = {
   /**
    * Increment quota counter in Redis (INCR + EXPIRE)
    */
-  async incrementQuota(userId, feature, idempotencyKey, userPlan = PLANS.FREE) {
+  async incrementQuota(
+    userId: string,
+    feature: string,
+    idempotencyKey?: string | null,
+    userPlan = PLANS.FREE,
+  ): Promise<number> {
     if (!idempotencyKey) {
-      const error = new Error("An idempotency key is required to count an AI operation");
+      const error: QuotaError = new Error("An idempotency key is required to count an AI operation");
       error.statusCode = 400;
       error.code = "IDEMPOTENCY_KEY_REQUIRED";
       throw error;
     }
     const day = getDayKey();
     const month = getMonthKey();
-    let key;
-    let ttl;
+    let key: string;
+    let ttl: number;
 
     if (feature === "tailor_resume") {
       key = `quota:${userId}:tailor:${month}`;
@@ -425,7 +524,7 @@ export const quotaService = {
 
     try {
       const redis = getRedisClient();
-      const [count, state] = await redis.eval(
+      const evalResult = await redis.eval(
         IDEMPOTENT_INCREMENT_SCRIPT,
         2,
         key,
@@ -433,11 +532,13 @@ export const quotaService = {
         limit,
         ttl,
         86400,
-      );
+      ) as [number, number];
+      const [count, state] = evalResult;
       if (Number(state) === -1) throw quotaLimitError(feature, Number(count), limit);
       return Number(count);
     } catch (error) {
-      if (error.code === "QUOTA_EXCEEDED") throw error;
+      const err = error as QuotaError;
+      if (err.code === "QUOTA_EXCEEDED") throw error;
       if (env.NODE_ENV === "production" || !env.AI_ALLOW_MOCKS) throw quotaStoreError();
       const next = (inMemoryCounters.get(key) || 0) + 1;
       inMemoryCounters.set(key, next);
@@ -470,7 +571,7 @@ export const quotaService = {
     latencyMs = 0,
     retryCount = 0,
     pricingVersion = MODEL_PRICING_VERSION,
-  }) {
+  }: RecordUsageOptions): Promise<void> {
     const day = getDayKey();
 
     // Persist the ledger before returning a successful provider result. In production,
@@ -500,12 +601,13 @@ export const quotaService = {
           pricingVersion,
         });
       } catch (cause) {
+        const err = cause as { code?: string };
         logger.error(
-          { errorCode: cause?.code || "USAGE_LEDGER_WRITE_FAILED" },
+          { errorCode: err?.code || "USAGE_LEDGER_WRITE_FAILED" },
           "Could not persist AI usage ledger row",
         );
         if (env.NODE_ENV === "production") {
-          const error = new Error("AI usage ledger is temporarily unavailable.");
+          const error: QuotaError = new Error("AI usage ledger is temporarily unavailable.");
           error.statusCode = 503;
           error.code = "AI_USAGE_LEDGER_UNAVAILABLE";
           error.retryable = true;
@@ -514,7 +616,7 @@ export const quotaService = {
         throw cause;
       }
     } else if (env.NODE_ENV === "production") {
-      const error = new Error("AI usage ledger is temporarily unavailable.");
+      const error: QuotaError = new Error("AI usage ledger is temporarily unavailable.");
       error.statusCode = 503;
       error.code = "AI_USAGE_LEDGER_UNAVAILABLE";
       error.retryable = true;
@@ -529,7 +631,8 @@ export const quotaService = {
     await this.incrByFloat(globalSpendKey, costUsd, 86400 * 2);
 
     // 2. Alert if user's monthly LLM cost exceeds 25% of plan revenue
-    const planConfig = PLAN_CONFIG[userPlan] || PLAN_CONFIG[PLANS.FREE];
+    const planKey = (userPlan in PLAN_CONFIG ? userPlan : PLANS.FREE) as keyof typeof PLAN_CONFIG;
+    const planConfig = PLAN_CONFIG[planKey];
     const planRevenue = planConfig.priceUsd;
     if (planRevenue > 0 && costUsd > 0) {
       const monthSpendKey = `spend:user:${userId}:month:${getMonthKey()}`;
@@ -561,7 +664,7 @@ export const quotaService = {
     }
   },
 
-  async getCounter(key) {
+  async getCounter(key: string): Promise<number> {
     if (!isRedisReady()) {
       if (!inMemoryModeAllowed()) throw quotaStoreError();
       return inMemoryCounters.get(key) || 0;
@@ -576,7 +679,7 @@ export const quotaService = {
     }
   },
 
-  async getSpendValue(key) {
+  async getSpendValue(key: string): Promise<number> {
     if (!isRedisReady()) {
       if (!inMemoryModeAllowed()) throw quotaStoreError();
       return Number(inMemoryCounters.get(key) || 0);
@@ -590,7 +693,7 @@ export const quotaService = {
     }
   },
 
-  async incrWithExpire(key, ttlSeconds) {
+  async incrWithExpire(key: string, ttlSeconds: number): Promise<number> {
     if (!isRedisReady()) {
       if (!inMemoryModeAllowed()) throw quotaStoreError();
       const next = (inMemoryCounters.get(key) || 0) + 1;
@@ -612,7 +715,7 @@ export const quotaService = {
     }
   },
 
-  async incrByFloat(key, amount, ttlSeconds) {
+  async incrByFloat(key: string, amount: number, ttlSeconds: number): Promise<number> {
     if (!isRedisReady()) {
       if (!inMemoryModeAllowed()) throw quotaStoreError();
       const current = inMemoryCounters.get(key) || 0;
@@ -637,7 +740,7 @@ export const quotaService = {
     }
   },
 
-  async getDailySpendUsd(userId, day = getDayKey()) {
+  async getDailySpendUsd(userId: string, day = getDayKey()): Promise<number> {
     const key = `spend:user:${userId}:${day}`;
     if (!isRedisReady()) {
       if (!inMemoryModeAllowed()) throw quotaStoreError();
@@ -653,7 +756,7 @@ export const quotaService = {
     }
   },
 
-  async getGlobalDailySpendUsd(day = getDayKey()) {
+  async getGlobalDailySpendUsd(day = getDayKey()): Promise<number> {
     const key = `spend:global:${day}`;
     if (!isRedisReady()) {
       if (!inMemoryModeAllowed()) throw quotaStoreError();

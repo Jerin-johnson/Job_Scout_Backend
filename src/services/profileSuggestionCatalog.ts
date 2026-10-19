@@ -1,4 +1,35 @@
-export const ROLE_SUGGESTIONS = Object.freeze([
+export interface RoleSuggestion {
+  code: string;
+  family: string;
+  label: string;
+  aliases: string[];
+}
+
+export interface PlaceSpecialOption {
+  code: string;
+  label: string;
+  type: string;
+  countryCode?: string;
+}
+
+export interface CountryAlias {
+  code: string;
+  label: string;
+  aliases: string[];
+}
+
+export interface PlaceSuggestion {
+  code: string;
+  label: string;
+  aliases: string[];
+  subdivisionCode: string | null;
+  district: string | null;
+  countryCode: string;
+  country: string;
+  type?: string;
+}
+
+export const ROLE_SUGGESTIONS: readonly RoleSuggestion[] = Object.freeze([
   { code: "software-engineer", family: "software", label: "Software Engineer", aliases: ["software engineer", "software developer", "software engineering", "software deployment engineer", "backend engineer", "backend developer", "front end engineer", "frontend engineer", "full stack developer", "web developer", "programmer", "application developer", "systems engineer", "postgres engineer", "c++ engineer", "product engineer", "technical lead engineering", "chief technology officer", "field cto"] },
   { code: "devops-engineer", family: "software", label: "DevOps Engineer", aliases: ["devops engineer", "site reliability engineer", "sre", "platform engineer", "cloud engineer", "solutions architect", "partner solutions architect"] },
   { code: "data-analyst", family: "data", label: "Data Analyst", aliases: ["data analyst", "analytics analyst", "reporting analyst"] },
@@ -37,17 +68,19 @@ export const ROLE_SUGGESTIONS = Object.freeze([
 
 export const PLACE_CATALOG_VERSION = "in-place-aliases-v2";
 // ISO 3166-2 India principal state/UT codes used by this curated place list.
-export const ISO_SUBDIVISION_CODES = Object.freeze(new Set([
+export const ISO_SUBDIVISION_CODES: ReadonlySet<string> = Object.freeze(new Set([
   "IN-KL", "IN-DL", "IN-UP", "IN-HR", "IN-MH", "IN-TN", "IN-AP", "IN-KA",
   "IN-CT", "IN-JH", "IN-AS", "IN-RJ", "IN-PB", "IN-WB", "IN-TG", "IN-GJ",
   "IN-MP", "IN-BR", "IN-CH",
 ]));
-export const PLACE_SPECIAL_OPTIONS = Object.freeze([
+
+export const PLACE_SPECIAL_OPTIONS: readonly PlaceSpecialOption[] = Object.freeze([
   { code: "remote", label: "Remote", type: "option" },
   { code: "anywhere-in-india", label: "Anywhere in India", type: "option", countryCode: "IN" },
   { code: "anywhere-in-world", label: "Anywhere in the world", type: "option" },
 ]);
-export const COUNTRY_ALIASES = Object.freeze([
+
+export const COUNTRY_ALIASES: readonly CountryAlias[] = Object.freeze([
   { code: "AE", label: "United Arab Emirates", aliases: ["UAE"] },
   { code: "SA", label: "Saudi Arabia", aliases: ["KSA"] },
   { code: "GB", label: "United Kingdom", aliases: ["UK", "England"] },
@@ -65,7 +98,9 @@ export const COUNTRY_ALIASES = Object.freeze([
   { code: "NZ", label: "New Zealand", aliases: [] },
 ]);
 
-const places = [
+type RawPlaceTuple = [string, string[], string | null, string, string];
+
+const places: RawPlaceTuple[] = [
   ["Kollam", ["Quilon"], "IN-KL", "in-kerala-kollam", "India"],
   ["Pathanamthitta", [], "IN-KL", "in-kerala-pathanamthitta", "India"],
   ["Alappuzha", ["Alleppey"], "IN-KL", "in-kerala-alappuzha", "India"],
@@ -141,21 +176,21 @@ const places = [
   ["Auckland", [], null, "nz-auckland", "New Zealand"],
 ];
 
-export const PLACE_SUGGESTIONS = Object.freeze(places.map(([label, aliases, subdivisionCode, code, country]) => ({
+export const PLACE_SUGGESTIONS: readonly PlaceSuggestion[] = Object.freeze(places.map(([label, aliases, subdivisionCode, code, country]) => ({
   code, label, aliases, subdivisionCode, district: label === "Kochi" ? "Ernakulam" : null, countryCode: country === "India" ? "IN" : country === "United Arab Emirates" ? "AE" : country === "Saudi Arabia" ? "SA" : country === "Qatar" ? "QA" : country === "Oman" ? "OM" : country === "Kuwait" ? "KW" : country === "Bahrain" ? "BH" : country === "United Kingdom" ? "GB" : country === "Ireland" ? "IE" : country === "Canada" ? "CA" : country === "Germany" ? "DE" : country === "Singapore" ? "SG" : country === "New Zealand" ? "NZ" : country === "United States" ? "US" : "AU",
   country,
 })));
 
-export function normalizeSuggestionQuery(value = "") {
+export function normalizeSuggestionQuery(value = ""): string {
   return String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 
-export function suggestRoles(query) {
+export function suggestRoles(query?: string): RoleSuggestion[] {
   const q = normalizeSuggestionQuery(query);
   const direct = ROLE_SUGGESTIONS.filter((role) => [role.label, ...role.aliases].some((item) => normalizeSuggestionQuery(item).includes(q)));
   if (direct.length || q.length < 5) return direct.slice(0, 12);
-  const distance = (left, right) => {
+  const distance = (left: string, right: string): number => {
     let row = Array.from({ length: right.length + 1 }, (_, index) => index);
     for (let i = 1; i <= left.length; i += 1) {
       const next = [i];
@@ -169,19 +204,19 @@ export function suggestRoles(query) {
     .sort((a, b) => a.distance - b.distance).slice(0, 8).map(({ role }) => role);
 }
 
-export function suggestPlaces(query) {
+export function suggestPlaces(query?: string): Array<PlaceSpecialOption | PlaceSuggestion> {
   const q = normalizeSuggestionQuery(query);
   const special = PLACE_SPECIAL_OPTIONS.filter((option) => normalizeSuggestionQuery(option.label) === q);
-  const countryMatches = COUNTRY_ALIASES.filter((country) => [country.label, ...country.aliases]
+  const countryMatches: PlaceSuggestion[] = COUNTRY_ALIASES.filter((country) => [country.label, ...country.aliases]
     .some((item) => normalizeSuggestionQuery(item).includes(q)))
-    .map((country) => ({ code: country.code.toLowerCase(), label: country.label, aliases: country.aliases, countryCode: country.code, country: country.label, type: "country" }));
+    .map((country) => ({ code: country.code.toLowerCase(), label: country.label, aliases: country.aliases, subdivisionCode: null, district: null, countryCode: country.code, country: country.label, type: "country" }));
   const placeMatches = PLACE_SUGGESTIONS.filter((place) => [place.label, place.country, ...place.aliases]
     .some((item) => normalizeSuggestionQuery(item).includes(q)));
   return [...special, ...placeMatches, ...countryMatches].slice(0, 15);
 }
 
 const AMBIGUOUS_PLACE_NAMES = new Set(["delhi", "punjab", "hyderabad"]);
-const STATE_LABELS = new Map([
+const STATE_LABELS = new Map<string, string>([
   ["IN-KL", "kerala"], ["IN-DL", "delhi"], ["IN-UP", "uttar pradesh"], ["IN-HR", "haryana"],
   ["IN-MH", "maharashtra"], ["IN-TN", "tamil nadu"], ["IN-AP", "andhra pradesh"],
   ["IN-KA", "karnataka"], ["IN-CT", "chhattisgarh"], ["IN-JH", "jharkhand"],
@@ -190,7 +225,11 @@ const STATE_LABELS = new Map([
   ["IN-MP", "madhya pradesh"], ["IN-BR", "bihar"], ["IN-CH", "chandigarh"],
 ]);
 
-export function resolvePlacePair(query) {
+export function resolvePlacePair(query?: string): {
+  needsConfirmation: boolean;
+  question?: string;
+  suggestions: Array<PlaceSpecialOption | PlaceSuggestion>;
+} {
   const [rawPlace, rawRegion, ...extra] = String(query || "").split(",").map((part) => part.trim());
   if (!rawRegion || extra.length) return { needsConfirmation: false, suggestions: suggestPlaces(query) };
   const normalizedPlace = normalizeSuggestionQuery(rawPlace);
@@ -200,8 +239,8 @@ export function resolvePlacePair(query) {
   const region = normalizeSuggestionQuery(rawRegion);
   const matches = PLACE_SUGGESTIONS.filter((place) => {
     const placeNames = [place.label, ...place.aliases].map(normalizeSuggestionQuery);
-    const subdivisionLabel = STATE_LABELS.get(place.subdivisionCode);
-    const regionMatches = subdivisionLabel && subdivisionLabel === region;
+    const subdivisionLabel = place.subdivisionCode ? STATE_LABELS.get(place.subdivisionCode) : undefined;
+    const regionMatches = Boolean(subdivisionLabel && subdivisionLabel === region);
     const countryMatches = normalizeSuggestionQuery(place.country) === region ||
       COUNTRY_ALIASES.some((country) => country.code === place.countryCode && [country.label, ...country.aliases].some((alias) => normalizeSuggestionQuery(alias) === region));
     return placeNames.includes(normalizedPlace) && (regionMatches || countryMatches);
