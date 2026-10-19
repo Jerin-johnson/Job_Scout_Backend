@@ -171,3 +171,14 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 
 - Re-verified source policy gates across all adapters (`tests/job-source-adapters.test.js` and `tests/job-regional-adapters.test.js` 22/22 passed): `remotive` blocked without written redistribution permission, `jobicy` gated behind `ENABLE_JOBICY_INGESTION=true` + approved registry state (`6h` cadence), and `fantastic_jobs`, `ncs_india`, `norka_roots`, `jobstream_se`, `nav_arbeidsplassen`, `france_travail`, and ATS adapters disabled in public catalog mode.
 - Documented the staging owner activation procedure for `ENABLE_JOBICY_INGESTION` and aligned admin coverage reporting (`byOccupation`, `byCountry`, `bySource`, `freshness`, `trustAndFreshness`, `eligibilityConfidence`, `targetSegmentGaps`) in `docs/ai/data-supply-strategy.md` and `docs/ai/jobs-production.md`.
+
+## Task A (`feat/jobs-production`) — Item 10 Frontend list performance & UX — 2026-10-19
+
+- Added `src/lib/jobs/jobListUx.mjs` (`computeJobListWindow`, `countActiveSecondaryFilters`, `formatTypoCorrectionBanner`, `summarizeJobRiskFlags`, `normalizeSavedSearchForm`) in `Ai_resume_frontend`.
+- Updated `src/lib/schema/jobs.js`, `src/lib/api/operations.js`, and `src/app/app/jobs/page.jsx` with windowed list rendering (bounded at 40 DOM cards even at 250+ loaded jobs), relevance sort option, active secondary filter count badge, typo correction banner, saved searches bar & alert management, and structured risk flag badges.
+- Verified with 53/53 passing frontend tests (`tests/jobs-list-ux.test.mjs`), 0 ESLint warnings/errors, and `docs:check` passed.
+
+## Task A (`feat/jobs-production`) — Item 11 Docs, OpenAPI & final verification — 2026-10-19
+
+- Updated `docs/ai/06-job-matching-engine.md`, `docs/ai/13-failure-modes-and-runbooks.md`, `docs/ai/15-classification-and-catalog-coverage.md`, `docs/ai/16-data-inventory.md`, `docs/architecture/caching.md`, `docs/ai/CHANGELOG.md`, `docs/ai/jobs-production.md`, and regenerated OpenAPI spec (`npm run openapi`).
+- Verified `npm run docs:check`, `npm run lint`, and full backend/frontend test suites.

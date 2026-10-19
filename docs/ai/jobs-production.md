@@ -217,3 +217,14 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
   3. Verify `sourceBudgets()` reports `healthStatus: "healthy"` and catalog cards render `"Jobicy"` attribution (`https://jobicy.com/`).
 - **Admin Coverage Alignment**:
   - `coverageReport()` reports `totalActive`, `rawActive`, `byOccupation`, `byCountry`, `byRemoteScope`, `bySource`, `freshness`, `trustAndFreshness` (`staleCount`, `closedCount`, `olderThan30dCount`, `olderThan30dShare`, `possibleRepostCount`, `possibleRepostShare`, `ghostRiskCount`, `ghostRiskShare`), `unknownEligibilityCount`, `unknownEligibilityShare`, `unclassifiedBySource`, and `targetGaps` across all 7 target segments (`kerala-nursing`, `india-fresher-it`, `india-remote`, `gulf-nursing`, `uk-ireland-nursing`, `india-government`, `global-remote`).
+
+## 11. Frontend List Performance & UX (`Ai_resume_frontend`)
+
+- **Windowed List Rendering (`src/lib/jobs/jobListUx.mjs`, `src/app/app/jobs/page.jsx`)**:
+  - `computeJobListWindow(items, { startIndex, windowSize: 40 })` bounds rendered DOM cards to at most 40 nodes even when 250+ jobs are loaded in memory, preventing layout thrashing while providing keyboard-accessible window shift controls (`Show earlier jobs`, `Show next 20 loaded jobs`) alongside `IntersectionObserver` cursor pagination.
+- **Sticky Primary Filter Bar & Secondary Drawer**:
+  - Sticky primary bar exposes keyword search, location, work arrangement, minimum salary, and sort (`Most recent` / `Best match` relevance).
+  - Secondary `<details>` drawer exposes date posted, occupation family, applicant eligibility, and source with a live active filter count badge (`countActiveSecondaryFilters(filters)`).
+- **Saved Searches, Typo Banner & Risk Badges**:
+  - Users can save the current search with `daily`, `instant`, or `weekly` alert frequency (`normalizeSavedSearchForm`), apply saved searches in one click, mute/unmute alerts, or delete saved searches.
+  - `formatTypoCorrectionBanner` surfaces approximate query expansions in an `aria-live="polite"` banner, and `summarizeJobRiskFlags` renders structured warning badges (`Ghost listing risk`, `Apply link may be expired`, `Possible repost`, `Posted 30+ days ago`).
