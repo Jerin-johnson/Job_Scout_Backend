@@ -125,3 +125,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Updated `docs/engineering/commit-baseline.txt` in backend (`71c72a5458bfb750440095a8be3fdc8ee4c0f527`) and frontend (`4950be5647776c65be2a8d02b97054755d93f287`) to the `feat/jobs-production` branch point.
 - Executed `scripts/explain-job-discovery.js`, `scripts/measure-job-bson.js`, `scripts/verify-job-storage-split.js`, `scripts/compact-job-hot-documents.js` (dry-run), and `scripts/benchmark-jobs-scale.js --sizes=100k` against local loopback MongoDB (`127.0.0.1:27017`).
 - Recorded baseline query latencies, BSON field sizes (28,160 B mean before compaction, 2,256 B projected mean before `features` slimming), index sizes (2.92 MB across 570 docs), `provenance` split mismatch finding, and 10k/100k/1M RAM estimates in `docs/ai/jobs-production.md`.
+
+## Task A (`feat/jobs-production`) — Item 2 Search relevance at scale — 2026-10-19
+
+- Added `src/services/jobs/jobSearch.js` with `tokenizeSearchText`, `buildSearchTokens`, `boundedEditDistance`, `expandQueryTokensWithTypos`, `scoreCatalogSearchRelevance`, `compareJobsByRelevance`, and `isAfterRelevanceCursor`.
+- Added `searchTokens` field and `job_search_tokens_recent` compound multikey index on `Job`; wired indexed token search, typo-tolerant query expansion, weighted title/skill/company + recency ranking, stable relevance cursor pagination, and `catalogVersion`-keyed Redis caching for totals and facets into `jobIngestionService.js` and `jobController.js`.
+- Verified with 27/27 passing tests across `tests/jobs-search-relevance.test.js`, `tests/job-storage.test.js`, and `tests/jobs-catalog.mongo.integration.test.js`.

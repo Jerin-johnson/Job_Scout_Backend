@@ -91,3 +91,19 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
 | 100k (2026-10-19 run) |      2,527.8 |       41.5s |       4.08s |         900B |        90.6MB |        12.7MB |      9.71MB |    103.1MB |             226MB |  4.69 / 18.28ms |     1.62 / 3.22ms |           118.98 / 554.07ms |
 |   500k (baseline ref) |      6,308.0 |       83.2s |       8.62s |         900B |       453.2MB |        60.5MB |     45.70MB |     48.8MB |                 — |  9.16 / 30.06ms |     0.64 / 1.39ms |         258.77 / 1,221.29ms |
 |     1M (baseline ref) |      6,303.0 |      166.6s |      16.74s |         900B |       906.5MB |       122.2MB |     87.80MB |     81.8MB |                 — | 12.83 / 50.19ms |     0.49 / 1.05ms |         490.17 / 2,111.45ms |
+
+---
+
+## 2. Search relevance at scale (`src/services/jobs/jobSearch.js`)
+
+- **Indexed tokenized candidate prefiltering**:
+  - `buildSearchTokens(job)` populates `Job.searchTokens` from title, normalizedTitle, company, skills, tags, and location tokens (capped at 48 tokens).
+  - Compound multikey index `job_search_tokens_recent` (`{ status: 1, searchTokens: 1, postedAt: -1, _id: 1 }`) combined with existing `features.titleTokens` and `features.skills` multikey indexes replaces unindexed substring regex scans on `rawDescription`, `title`, and `company`.
+- **Bounded typo tolerance**:
+  - `expandQueryTokensWithTypos(queryTokens, dictionary)` uses `boundedEditDistance` (Damerau-Levenshtein with early cutoff `maxDistance = 1` for tokens length 4–7 and `maxDistance = 2` for length >= 8, requiring matching first character) against a curated technical vocabulary.
+- **Weighted relevance + recency blending**:
+  - `scoreCatalogSearchRelevance(job, { queryTokens, expandedTokens, rawQuery, asOfDate })` weights exact phrase match in title (+120), exact token in title (+48), prefix/typo in title (+24/+18), exact skill match (+36), company match (+28), tag/location match (+16), and blends bounded recency decay (`max(0, 18 - ageDays * 0.4)`) rooted at a stable `asOfDay` bucket (`YYYY-MM-DD`).
+- **Stable cursor pagination for relevance sort**:
+  - Relevance cursors encode `{ sort: "relevance", relevanceScore, asOfDay, postedAt, id }` and apply `isAfterRelevanceCursor` (`score < cursor.relevanceScore` or tie-broken by `postedAt DESC`, `_id ASC`) so paging never drifts or duplicates rows across pages.
+- **Approximate count & facet caching**:
+  - `CacheKeys.catalogTotal(catalogVersion, filterHash)` and `CacheKeys.catalogFacets(catalogVersion, filterHash)` cache counts and facet aggregations in Redis for 120 seconds, automatically invalidated whenever `bumpCatalogVersion` increments `catalogVersion`.

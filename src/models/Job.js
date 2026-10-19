@@ -12,7 +12,12 @@ const JobSchema = new mongoose.Schema(
     sourceJobId: { type: String, index: true, sparse: true },
     canonicalUrl: { type: String, default: "", index: true },
     groupKey: { type: String, default: "", index: true },
-    canonicalJobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", default: null, index: true },
+    canonicalJobId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Job",
+      default: null,
+      index: true,
+    },
     variants: { type: [{ source: String, url: String, seenAt: Date }], default: [] },
     contentUpdatedAt: { type: Date, default: Date.now },
     title: {
@@ -64,6 +69,7 @@ const JobSchema = new mongoose.Schema(
     // Deterministic rules-only features; absent legacy values are computed at read time.
     features: { type: mongoose.Schema.Types.Mixed, default: undefined },
     featuresVersion: { type: Number, default: 0, index: true },
+    searchTokens: [{ type: String }],
     applyClickCount: { type: Number, default: 0, min: 0 },
     // Aggregate safety reports by reason only; never retain reporter identity.
     reportCounts: { type: Map, of: Number, default: () => new Map() },
@@ -172,10 +178,19 @@ JobSchema.index(
 );
 JobSchema.index({ sourceBoard: 1, status: 1, expiresAt: 1 }, { name: "job_source_coverage" });
 JobSchema.index({ groupKey: 1, status: 1, expiresAt: 1 }, { name: "job_dedup_group_active" });
-JobSchema.index({ occupation: 1, status: 1, expiresAt: 1 }, { name: "job_candidate_occupation_family" });
+JobSchema.index(
+  { occupation: 1, status: 1, expiresAt: 1 },
+  { name: "job_candidate_occupation_family" },
+);
 JobSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-JobSchema.index({ "features.skills": 1, status: 1, expiresAt: 1 }, { name: "job_features_skills_active" });
-JobSchema.index({ "features.titleTokens": 1, status: 1, expiresAt: 1 }, { name: "job_features_title_active" });
+JobSchema.index(
+  { "features.skills": 1, status: 1, expiresAt: 1 },
+  { name: "job_features_skills_active" },
+);
+JobSchema.index(
+  { "features.titleTokens": 1, status: 1, expiresAt: 1 },
+  { name: "job_features_title_active" },
+);
 // Bounded discovery queries use status + one multikey field. Separate indexes
 // are required because MongoDB cannot compound-index multiple array fields.
 JobSchema.index(
@@ -197,6 +212,10 @@ JobSchema.index(
 JobSchema.index(
   { status: 1, "structuredLocation.eligibleCountryCodes": 1, postedAt: -1 },
   { name: "job_candidate_eligible_country_recent" },
+);
+JobSchema.index(
+  { status: 1, searchTokens: 1, postedAt: -1, _id: 1 },
+  { name: "job_search_tokens_recent" },
 );
 
 export const Job = mongoose.models.Job || mongoose.model("Job", JobSchema);

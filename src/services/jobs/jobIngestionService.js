@@ -9,7 +9,12 @@ import { getRedisClient, isRedisReady } from "../../config/redis.js";
 import { embeddingService } from "../embeddingService.js";
 import { get, set, CacheKeys, TTL } from "../../shared/cache.js";
 import { logger } from "../../shared/utils/logger.js";
-import { SOURCE_POLICIES, isSourcePolicyComplete, isSourceActivationAllowed, isSourceEnabledByEnvironment } from "./sourcePolicies.js";
+import {
+  SOURCE_POLICIES,
+  isSourcePolicyComplete,
+  isSourceActivationAllowed,
+  isSourceEnabledByEnvironment,
+} from "./sourcePolicies.js";
 import { extractJobFeatures, canonicalSkill } from "./matching.js";
 import { normalizeRoleForMatching } from "./roleNormalization.js";
 import { classifyJobOccupation } from "./occupationClassification.js";
@@ -18,6 +23,13 @@ import { latestReferenceRates, convertAmount } from "./fxRates.js";
 import { PLACE_SUGGESTIONS, ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
 import { splitJobForStorage, encodeCatalogCursor, decodeCatalogCursor } from "./jobStorage.js";
 import { bumpCatalogVersion, getCatalogVersion } from "./catalogVersion.js";
+import {
+  buildSearchTokens,
+  expandQueryTokensWithTypos,
+  scoreCatalogSearchRelevance,
+  compareJobsByRelevance,
+  isAfterRelevanceCursor,
+} from "./jobSearch.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
@@ -36,13 +48,73 @@ const ATS_SOURCE_PRIORITY = new Map([
   ["usajobs", 0],
 ]);
 const COVERAGE_TARGETS = Object.freeze([
-  { key: "kerala-nursing", label: "Kerala nursing", target: 100, filter: { occupation: "nursing", "structuredLocation.countryCode": "IN", $or: [{ "structuredLocation.region": /kerala/i }, { "structuredLocation.city": /kerala/i }] } },
-  { key: "india-fresher-it", label: "India fresher IT", target: 500, filter: { occupation: "technology", "structuredLocation.countryCode": "IN", tags: { $in: ["fresher", "entry-level", "entry level", "junior"] } } },
-  { key: "india-remote", label: "India remote", target: 500, filter: { $or: [{ "eligibility.countries": "IN" }, { "structuredLocation.eligibleCountryCodes": "IN" }, { "eligibility.remoteScope": "worldwide" }] } },
-  { key: "gulf-nursing", label: "Gulf nursing", target: 100, filter: { occupation: "nursing", "structuredLocation.countryCode": { $in: ["AE", "SA", "QA", "KW", "BH", "OM"] } } },
-  { key: "uk-ireland-nursing", label: "UK and Ireland nursing", target: 250, filter: { occupation: "nursing", "structuredLocation.countryCode": { $in: ["GB", "IE"] } } },
-  { key: "india-government", label: "India government notices", target: 100, filter: { sourceBoard: { $in: ["ncs", "government-india"] }, "structuredLocation.countryCode": "IN" } },
-  { key: "global-remote", label: "Global remote", target: 1000, filter: { $or: [{ remoteType: "remote" }, { "eligibility.remoteScope": { $in: ["worldwide", "region"] } }] } },
+  {
+    key: "kerala-nursing",
+    label: "Kerala nursing",
+    target: 100,
+    filter: {
+      occupation: "nursing",
+      "structuredLocation.countryCode": "IN",
+      $or: [{ "structuredLocation.region": /kerala/i }, { "structuredLocation.city": /kerala/i }],
+    },
+  },
+  {
+    key: "india-fresher-it",
+    label: "India fresher IT",
+    target: 500,
+    filter: {
+      occupation: "technology",
+      "structuredLocation.countryCode": "IN",
+      tags: { $in: ["fresher", "entry-level", "entry level", "junior"] },
+    },
+  },
+  {
+    key: "india-remote",
+    label: "India remote",
+    target: 500,
+    filter: {
+      $or: [
+        { "eligibility.countries": "IN" },
+        { "structuredLocation.eligibleCountryCodes": "IN" },
+        { "eligibility.remoteScope": "worldwide" },
+      ],
+    },
+  },
+  {
+    key: "gulf-nursing",
+    label: "Gulf nursing",
+    target: 100,
+    filter: {
+      occupation: "nursing",
+      "structuredLocation.countryCode": { $in: ["AE", "SA", "QA", "KW", "BH", "OM"] },
+    },
+  },
+  {
+    key: "uk-ireland-nursing",
+    label: "UK and Ireland nursing",
+    target: 250,
+    filter: { occupation: "nursing", "structuredLocation.countryCode": { $in: ["GB", "IE"] } },
+  },
+  {
+    key: "india-government",
+    label: "India government notices",
+    target: 100,
+    filter: {
+      sourceBoard: { $in: ["ncs", "government-india"] },
+      "structuredLocation.countryCode": "IN",
+    },
+  },
+  {
+    key: "global-remote",
+    label: "Global remote",
+    target: 1000,
+    filter: {
+      $or: [
+        { remoteType: "remote" },
+        { "eligibility.remoteScope": { $in: ["worldwide", "region"] } },
+      ],
+    },
+  },
 ]);
 
 export function registerJobAdapterFactory(key, factory) {
@@ -61,12 +133,23 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const safeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function buildSourceStatusUpdate(status, checkedAt, freshnessDays) {
-  if (status === "closed") return { status: "closed", sourceExpiresAt: checkedAt, expiresAt: checkedAt, sourceCheckedAt: checkedAt };
+  if (status === "closed")
+    return {
+      status: "closed",
+      sourceExpiresAt: checkedAt,
+      expiresAt: checkedAt,
+      sourceCheckedAt: checkedAt,
+    };
   if (status === "active") {
     const expiresAt = new Date(checkedAt.getTime() + freshnessDays * 86400000);
     return { status: "active", sourceExpiresAt: expiresAt, expiresAt, sourceCheckedAt: checkedAt };
   }
-  return { status: "stale", sourceExpiresAt: checkedAt, expiresAt: checkedAt, sourceCheckedAt: checkedAt };
+  return {
+    status: "stale",
+    sourceExpiresAt: checkedAt,
+    expiresAt: checkedAt,
+    sourceCheckedAt: checkedAt,
+  };
 }
 
 function cleanNormalizedJob(job, source) {
@@ -97,14 +180,15 @@ function cleanNormalizedJob(job, source) {
       : [],
     sourceCategory: String(job.sourceCategory || job.category || "").slice(0, 160),
   };
-  normalized.groupKey = source.adapter.generateGroupKey?.({
-    canonicalUrl: normalized.canonicalUrl,
-    company: normalized.company,
-    title: normalized.title,
-    location: normalized.location,
-    employmentType: normalized.employmentType,
-    postedAt: normalized.postedAt,
-  }) || "";
+  normalized.groupKey =
+    source.adapter.generateGroupKey?.({
+      canonicalUrl: normalized.canonicalUrl,
+      company: normalized.company,
+      title: normalized.title,
+      location: normalized.location,
+      employmentType: normalized.employmentType,
+      postedAt: normalized.postedAt,
+    }) || "";
   const contentHash = (source.adapter || null)?.generateContentHash?.(normalized);
   normalized.contentHash = contentHash || job.contentHash;
   normalized.identityKey = source.adapter.generateIdentity({
@@ -119,6 +203,7 @@ function cleanNormalizedJob(job, source) {
   normalized.features = extractJobFeatures(normalized);
   normalized.eligibility = parseJobEligibility({ ...normalized, ...job });
   Object.assign(normalized, classifyJobOccupation(normalized));
+  normalized.searchTokens = buildSearchTokens(normalized);
   const postedAt =
     normalized.postedAt instanceof Date && !Number.isNaN(normalized.postedAt.getTime())
       ? normalized.postedAt
@@ -178,7 +263,9 @@ export async function updateVariantGroups(groupKeys) {
     groupKey: { $in: keys },
     status: "active",
     expiresAt: { $gt: new Date() },
-  }).select("_id groupKey sourceBoard sourceUrl canonicalUrl firstSeenAt postedAt").lean();
+  })
+    .select("_id groupKey sourceBoard sourceUrl canonicalUrl firstSeenAt postedAt")
+    .lean();
   const groups = new Map();
   for (const job of candidates) {
     const group = groups.get(job.groupKey) || [];
@@ -188,10 +275,13 @@ export async function updateVariantGroups(groupKeys) {
   const operations = [];
   for (const group of groups.values()) {
     const priority = (job) => ATS_SOURCE_PRIORITY.get(job.sourceBoard) ?? 10;
-    group.sort((a, b) => priority(a) - priority(b)
-      || (new Date(b.postedAt || 0).getTime() - new Date(a.postedAt || 0).getTime())
-      || String(a.sourceBoard).localeCompare(String(b.sourceBoard))
-      || String(a._id).localeCompare(String(b._id)));
+    group.sort(
+      (a, b) =>
+        priority(a) - priority(b) ||
+        new Date(b.postedAt || 0).getTime() - new Date(a.postedAt || 0).getTime() ||
+        String(a.sourceBoard).localeCompare(String(b.sourceBoard)) ||
+        String(a._id).localeCompare(String(b._id)),
+    );
     const [canonical, ...variants] = group;
     const boundedVariants = variants.slice(0, 10).map((variant) => ({
       source: variant.sourceBoard,
@@ -202,10 +292,12 @@ export async function updateVariantGroups(groupKeys) {
       operations.push({
         updateOne: {
           filter: { _id: job._id },
-          update: { $set: {
-            canonicalJobId: job._id.equals(canonical._id) ? null : canonical._id,
-            variants: job._id.equals(canonical._id) ? boundedVariants : [],
-          } },
+          update: {
+            $set: {
+              canonicalJobId: job._id.equals(canonical._id) ? null : canonical._id,
+              variants: job._id.equals(canonical._id) ? boundedVariants : [],
+            },
+          },
         },
       });
     }
@@ -222,11 +314,7 @@ async function ensureSourceRecords() {
     for (const policy of SOURCE_POLICIES) {
       if (!isSourcePolicyComplete(policy))
         throw new Error(`Incomplete source policy: ${policy.key}`);
-      await JobSource.updateOne(
-        { key: policy.key },
-        { $setOnInsert: policy },
-        { upsert: true },
-      );
+      await JobSource.updateOne({ key: policy.key }, { $setOnInsert: policy }, { upsert: true });
       const registryPolicy = {
         displayName: policy.displayName,
         adapterModule: policy.adapterModule,
@@ -243,10 +331,7 @@ async function ensureSourceRecords() {
         activationRequirements: policy.activationRequirements || [],
         activationStatus: policy.activationStatus || "terms_verified",
       };
-      await JobSource.updateOne(
-        { key: policy.key },
-        { $set: registryPolicy },
-      );
+      await JobSource.updateOne({ key: policy.key }, { $set: registryPolicy });
       // A local measurement can be enabled with one explicit flag. Production
       // still requires the persisted admin kill switch and never auto-enables.
       if (policy.key === "jobicy" && env.NODE_ENV !== "production" && env.ENABLE_JOBICY_INGESTION) {
@@ -271,29 +356,78 @@ async function listSourceRecords({ enabledOnly = false } = {}) {
     await ensureSourceRecords();
     const query = enabledOnly ? { enabled: true, approved: true } : {};
     const records = await JobSource.find(query).lean();
-    return enabledOnly ? records.filter((source) => isSourcePolicyComplete(source) && isSourceActivationAllowed(source) && isSourceEnabledByEnvironment(source.key)) : records;
+    return enabledOnly
+      ? records.filter(
+          (source) =>
+            isSourcePolicyComplete(source) &&
+            isSourceActivationAllowed(source) &&
+            isSourceEnabledByEnvironment(source.key),
+        )
+      : records;
   }
-  return SOURCE_POLICIES.filter((source) => !enabledOnly || (source.enabled && source.approved && isSourceActivationAllowed(source) && isSourceEnabledByEnvironment(source.key)));
+  return SOURCE_POLICIES.filter(
+    (source) =>
+      !enabledOnly ||
+      (source.enabled &&
+        source.approved &&
+        isSourceActivationAllowed(source) &&
+        isSourceEnabledByEnvironment(source.key)),
+  );
 }
 
 export async function reserveSourceRequest(sourceKey, maxPerDay) {
   if (!isMongoReady()) return true;
   if (typeof maxPerDay === "object" && maxPerDay?.limits) {
     const now = new Date();
-    const minuteStart = new Date(now); minuteStart.setUTCSeconds(0, 0);
+    const minuteStart = new Date(now);
+    minuteStart.setUTCSeconds(0, 0);
     const dateStart = dayStart(now);
-    const weekStart = new Date(dateStart); weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+    const weekStart = new Date(dateStart);
+    weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const windows = [
       ["quotaMinuteStart", "quotaMinuteUsed", minuteStart, maxPerDay.limits.perMinute],
-      ["quotaWindowStart", "quotaUsed", dateStart, maxPerDay.limits.perDay || maxPerDay.requestsPerDay],
+      [
+        "quotaWindowStart",
+        "quotaUsed",
+        dateStart,
+        maxPerDay.limits.perDay || maxPerDay.requestsPerDay,
+      ],
       ["quotaWeekStart", "quotaWeekUsed", weekStart, maxPerDay.limits.perWeek],
       ["quotaMonthStart", "quotaMonthUsed", monthStart, maxPerDay.limits.perMonth],
     ].filter(([, , , limit]) => Number.isFinite(Number(limit)) && Number(limit) > 0);
-    const nextUsed = ([startField, usedField, start]) => ({ $cond: [{ $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] }, 1, { $add: [{ $ifNull: [`$${usedField}`, 0] }, 1] }] });
-    const expression = { $and: windows.map(([startField, usedField, start, limit]) => ({ $lte: [nextUsed([startField, usedField, start]), Number(limit)] })) };
-    const updates = Object.fromEntries(windows.flatMap(([startField, usedField, start]) => [[startField, { $cond: [{ $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] }, start, `$${startField}`] }], [usedField, nextUsed([startField, usedField, start])]]));
-    const reserved = await JobSource.findOneAndUpdate({ key: sourceKey, enabled: true, approved: true, $expr: expression }, [{ $set: { ...updates, lastRequestAt: now } }], { new: true, projection: { quotaUsed: 1 } }).lean();
+    const nextUsed = ([startField, usedField, start]) => ({
+      $cond: [
+        { $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] },
+        1,
+        { $add: [{ $ifNull: [`$${usedField}`, 0] }, 1] },
+      ],
+    });
+    const expression = {
+      $and: windows.map(([startField, usedField, start, limit]) => ({
+        $lte: [nextUsed([startField, usedField, start]), Number(limit)],
+      })),
+    };
+    const updates = Object.fromEntries(
+      windows.flatMap(([startField, usedField, start]) => [
+        [
+          startField,
+          {
+            $cond: [
+              { $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] },
+              start,
+              `$${startField}`,
+            ],
+          },
+        ],
+        [usedField, nextUsed([startField, usedField, start])],
+      ]),
+    );
+    const reserved = await JobSource.findOneAndUpdate(
+      { key: sourceKey, enabled: true, approved: true, $expr: expression },
+      [{ $set: { ...updates, lastRequestAt: now } }],
+      { new: true, projection: { quotaUsed: 1 } },
+    ).lean();
     return Boolean(reserved);
   }
   const windowStart = dayStart();
@@ -348,14 +482,35 @@ async function getAggregatedDemandTerms() {
                 $map: {
                   input: { $slice: [{ $ifNull: ["$careerProfile.targetRoles", []] }, 5] },
                   as: "role",
-                  in: { kind: "role", value: { $ifNull: ["$$role.customRoleLabel", "$$role.roleCode"] } },
+                  in: {
+                    kind: "role",
+                    value: { $ifNull: ["$$role.customRoleLabel", "$$role.roleCode"] },
+                  },
                 },
               },
               {
                 $map: {
-                  input: { $slice: [{ $concatArrays: [{ $ifNull: ["$careerProfile.targetLocations", []] }, [{ $ifNull: ["$careerProfile.homeLocation", {}] }]] }, 8] },
+                  input: {
+                    $slice: [
+                      {
+                        $concatArrays: [
+                          { $ifNull: ["$careerProfile.targetLocations", []] },
+                          [{ $ifNull: ["$careerProfile.homeLocation", {}] }],
+                        ],
+                      },
+                      8,
+                    ],
+                  },
                   as: "location",
-                  in: { kind: "location", value: { $ifNull: ["$$location.cityCode", { $ifNull: ["$$location.countryCode", "$$location.scope"] }] } },
+                  in: {
+                    kind: "location",
+                    value: {
+                      $ifNull: [
+                        "$$location.cityCode",
+                        { $ifNull: ["$$location.countryCode", "$$location.scope"] },
+                      ],
+                    },
+                  },
                 },
               },
               {
@@ -404,16 +559,26 @@ async function getAggregatedDemandTerms() {
     );
     return [];
   }
-  const resolveRole = (value) => ROLE_SUGGESTIONS.find((role) => role.code === value)?.label || value.replace(/[-_]+/g, " ");
+  const resolveRole = (value) =>
+    ROLE_SUGGESTIONS.find((role) => role.code === value)?.label || value.replace(/[-_]+/g, " ");
   const resolveLocation = (value) => {
     const place = PLACE_SUGGESTIONS.find((item) => item.code === value);
     if (place) return place.label.toLowerCase();
-    if (/^[a-z]{2}$/i.test(value)) return (PLACE_SUGGESTIONS.find((item) => item.countryCode === value.toUpperCase())?.country || value).toLowerCase();
+    if (/^[a-z]{2}$/i.test(value))
+      return (
+        PLACE_SUGGESTIONS.find((item) => item.countryCode === value.toUpperCase())?.country || value
+      ).toLowerCase();
     if (value === "anywhere_in_india") return "india";
     return value.toLowerCase();
   };
-  const roles = aggregated.filter((item) => item._id.kind === "role").slice(0, 12).map((item) => ({ ...item, _id: { ...item._id, value: resolveRole(item._id.value) } }));
-  const locations = aggregated.filter((item) => item._id.kind === "location").slice(0, 8).map((item) => ({ ...item, _id: { ...item._id, value: resolveLocation(item._id.value) } }));
+  const roles = aggregated
+    .filter((item) => item._id.kind === "role")
+    .slice(0, 12)
+    .map((item) => ({ ...item, _id: { ...item._id, value: resolveRole(item._id.value) } }));
+  const locations = aggregated
+    .filter((item) => item._id.kind === "location")
+    .slice(0, 8)
+    .map((item) => ({ ...item, _id: { ...item._id, value: resolveLocation(item._id.value) } }));
   const terms = [];
   for (const role of roles) {
     terms.push(role._id.value);
@@ -452,7 +617,12 @@ export const jobIngestionService = {
       return null;
     }
     adapter.consumeQuota = async () => {
-      if (!(await reserveSourceRequest(source.key, source.quota.limits ? source.quota : source.quota.requestsPerDay)))
+      if (
+        !(await reserveSourceRequest(
+          source.key,
+          source.quota.limits ? source.quota : source.quota.requestsPerDay,
+        ))
+      )
         throw quotaExceeded(source.key);
     };
     return adapter;
@@ -499,7 +669,12 @@ export const jobIngestionService = {
     const source = isMongoReady()
       ? await JobSource.findOne({ key: sourceKey, enabled: true, approved: true }).lean()
       : SOURCE_POLICIES.find((item) => item.key === sourceKey && item.enabled && item.approved);
-    if (!source || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source) || !isSourceEnabledByEnvironment(sourceKey))
+    if (
+      !source ||
+      !isSourcePolicyComplete(source) ||
+      !isSourceActivationAllowed(source) ||
+      !isSourceEnabledByEnvironment(sourceKey)
+    )
       return { source: sourceKey, skipped: true, reason: "disabled_or_unapproved" };
     if (source.circuit?.openUntil && new Date(source.circuit.openUntil) > new Date()) {
       return { source: sourceKey, skipped: true, reason: "circuit_open" };
@@ -575,7 +750,10 @@ export const jobIngestionService = {
         (!source.lastLinkCheckAt ||
           Date.now() - new Date(source.lastLinkCheckAt).getTime() >= 86400000)
       ) {
-        const sample = await Job.find({ sourceBoard: sourceKey, status: { $in: ["active", "stale"] } })
+        const sample = await Job.find({
+          sourceBoard: sourceKey,
+          status: { $in: ["active", "stale"] },
+        })
           .sort({ sourceCheckedAt: 1, lastSeenAt: 1 })
           .limit(100)
           .select("sourceJobId")
@@ -598,7 +776,9 @@ export const jobIngestionService = {
               .map((item) => ({
                 updateOne: {
                   filter: { sourceBoard: sourceKey, sourceJobId: String(item.id) },
-                  update: { $set: buildSourceStatusUpdate(item.status, checkedAt, source.retentionDays) },
+                  update: {
+                    $set: buildSourceStatusUpdate(item.status, checkedAt, source.retentionDays),
+                  },
                 },
               }));
             if (updates.length) await Job.bulkWrite(updates, { ordered: false });
@@ -618,12 +798,23 @@ export const jobIngestionService = {
         const page = await adapter.fetchPage({ cursor, etag, lastModified, demandTerm });
         if (page.etag) etag = page.etag;
         if (page.lastModified) lastModified = page.lastModified;
-        const inactiveIds = [...new Set((page.inactiveIds || []).map((id) => String(id).slice(0, 200)).filter(Boolean))].slice(0, 10000);
+        const inactiveIds = [
+          ...new Set(
+            (page.inactiveIds || []).map((id) => String(id).slice(0, 200)).filter(Boolean),
+          ),
+        ].slice(0, 10000);
         if (inactiveIds.length && isMongoReady()) {
           const inactiveAt = new Date();
           const result = await Job.updateMany(
             { sourceBoard: sourceKey, sourceJobId: { $in: inactiveIds }, status: "active" },
-            { $set: { status: "closed", sourceExpiresAt: inactiveAt, expiresAt: inactiveAt, sourceCheckedAt: inactiveAt } },
+            {
+              $set: {
+                status: "closed",
+                sourceExpiresAt: inactiveAt,
+                expiresAt: inactiveAt,
+                sourceCheckedAt: inactiveAt,
+              },
+            },
           );
           updated += result.modifiedCount || 0;
         }
@@ -648,169 +839,196 @@ export const jobIngestionService = {
           break;
         }
         const processBatch = async (rawJobs) => {
-        const normalized = rawJobs.map((job) => cleanNormalizedJob(job, source));
-        const seenBatch = new Set();
-        for (const job of normalized) {
-          setContentHash(job, adapter);
-          const country = job.structuredLocation?.countryCode || "unknown";
-          const occupation = job.occupationCodes?.[0] || "unmapped";
-          coverageCountryCounts[country] = (coverageCountryCounts[country] || 0) + 1;
-          coverageOccupationCounts[occupation] = (coverageOccupationCounts[occupation] || 0) + 1;
-          if (!job.identityKey || seenBatch.has(job.identityKey)) {
-            duplicates += 1;
-            continue;
-          }
-          seenBatch.add(job.identityKey);
-        }
-        fetched += normalized.length;
-        const uniqueJobs = [...new Map(normalized.filter((job) => job.identityKey).map((job) => [job.identityKey, job])).values()];
-        const existingDocs =
-          isMongoReady() && uniqueJobs.length
-            ? await Job.find({ identityKey: { $in: uniqueJobs.map((job) => job.identityKey) } })
-                .select("identityKey contentHash recordHash firstSeenAt")
-                .lean()
-            : [];
-        if (existingDocs.length) {
-          const vectors = await JobVector.find({ jobId: { $in: existingDocs.map((job) => job._id) } })
-            .select("+vector jobId provider model dimension")
-            .lean();
-          const vectorById = new Map(vectors.map((row) => [String(row.jobId), row]));
-          for (const job of existingDocs) {
-            const vector = vectorById.get(String(job._id));
-            if (vector) {
-              job.embedding = vector.vector;
-              job.embeddingMetadata = { provider: vector.provider, model: vector.model, dimension: vector.dimension };
-            }
-          }
-        }
-        const existingByIdentity = new Map(existingDocs.map((job) => [job.identityKey, job]));
-        const changed = [];
-        const unchangedOps = [];
-        for (const job of uniqueJobs) {
-          const existing = existingByIdentity.get(job.identityKey);
-          if (existing?.recordHash === job.recordHash) {
-            job.lastSeenAt = new Date();
-            duplicates += 1;
-            if (isMongoReady()) unchangedOps.push({ updateOne: {
-              filter: { identityKey: job.identityKey },
-              update: { $set: { lastSeenAt: job.lastSeenAt, status: "active" } },
-            } });
-            else
-              inMemoryJobs.set(job.identityKey, {
-                ...inMemoryJobs.get(job.identityKey),
-                lastSeenAt: job.lastSeenAt,
-                status: "active",
-              });
-            continue;
-          }
-          if (existing) updated += 1;
-          else created += 1;
-          if (existing) job.firstSeenAt = existing.firstSeenAt || job.firstSeenAt;
-          if (existing?.contentHash === job.contentHash && existing.embedding?.length) {
-            job.embedding = existing.embedding;
-            job.embeddingMetadata = existing.embeddingMetadata;
-          }
-          job.provenance[0].seenAt = new Date();
-          changed.push(job);
-        }
-
-        if (isMongoReady() && unchangedOps.length) {
-          for (let offset = 0; offset < unchangedOps.length; offset += BULK_WRITE_BATCH_SIZE) {
-            await Job.bulkWrite(unchangedOps.slice(offset, offset + BULK_WRITE_BATCH_SIZE), { ordered: false });
-          }
-        }
-
-        if (changed.length) {
-          if (env.JOB_EMBEDDINGS_ENABLED || process.env.JOB_EMBEDDINGS_ENABLED === "true") {
-          const config = embeddingService.getConfig();
-          const vectorsByIndex = new Map();
-          const missing = [];
-          for (let index = 0; index < changed.length; index += 1) {
-            const job = changed[index];
-            if (job.embedding?.length) {
-              vectorsByIndex.set(index, {
-                vector: job.embedding,
-                metadata: job.embeddingMetadata || {
-                  provider: "legacy",
-                  model: "unknown",
-                  dimension: job.embedding.length,
-                },
-              });
+          const normalized = rawJobs.map((job) => cleanNormalizedJob(job, source));
+          const seenBatch = new Set();
+          for (const job of normalized) {
+            setContentHash(job, adapter);
+            const country = job.structuredLocation?.countryCode || "unknown";
+            const occupation = job.occupationCodes?.[0] || "unmapped";
+            coverageCountryCounts[country] = (coverageCountryCounts[country] || 0) + 1;
+            coverageOccupationCounts[occupation] = (coverageOccupationCounts[occupation] || 0) + 1;
+            if (!job.identityKey || seenBatch.has(job.identityKey)) {
+              duplicates += 1;
               continue;
             }
-            const key = CacheKeys.embedding(
-              job.contentHash,
-              config.provider,
-              config.model,
-              config.dimension,
-            );
-            const cached = await get(key);
-            if (cached?.vector && cached?.metadata) vectorsByIndex.set(index, cached);
-            else missing.push({ index, key, job });
+            seenBatch.add(job.identityKey);
           }
-          for (let offset = 0; offset < missing.length; offset += BATCH_SIZE) {
-            const batch = missing.slice(offset, offset + BATCH_SIZE);
-            const vectors = await embeddingService.getEmbeddingsWithMetadata(
-              batch.map(
-                ({ job }) =>
-                  `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.slice(0, 500)}`,
-              ),
-              { user, feature: "match_jobs", requestId },
-            );
-            embedded += vectors.length;
-            await Promise.all(
-              vectors.map((value, batchIndex) => set(batch[batchIndex].key, value, TTL.EMBEDDING)),
-            );
-            batch.forEach((entry, batchIndex) =>
-              vectorsByIndex.set(entry.index, vectors[batchIndex]),
-            );
-          }
-          changed.forEach((job, index) => {
-            const vector = vectorsByIndex.get(index);
-            job.embedding = vector.vector;
-            job.embeddingMetadata = vector.metadata;
-          });
-          }
-          if (isMongoReady()) {
-            const storageRows = changed.map((job) => ({ job, ...splitJobForStorage(job) }));
-            for (let offset = 0; offset < storageRows.length; offset += BULK_WRITE_BATCH_SIZE) {
-              const batch = storageRows.slice(offset, offset + BULK_WRITE_BATCH_SIZE);
-              await Job.bulkWrite(batch.map(({ job, catalog }) => ({
-                updateOne: {
-                  filter: { identityKey: job.identityKey },
-                  update: { $set: catalog },
-                  upsert: true,
-                },
-              })), { ordered: false });
-              const identities = batch.map(({ job }) => job.identityKey);
-              const persisted = await Job.find({ identityKey: { $in: identities } }).select("_id identityKey").lean();
-              const idByIdentity = new Map(persisted.map((row) => [row.identityKey, row._id]));
-              const detailOps = batch.map(({ job, details }) => ({
-                updateOne: {
-                  filter: { jobId: idByIdentity.get(job.identityKey) },
-                  update: { $set: { ...details, expiresAt: job.expiresAt } },
-                  upsert: true,
-                },
-              })).filter((operation) => operation.updateOne.filter.jobId);
-              if (detailOps.length) await JobDetail.bulkWrite(detailOps, { ordered: false });
-              const vectorOps = batch.filter(({ vector }) => vector).map(({ job, vector }) => ({
-                updateOne: {
-                  filter: { jobId: idByIdentity.get(job.identityKey) },
-                  update: { $set: vector },
-                  upsert: true,
-                },
-              })).filter((operation) => operation.updateOne.filter.jobId);
-              if (vectorOps.length) await JobVector.bulkWrite(vectorOps, { ordered: false });
-              await updateVariantGroups(batch.map(({ job }) => job.groupKey));
+          fetched += normalized.length;
+          const uniqueJobs = [
+            ...new Map(
+              normalized.filter((job) => job.identityKey).map((job) => [job.identityKey, job]),
+            ).values(),
+          ];
+          const existingDocs =
+            isMongoReady() && uniqueJobs.length
+              ? await Job.find({ identityKey: { $in: uniqueJobs.map((job) => job.identityKey) } })
+                  .select("identityKey contentHash recordHash firstSeenAt")
+                  .lean()
+              : [];
+          if (existingDocs.length) {
+            const vectors = await JobVector.find({
+              jobId: { $in: existingDocs.map((job) => job._id) },
+            })
+              .select("+vector jobId provider model dimension")
+              .lean();
+            const vectorById = new Map(vectors.map((row) => [String(row.jobId), row]));
+            for (const job of existingDocs) {
+              const vector = vectorById.get(String(job._id));
+              if (vector) {
+                job.embedding = vector.vector;
+                job.embeddingMetadata = {
+                  provider: vector.provider,
+                  model: vector.model,
+                  dimension: vector.dimension,
+                };
+              }
             }
-          } else {
-            for (const job of changed)
-              inMemoryJobs.set(job.identityKey, {
-                _id: `job_${job.identityKey.slice(0, 10)}`,
-                ...job,
-              });
           }
-        }
+          const existingByIdentity = new Map(existingDocs.map((job) => [job.identityKey, job]));
+          const changed = [];
+          const unchangedOps = [];
+          for (const job of uniqueJobs) {
+            const existing = existingByIdentity.get(job.identityKey);
+            if (existing?.recordHash === job.recordHash) {
+              job.lastSeenAt = new Date();
+              duplicates += 1;
+              if (isMongoReady())
+                unchangedOps.push({
+                  updateOne: {
+                    filter: { identityKey: job.identityKey },
+                    update: { $set: { lastSeenAt: job.lastSeenAt, status: "active" } },
+                  },
+                });
+              else
+                inMemoryJobs.set(job.identityKey, {
+                  ...inMemoryJobs.get(job.identityKey),
+                  lastSeenAt: job.lastSeenAt,
+                  status: "active",
+                });
+              continue;
+            }
+            if (existing) updated += 1;
+            else created += 1;
+            if (existing) job.firstSeenAt = existing.firstSeenAt || job.firstSeenAt;
+            if (existing?.contentHash === job.contentHash && existing.embedding?.length) {
+              job.embedding = existing.embedding;
+              job.embeddingMetadata = existing.embeddingMetadata;
+            }
+            job.provenance[0].seenAt = new Date();
+            changed.push(job);
+          }
+
+          if (isMongoReady() && unchangedOps.length) {
+            for (let offset = 0; offset < unchangedOps.length; offset += BULK_WRITE_BATCH_SIZE) {
+              await Job.bulkWrite(unchangedOps.slice(offset, offset + BULK_WRITE_BATCH_SIZE), {
+                ordered: false,
+              });
+            }
+          }
+
+          if (changed.length) {
+            if (env.JOB_EMBEDDINGS_ENABLED || process.env.JOB_EMBEDDINGS_ENABLED === "true") {
+              const config = embeddingService.getConfig();
+              const vectorsByIndex = new Map();
+              const missing = [];
+              for (let index = 0; index < changed.length; index += 1) {
+                const job = changed[index];
+                if (job.embedding?.length) {
+                  vectorsByIndex.set(index, {
+                    vector: job.embedding,
+                    metadata: job.embeddingMetadata || {
+                      provider: "legacy",
+                      model: "unknown",
+                      dimension: job.embedding.length,
+                    },
+                  });
+                  continue;
+                }
+                const key = CacheKeys.embedding(
+                  job.contentHash,
+                  config.provider,
+                  config.model,
+                  config.dimension,
+                );
+                const cached = await get(key);
+                if (cached?.vector && cached?.metadata) vectorsByIndex.set(index, cached);
+                else missing.push({ index, key, job });
+              }
+              for (let offset = 0; offset < missing.length; offset += BATCH_SIZE) {
+                const batch = missing.slice(offset, offset + BATCH_SIZE);
+                const vectors = await embeddingService.getEmbeddingsWithMetadata(
+                  batch.map(
+                    ({ job }) =>
+                      `${job.title} at ${job.company}. Requirements: ${job.requirements.join(", ")}. ${job.rawDescription.slice(0, 500)}`,
+                  ),
+                  { user, feature: "match_jobs", requestId },
+                );
+                embedded += vectors.length;
+                await Promise.all(
+                  vectors.map((value, batchIndex) =>
+                    set(batch[batchIndex].key, value, TTL.EMBEDDING),
+                  ),
+                );
+                batch.forEach((entry, batchIndex) =>
+                  vectorsByIndex.set(entry.index, vectors[batchIndex]),
+                );
+              }
+              changed.forEach((job, index) => {
+                const vector = vectorsByIndex.get(index);
+                job.embedding = vector.vector;
+                job.embeddingMetadata = vector.metadata;
+              });
+            }
+            if (isMongoReady()) {
+              const storageRows = changed.map((job) => ({ job, ...splitJobForStorage(job) }));
+              for (let offset = 0; offset < storageRows.length; offset += BULK_WRITE_BATCH_SIZE) {
+                const batch = storageRows.slice(offset, offset + BULK_WRITE_BATCH_SIZE);
+                await Job.bulkWrite(
+                  batch.map(({ job, catalog }) => ({
+                    updateOne: {
+                      filter: { identityKey: job.identityKey },
+                      update: { $set: catalog },
+                      upsert: true,
+                    },
+                  })),
+                  { ordered: false },
+                );
+                const identities = batch.map(({ job }) => job.identityKey);
+                const persisted = await Job.find({ identityKey: { $in: identities } })
+                  .select("_id identityKey")
+                  .lean();
+                const idByIdentity = new Map(persisted.map((row) => [row.identityKey, row._id]));
+                const detailOps = batch
+                  .map(({ job, details }) => ({
+                    updateOne: {
+                      filter: { jobId: idByIdentity.get(job.identityKey) },
+                      update: { $set: { ...details, expiresAt: job.expiresAt } },
+                      upsert: true,
+                    },
+                  }))
+                  .filter((operation) => operation.updateOne.filter.jobId);
+                if (detailOps.length) await JobDetail.bulkWrite(detailOps, { ordered: false });
+                const vectorOps = batch
+                  .filter(({ vector }) => vector)
+                  .map(({ job, vector }) => ({
+                    updateOne: {
+                      filter: { jobId: idByIdentity.get(job.identityKey) },
+                      update: { $set: vector },
+                      upsert: true,
+                    },
+                  }))
+                  .filter((operation) => operation.updateOne.filter.jobId);
+                if (vectorOps.length) await JobVector.bulkWrite(vectorOps, { ordered: false });
+                await updateVariantGroups(batch.map(({ job }) => job.groupKey));
+              }
+            } else {
+              for (const job of changed)
+                inMemoryJobs.set(job.identityKey, {
+                  _id: `job_${job.identityKey.slice(0, 10)}`,
+                  ...job,
+                });
+            }
+          }
         };
         let rawBatch = [];
         let inactiveBatch = [];
@@ -822,7 +1040,14 @@ export const jobIngestionService = {
           const inactiveAt = new Date();
           const result = await Job.updateMany(
             { sourceBoard: sourceKey, sourceJobId: { $in: inactiveBatch }, status: "active" },
-            { $set: { status: "closed", sourceExpiresAt: inactiveAt, expiresAt: inactiveAt, sourceCheckedAt: inactiveAt } },
+            {
+              $set: {
+                status: "closed",
+                sourceExpiresAt: inactiveAt,
+                expiresAt: inactiveAt,
+                sourceCheckedAt: inactiveAt,
+              },
+            },
           );
           updated += result.modifiedCount || 0;
           inactiveBatch = [];
@@ -874,7 +1099,10 @@ export const jobIngestionService = {
         await sleep(1000);
       }
       const latencyMs = Date.now() - started;
-      const coverage = { countryCounts: coverageCountryCounts, occupationCounts: coverageOccupationCounts };
+      const coverage = {
+        countryCounts: coverageCountryCounts,
+        occupationCounts: coverageOccupationCounts,
+      };
       if (isMongoReady()) {
         if (fullSyncCompleted) {
           const staleBefore = new Date(Date.now() - source.staleAfterDays * 86400000);
@@ -1049,10 +1277,24 @@ export const jobIngestionService = {
     filter.sourceBoard = { $in: enabledKeys };
     if (["remote", "hybrid", "onsite"].includes(preferences.remotePreference))
       filter.remoteType = preferences.remotePreference;
-    const countryCodes = [...new Set([...profileApplicantCountries(profile || {}), ...(preferences.preferredCountryCodes || []).map((code) => String(code).toUpperCase())])].filter((code) => /^[A-Z]{2}$/.test(code));
+    const countryCodes = [
+      ...new Set([
+        ...profileApplicantCountries(profile || {}),
+        ...(preferences.preferredCountryCodes || []).map((code) => String(code).toUpperCase()),
+      ]),
+    ].filter((code) => /^[A-Z]{2}$/.test(code));
     if (countryCodes.length) {
-      const matchingRegions = countryCodes.some((code) => ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"].includes(code)) ? ["EU"] : [];
-      if (countryCodes.some((code) => ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"].includes(code))) matchingRegions.push("APAC");
+      const matchingRegions = countryCodes.some((code) =>
+        ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"].includes(code),
+      )
+        ? ["EU"]
+        : [];
+      if (
+        countryCodes.some((code) =>
+          ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"].includes(code),
+        )
+      )
+        matchingRegions.push("APAC");
       filter.$or = [
         { "structuredLocation.countryCode": { $in: countryCodes } },
         { "structuredLocation.eligibleCountryCodes": { $in: countryCodes } },
@@ -1061,7 +1303,9 @@ export const jobIngestionService = {
         { "structuredLocation.remoteScope": "unknown" },
         { "eligibility.remoteScope": "worldwide" },
         { "eligibility.remoteScope": "unknown" },
-        ...(matchingRegions.length ? [{ "eligibility.remoteScope": { $in: matchingRegions } }] : []),
+        ...(matchingRegions.length
+          ? [{ "eligibility.remoteScope": { $in: matchingRegions } }]
+          : []),
       ];
     }
     const occupationCodes = (preferences.occupationCodes || []).slice(0, 20);
@@ -1095,7 +1339,9 @@ export const jobIngestionService = {
     if (isMongoReady()) {
       const roleTerms = [
         ...(profile?.preferences?.targetRoles || []),
-        ...(profile?.careerProfile?.targetRoles || []).map((role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " ")),
+        ...(profile?.careerProfile?.targetRoles || []).map(
+          (role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " "),
+        ),
         ...(profile?.roles || []).map((role) => role.title),
       ];
       const lexicalTerms = [
@@ -1135,7 +1381,13 @@ export const jobIngestionService = {
       // candidate cap, which became a catalog-wide scan for broad skill lists.
       const normalizedRoleTerms = [
         ...new Set(
-          [...(preferences.targetRoles || []), ...(profile?.careerProfile?.targetRoles || []).map((role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " ")), ...(profile?.roles || []).map((role) => role.title)]
+          [
+            ...(preferences.targetRoles || []),
+            ...(profile?.careerProfile?.targetRoles || []).map(
+              (role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " "),
+            ),
+            ...(profile?.roles || []).map((role) => role.title),
+          ]
             .flatMap((role) =>
               String(normalizeRoleForMatching(role))
                 .toLowerCase()
@@ -1185,7 +1437,7 @@ export const jobIngestionService = {
         const titleTokens = new Set(job.features?.titleTokens || []);
         const skills = new Set(job.features?.skills || []);
         const tags = new Set(job.tags || []);
-      const requirements = new Set(job.requirements || []);
+        const requirements = new Set(job.requirements || []);
         return (
           normalizedRoleTerms.filter((term) => titleTokens.has(term)).length * 4 +
           skillTerms.filter((term) => skills.has(term)).length * 2 +
@@ -1278,38 +1530,72 @@ export const jobIngestionService = {
     page = 1,
     cursor = "",
     limit = 20,
+    sort = "",
   }) {
     const sources = await listSourceRecords({ enabledOnly: true });
     const enabledKeys = sources.map((item) => item.key);
-    if (!enabledKeys.length) return { jobs: [], total: 0, page, limit, pages: 0, sources: [] };
+    if (!enabledKeys.length)
+      return {
+        jobs: [],
+        total: 0,
+        page,
+        limit,
+        pages: 0,
+        sources: [],
+        facets: { occupations: [], remoteTypes: [], countries: [] },
+      };
     const filter = {
       sourceBoard: { $in: enabledKeys },
       status: "active",
       expiresAt: { $gt: new Date() },
     };
-    if (q) {
-      const tokens = [...new Set(String(q).normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}+#.]+/gu) || [])].slice(0, 8);
-      if (tokens.length) filter.$and = tokens.map((token) => ({
+    const querySpec = q ? expandQueryTokensWithTypos(q) : null;
+    if (querySpec?.tokenGroups?.length) {
+      filter.$and = querySpec.tokenGroups.map((group) => ({
         $or: [
-          { "features.titleTokens": token },
-          { "features.companyTokens": token },
+          { searchTokens: { $in: group.all } },
+          { "features.titleTokens": { $in: group.all } },
+          { "features.companyTokens": { $in: group.all } },
+          { "features.skills": { $in: group.all } },
         ],
       }));
     }
     if (location) filter.location = new RegExp(safeRegex(location), "i");
-    if (occupation && /^[a-z0-9-]{2,60}$/i.test(occupation)) filter.occupation = occupation.toLowerCase();
-    if (Number(postedWithinDays) > 0) filter.postedAt = { $gte: new Date(Date.now() - Number(postedWithinDays) * 86400000) };
+    if (occupation && /^[a-z0-9-]{2,60}$/i.test(occupation))
+      filter.occupation = occupation.toLowerCase();
+    if (Number(postedWithinDays) > 0)
+      filter.postedAt = { $gte: new Date(Date.now() - Number(postedWithinDays) * 86400000) };
     if (eligibility === "unknown") filter["eligibility.confidence"] = { $lte: 0.35 };
     if (eligibility === "eligible" && eligibilityCountryCodes.length) {
-      const codes = eligibilityCountryCodes.map((code) => String(code).toUpperCase()).filter((code) => /^[A-Z]{2}$/.test(code));
-      filter.$and = [...(filter.$and || []), { $or: [{ "eligibility.countries": { $in: codes } }, { "structuredLocation.eligibleCountryCodes": { $in: codes } }, { "structuredLocation.countryCode": { $in: codes } }, { "structuredLocation.remoteScope": "worldwide" }] }];
+      const codes = eligibilityCountryCodes
+        .map((code) => String(code).toUpperCase())
+        .filter((code) => /^[A-Z]{2}$/.test(code));
+      filter.$and = [
+        ...(filter.$and || []),
+        {
+          $or: [
+            { "eligibility.countries": { $in: codes } },
+            { "structuredLocation.eligibleCountryCodes": { $in: codes } },
+            { "structuredLocation.countryCode": { $in: codes } },
+            { "structuredLocation.remoteScope": "worldwide" },
+          ],
+        },
+      ];
     }
     if (/^[A-Za-z]{2}$/.test(countryCode))
       filter["structuredLocation.countryCode"] = countryCode.toUpperCase();
     if (source) {
       const requestedSource = String(source).toLowerCase();
       if (!enabledKeys.includes(requestedSource))
-        return { jobs: [], total: 0, page, limit, pages: 0, sources: await this.publicSources() };
+        return {
+          jobs: [],
+          total: 0,
+          page,
+          limit,
+          pages: 0,
+          sources: await this.publicSources(),
+          facets: { occupations: [], remoteTypes: [], countries: [] },
+        };
       filter.sourceBoard = requestedSource;
     }
     if (["remote", "hybrid", "onsite"].includes(remoteType)) filter.remoteType = remoteType;
@@ -1318,11 +1604,27 @@ export const jobIngestionService = {
       const rate = await latestReferenceRates().catch(() => null);
       const comparable = [];
       for (const currency of ["INR", "USD", "EUR", "GBP", "CAD", "AUD", "AED", "SAR"]) {
-        const requiredAnnual = currency === "INR" ? minimumInr : rate ? convertAmount(minimumInr, "INR", currency, rate.ratesPerEur) : null;
+        const requiredAnnual =
+          currency === "INR"
+            ? minimumInr
+            : rate
+              ? convertAmount(minimumInr, "INR", currency, rate.ratesPerEur)
+              : null;
         if (!requiredAnnual) continue;
-        comparable.push({ "compensation.currency": currency, "compensation.payPeriod": "year", "compensation.max": { $gte: requiredAnnual } });
-        comparable.push({ "compensation.currency": currency, "compensation.payPeriod": "month", "compensation.max": { $gte: requiredAnnual / 12 } });
-        comparable.push({ "compensation.normalizedCurrency": currency, "compensation.normalizedAnnualMax": { $gte: requiredAnnual } });
+        comparable.push({
+          "compensation.currency": currency,
+          "compensation.payPeriod": "year",
+          "compensation.max": { $gte: requiredAnnual },
+        });
+        comparable.push({
+          "compensation.currency": currency,
+          "compensation.payPeriod": "month",
+          "compensation.max": { $gte: requiredAnnual / 12 },
+        });
+        comparable.push({
+          "compensation.normalizedCurrency": currency,
+          "compensation.normalizedAnnualMax": { $gte: requiredAnnual },
+        });
       }
       // Incomparable pay (hourly, contract, unknown, or undisclosed) remains visible.
       const incomparable = [
@@ -1334,17 +1636,25 @@ export const jobIngestionService = {
       filter.$and = [...(filter.$and || []), { $or: [...comparable, ...incomparable] }];
     }
     if (excludeJobIds.length) filter._id = { $nin: excludeJobIds };
-    const applicantCountries = eligibilityCountryCodes.map((code) => String(code).toUpperCase()).filter((code) => /^[A-Z]{2}$/.test(code));
+    const applicantCountries = eligibilityCountryCodes
+      .map((code) => String(code).toUpperCase())
+      .filter((code) => /^[A-Z]{2}$/.test(code));
     if (applicantCountries.length && !showAnyway) {
       const regionCodes = {
         EU: ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"],
         APAC: ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"],
       };
-      const matchingRegions = Object.entries(regionCodes).filter(([, countries]) => applicantCountries.some((code) => countries.includes(code))).map(([region]) => region);
+      const matchingRegions = Object.entries(regionCodes)
+        .filter(([, countries]) => applicantCountries.some((code) => countries.includes(code)))
+        .map(([region]) => region);
       const explicitMismatch = {
         $or: [
           { "eligibility.countries": { $exists: true, $ne: [], $nin: applicantCountries } },
-          { "eligibility.countries": { $exists: false }, "structuredLocation.countryCode": { $exists: true, $ne: "", $nin: applicantCountries }, "structuredLocation.remoteScope": { $nin: ["worldwide", "unknown"] } },
+          {
+            "eligibility.countries": { $exists: false },
+            "structuredLocation.countryCode": { $exists: true, $ne: "", $nin: applicantCountries },
+            "structuredLocation.remoteScope": { $nin: ["worldwide", "unknown"] },
+          },
           ...(matchingRegions.includes("EU") ? [] : [{ "eligibility.remoteScope": "EU" }]),
           ...(matchingRegions.includes("APAC") ? [] : [{ "eligibility.remoteScope": "APAC" }]),
         ],
@@ -1353,35 +1663,146 @@ export const jobIngestionService = {
     }
     if (isMongoReady()) {
       const cursorData = decodeCatalogCursor(cursor);
-      const cursorFilter = cursorData ? {
-        $or: cursorData.postedAt
-          ? [
-              { postedAt: { $lt: new Date(cursorData.postedAt) } },
-              { postedAt: null, _id: { $gt: cursorData.id } },
-              { postedAt: new Date(cursorData.postedAt), _id: { $gt: cursorData.id } },
-            ]
-          : [{ postedAt: null, _id: { $gt: cursorData.id } }],
-      } : null;
-      const query = cursorFilter ? { $and: [filter, cursorFilter] } : filter;
-      const fetchedJobs = await Job.find(query)
-        .sort({ postedAt: -1, _id: 1 })
-        .limit(limit + 1)
-        .select("-embedding -rawPayload -rawDescription -requirements")
-        .lean();
-      const hasMore = fetchedJobs.length > limit;
-      const jobs = fetchedJobs.slice(0, limit);
-      const last = jobs.at(-1);
-      const nextCursor = hasMore && last
-        ? encodeCatalogCursor({ id: String(last._id), postedAt: last.postedAt ? new Date(last.postedAt).toISOString() : null })
-        : null;
-      // This count is shown to users and changes when source policy or ingestion
-      // changes. An index-backed count avoids stale zero/under-count cache entries.
-      const countResult = await Job.countDocuments({
-        sourceBoard: { $in: enabledKeys },
-        status: "active",
-        expiresAt: { $gt: new Date() },
-      }).then((count) => ({ count, approximate: false }))
-        .catch(() => ({ count: jobs.length + Number(hasMore), approximate: true }));
+      const useRelevanceSort =
+        cursorData?.sort === "relevance" ||
+        (sort === "relevance" && Boolean(querySpec?.tokenGroups?.length)) ||
+        (!sort && Boolean(querySpec?.tokenGroups?.length) && cursorData?.sort !== "recent");
+
+      let jobs = [];
+      let hasMore = false;
+      let nextCursor = null;
+
+      if (useRelevanceSort) {
+        const asOfDay =
+          cursorData?.asOfDay ||
+          Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+        const candidateWindow = Math.min(500, Math.max(200, limit * 10));
+        const candidates = await Job.find(filter)
+          .sort({ postedAt: -1, _id: 1 })
+          .limit(candidateWindow)
+          .select("-embedding -rawPayload -rawDescription -requirements")
+          .lean();
+        const scored = candidates
+          .map((job) => ({
+            ...job,
+            ...scoreCatalogSearchRelevance(job, querySpec, asOfDay),
+          }))
+          .sort(compareJobsByRelevance);
+        const afterCursor = cursorData
+          ? scored.filter((job) => isAfterRelevanceCursor(job, cursorData))
+          : scored;
+        hasMore = afterCursor.length > limit;
+        jobs = afterCursor.slice(0, limit);
+        const last = jobs.at(-1);
+        nextCursor =
+          hasMore && last
+            ? encodeCatalogCursor({
+                id: String(last._id),
+                postedAt: last.postedAt ? new Date(last.postedAt).toISOString() : null,
+                relevanceScore: last.relevanceScore,
+                asOfDay,
+                sort: "relevance",
+              })
+            : null;
+      } else {
+        const cursorFilter = cursorData
+          ? {
+              $or: cursorData.postedAt
+                ? [
+                    { postedAt: { $lt: new Date(cursorData.postedAt) } },
+                    { postedAt: null, _id: { $gt: cursorData.id } },
+                    { postedAt: new Date(cursorData.postedAt), _id: { $gt: cursorData.id } },
+                  ]
+                : [{ postedAt: null, _id: { $gt: cursorData.id } }],
+            }
+          : null;
+        const query = cursorFilter ? { $and: [filter, cursorFilter] } : filter;
+        const fetchedJobs = await Job.find(query)
+          .sort({ postedAt: -1, _id: 1 })
+          .limit(limit + 1)
+          .select("-embedding -rawPayload -rawDescription -requirements")
+          .lean();
+        hasMore = fetchedJobs.length > limit;
+        jobs = fetchedJobs.slice(0, limit);
+        const last = jobs.at(-1);
+        nextCursor =
+          hasMore && last
+            ? encodeCatalogCursor({
+                id: String(last._id),
+                postedAt: last.postedAt ? new Date(last.postedAt).toISOString() : null,
+              })
+            : null;
+      }
+
+      const catalogVersion = await getCatalogVersion();
+      const sourcesSig = [...enabledKeys].sort().join(",");
+      const totalCacheKey = CacheKeys.catalogTotal(catalogVersion, sourcesSig);
+      let cachedTotal = await get(totalCacheKey);
+      let totalIsApproximate = true;
+      if (typeof cachedTotal !== "number" || cachedTotal < jobs.length) {
+        const countResult = await Job.countDocuments({
+          sourceBoard: { $in: enabledKeys },
+          status: "active",
+          expiresAt: { $gt: new Date() },
+        })
+          .then((count) => ({ count, approximate: false }))
+          .catch(() => ({ count: jobs.length + Number(hasMore), approximate: true }));
+        cachedTotal = countResult.count;
+        totalIsApproximate = countResult.approximate;
+        await set(totalCacheKey, cachedTotal, TTL.SHORT);
+      }
+
+      const facetsCacheKey = CacheKeys.catalogFacets(catalogVersion, sourcesSig);
+      let facets = await get(facetsCacheKey);
+      if (!facets) {
+        const baseMatch = {
+          sourceBoard: { $in: enabledKeys },
+          status: "active",
+          expiresAt: { $gt: new Date() },
+        };
+        const [occupations, remoteTypes, countries] = await Promise.all([
+          Job.aggregate([
+            { $match: baseMatch },
+            { $group: { _id: { $ifNull: ["$occupation", "unclassified"] }, count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+            { $limit: 20 },
+          ])
+            .option({ maxTimeMS: 1000 })
+            .catch(() => []),
+          Job.aggregate([
+            { $match: baseMatch },
+            { $group: { _id: { $ifNull: ["$remoteType", "remote"] }, count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+          ])
+            .option({ maxTimeMS: 1000 })
+            .catch(() => []),
+          Job.aggregate([
+            { $match: baseMatch },
+            {
+              $group: {
+                _id: { $ifNull: ["$structuredLocation.countryCode", ""] },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { count: -1, _id: 1 } },
+            { $limit: 20 },
+          ])
+            .option({ maxTimeMS: 1000 })
+            .catch(() => []),
+        ]);
+        facets = {
+          occupations: occupations.map((row) => ({
+            key: row._id || "unclassified",
+            count: row.count,
+          })),
+          remoteTypes: remoteTypes.map((row) => ({ key: row._id || "remote", count: row.count })),
+          countries: countries
+            .filter((row) => row._id)
+            .map((row) => ({ key: row._id, count: row.count })),
+        };
+        await set(facetsCacheKey, facets, TTL.SHORT);
+      }
+
       return {
         jobs: jobs.map((job) => ({
           ...job,
@@ -1392,8 +1813,12 @@ export const jobIngestionService = {
               : false),
           jobId: String(job._id),
         })),
-        total: Number(countResult.count),
-        totalIsApproximate: countResult.approximate,
+        total: Number(cachedTotal),
+        totalIsApproximate,
+        catalogVersion,
+        facets,
+        typoCorrections: querySpec?.typoCorrections || {},
+        sort: useRelevanceSort ? "relevance" : "recent",
         hasMore,
         nextCursor,
         page: 1,
@@ -1406,14 +1831,19 @@ export const jobIngestionService = {
       .filter((job) => {
         if (new Date(job.expiresAt) <= new Date() || job.status === "closed") return false;
         if (!enabledKeys.includes(job.sourceBoard)) return false;
-        if (
-          q &&
-          ![job.title, job.company, ...(job.tags || []), ...(job.requirements || [])]
+        if (querySpec?.tokenGroups?.length) {
+          const hay = [
+            job.title,
+            job.company,
+            ...(job.searchTokens || []),
+            ...(job.tags || []),
+            ...(job.requirements || []),
+          ]
             .join(" ")
-            .toLowerCase()
-            .includes(q.toLowerCase())
-        )
-          return false;
+            .toLowerCase();
+          if (!querySpec.tokenGroups.every((group) => group.all.some((term) => hay.includes(term))))
+            return false;
+        }
         if (location && !(job.location || "").toLowerCase().includes(location.toLowerCase()))
           return false;
         if (countryCode && job.structuredLocation?.countryCode !== countryCode.toUpperCase())
@@ -1421,11 +1851,29 @@ export const jobIngestionService = {
         if (source && job.sourceBoard?.toLowerCase() !== source.toLowerCase()) return false;
         if (remoteType && job.remoteType !== remoteType) return false;
         if (applicantCountries.length && !showAnyway) {
-          const countries = job.eligibility?.countries || job.structuredLocation?.eligibleCountryCodes || [];
+          const countries =
+            job.eligibility?.countries || job.structuredLocation?.eligibleCountryCodes || [];
           const country = job.structuredLocation?.countryCode;
-          const scope = job.eligibility?.remoteScope || job.structuredLocation?.remoteScope || "unknown";
-          const matchesRegion = scope === "EU" && applicantCountries.some((code) => ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"].includes(code)) || scope === "APAC" && applicantCountries.some((code) => ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"].includes(code));
-          if (scope !== "worldwide" && !matchesRegion && ((countries.length && !countries.some((code) => applicantCountries.includes(code))) || (country && scope !== "unknown" && !applicantCountries.includes(country)))) return false;
+          const scope =
+            job.eligibility?.remoteScope || job.structuredLocation?.remoteScope || "unknown";
+          const matchesRegion =
+            (scope === "EU" &&
+              applicantCountries.some((code) =>
+                ["GB", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "NO", "FI", "PL"].includes(code),
+              )) ||
+            (scope === "APAC" &&
+              applicantCountries.some((code) =>
+                ["IN", "CN", "JP", "SG", "AU", "NZ", "KR", "TH", "ID", "MY", "PH", "VN"].includes(
+                  code,
+                ),
+              ));
+          if (
+            scope !== "worldwide" &&
+            !matchesRegion &&
+            ((countries.length && !countries.some((code) => applicantCountries.includes(code))) ||
+              (country && scope !== "unknown" && !applicantCountries.includes(country)))
+          )
+            return false;
         }
         return true;
       })
@@ -1435,15 +1883,26 @@ export const jobIngestionService = {
           new Date(b.postedAt || 0) - new Date(a.postedAt || 0),
       );
     return {
-      jobs: jobs.slice((page - 1) * limit, page * limit).map(({ embedding: _embedding, rawDescription: _rawDescription, requirements: _requirements, ...job }) => ({
-        ...job,
-        jobId: String(job._id || job.identityKey),
-      })),
+      jobs: jobs
+        .slice((page - 1) * limit, page * limit)
+        .map(
+          ({
+            embedding: _embedding,
+            rawDescription: _rawDescription,
+            requirements: _requirements,
+            ...job
+          }) => ({
+            ...job,
+            jobId: String(job._id || job.identityKey),
+          }),
+        ),
       total: jobs.length,
       page,
       limit,
       pages: Math.ceil(jobs.length / limit),
       totalIsApproximate: false,
+      facets: { occupations: [], remoteTypes: [], countries: [] },
+      typoCorrections: querySpec?.typoCorrections || {},
       hasMore: jobs.length > page * limit,
       nextCursor: null,
       sources: await this.publicSources(),
@@ -1475,14 +1934,26 @@ export const jobIngestionService = {
           redis.get("jobscout:worker:last-seen"),
         ]);
         const online = Boolean(heartbeat);
-        worker = { status: online ? "online" : "offline", online, lastSeenAt: lastSeenAt ? new Date(lastSeenAt) : null };
-      } catch { /* worker status remains unknown/offline when Redis is unavailable */ }
+        worker = {
+          status: online ? "online" : "offline",
+          online,
+          lastSeenAt: lastSeenAt ? new Date(lastSeenAt) : null,
+        };
+      } catch {
+        /* worker status remains unknown/offline when Redis is unavailable */
+      }
     }
     return records.map((source) => ({
       worker,
       key: source.key,
       displayName: source.displayName,
-      enabled: Boolean(source.enabled && source.approved && isSourcePolicyComplete(source) && isSourceEnabledByEnvironment(source.key) && isSourceActivationAllowed(source)),
+      enabled: Boolean(
+        source.enabled &&
+        source.approved &&
+        isSourcePolicyComplete(source) &&
+        isSourceEnabledByEnvironment(source.key) &&
+        isSourceActivationAllowed(source),
+      ),
       approved: Boolean(source.approved),
       quota: source.quota,
       quotaUsed: new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : source.quotaUsed || 0,
@@ -1514,42 +1985,180 @@ export const jobIngestionService = {
   },
 
   async coverageReport(profile = null) {
-    if (!isMongoReady()) return { totalActive: 0, rawActive: 0, byOccupation: [], byCountry: [], byRemoteScope: [], bySource: [], freshness: [], unknownEligibilityCount: 0, unknownEligibilityShare: 0, targetLocations: [], targetGaps: [] };
+    if (!isMongoReady())
+      return {
+        totalActive: 0,
+        rawActive: 0,
+        byOccupation: [],
+        byCountry: [],
+        byRemoteScope: [],
+        bySource: [],
+        freshness: [],
+        unknownEligibilityCount: 0,
+        unknownEligibilityShare: 0,
+        targetLocations: [],
+        targetGaps: [],
+      };
     const active = { status: "active", expiresAt: { $gt: new Date() }, canonicalJobId: null };
-    const groupBy = async (field) => Job.aggregate([{ $match: active }, { $group: { _id: { $ifNull: [`$${field}`, "unknown"] }, count: { $sum: 1 } } }, { $sort: { count: -1, _id: 1 } }]).option({ maxTimeMS: 2000 });
-    const [totalActive, rawActive, byOccupation, byCountry, byRemoteScope, bySource, unknownEligibilityCount, byOccupationCountry, unclassifiedBySource, freshness] = await Promise.all([
+    const groupBy = async (field) =>
+      Job.aggregate([
+        { $match: active },
+        { $group: { _id: { $ifNull: [`$${field}`, "unknown"] }, count: { $sum: 1 } } },
+        { $sort: { count: -1, _id: 1 } },
+      ]).option({ maxTimeMS: 2000 });
+    const [
+      totalActive,
+      rawActive,
+      byOccupation,
+      byCountry,
+      byRemoteScope,
+      bySource,
+      unknownEligibilityCount,
+      byOccupationCountry,
+      unclassifiedBySource,
+      freshness,
+    ] = await Promise.all([
       Job.countDocuments(active),
       Job.countDocuments({ status: "active", expiresAt: { $gt: new Date() } }),
       groupBy("occupation"),
       groupBy("structuredLocation.countryCode"),
       groupBy("eligibility.remoteScope"),
       groupBy("sourceBoard"),
-      Job.countDocuments({ ...active, $or: [{ eligibility: { $exists: false } }, { "eligibility.remoteScope": "unknown" }, { "eligibility.confidence": { $lt: 0.5 } }] }),
-      Job.aggregate([{ $match: active }, { $group: { _id: { occupation: { $ifNull: ["$occupation", "unclassified"] }, country: { $ifNull: ["$structuredLocation.countryCode", "unknown"] } }, count: { $sum: 1 } } }, { $sort: { count: -1, "_id.occupation": 1 } }]).option({ maxTimeMS: 2000 }),
-      Job.aggregate([{ $match: active }, { $group: { _id: "$sourceBoard", total: { $sum: 1 }, unclassified: { $sum: { $cond: [{ $eq: [{ $ifNull: ["$occupation", "unclassified"] }, "unclassified"] }, 1, 0] } } } }, { $sort: { _id: 1 } }]).option({ maxTimeMS: 2000 }),
-      profile ? Promise.resolve([]) : Job.aggregate([
+      Job.countDocuments({
+        ...active,
+        $or: [
+          { eligibility: { $exists: false } },
+          { "eligibility.remoteScope": "unknown" },
+          { "eligibility.confidence": { $lt: 0.5 } },
+        ],
+      }),
+      Job.aggregate([
         { $match: active },
-        { $project: { lastSeenAt: 1, ageMs: { $subtract: [new Date(), { $ifNull: ["$lastSeenAt", new Date(0)] }] } } },
-        { $group: { _id: { $switch: { branches: [{ case: { $eq: ["$lastSeenAt", null] }, then: "unknown" }, { case: { $lte: ["$ageMs", 86400000] }, then: "under_24h" }, { case: { $lte: ["$ageMs", 7 * 86400000] }, then: "1_to_7d" }], default: "over_7d" } }, count: { $sum: 1 } } },
+        {
+          $group: {
+            _id: {
+              occupation: { $ifNull: ["$occupation", "unclassified"] },
+              country: { $ifNull: ["$structuredLocation.countryCode", "unknown"] },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1, "_id.occupation": 1 } },
+      ]).option({ maxTimeMS: 2000 }),
+      Job.aggregate([
+        { $match: active },
+        {
+          $group: {
+            _id: "$sourceBoard",
+            total: { $sum: 1 },
+            unclassified: {
+              $sum: {
+                $cond: [
+                  { $eq: [{ $ifNull: ["$occupation", "unclassified"] }, "unclassified"] },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
         { $sort: { _id: 1 } },
       ]).option({ maxTimeMS: 2000 }),
+      profile
+        ? Promise.resolve([])
+        : Job.aggregate([
+            { $match: active },
+            {
+              $project: {
+                lastSeenAt: 1,
+                ageMs: { $subtract: [new Date(), { $ifNull: ["$lastSeenAt", new Date(0)] }] },
+              },
+            },
+            {
+              $group: {
+                _id: {
+                  $switch: {
+                    branches: [
+                      { case: { $eq: ["$lastSeenAt", null] }, then: "unknown" },
+                      { case: { $lte: ["$ageMs", 86400000] }, then: "under_24h" },
+                      { case: { $lte: ["$ageMs", 7 * 86400000] }, then: "1_to_7d" },
+                    ],
+                    default: "over_7d",
+                  },
+                },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { _id: 1 } },
+          ]).option({ maxTimeMS: 2000 }),
     ]);
-    const targetGaps = profile ? [] : await Promise.all(COVERAGE_TARGETS.map(async (target) => {
-      const count = await Job.countDocuments({ ...active, ...target.filter });
-      const companies = ["kerala-nursing", "gulf-nursing", "uk-ireland-nursing"].includes(target.key)
-        ? await Job.distinct("company", { ...active, ...target.filter }).then((values) => values.filter(Boolean).length)
-        : null;
-      return { key: target.key, label: target.label, target: target.target, activeJobs: count, gap: Math.max(0, target.target - count), progress: target.target ? Number((count / target.target).toFixed(4)) : 0, distinctCompanies: companies, measurement: ["india-fresher-it", "india-remote", "global-remote"].includes(target.key) ? "approximate_field_coverage" : "structured_field_match" };
-    }));
-    const locations = [...new Map([
-      profile?.careerProfile?.homeLocation,
-      ...(profile?.careerProfile?.targetLocations || []),
-    ].filter((item) => item?.countryCode).map((item) => [item.countryCode, item])).values()];
-    const targetLocations = await Promise.all(locations.map(async (location) => ({
-      countryCode: location.countryCode,
-      eligibleCount: await Job.countDocuments({ ...active, $or: [{ "eligibility.countries": location.countryCode }, { "eligibility.remoteScope": "worldwide" }] }),
-    })));
-    return { totalActive, rawActive, byOccupation, byCountry, byRemoteScope, bySource, freshness, unknownEligibilityCount, unknownEligibilityShare: totalActive ? Number((unknownEligibilityCount / totalActive).toFixed(4)) : 0, byOccupationCountry, unclassifiedBySource: unclassifiedBySource.map((item) => ({ ...item, unclassifiedShare: item.total ? Number((item.unclassified / item.total).toFixed(4)) : 0 })), targetLocations, targetGaps };
+    const targetGaps = profile
+      ? []
+      : await Promise.all(
+          COVERAGE_TARGETS.map(async (target) => {
+            const count = await Job.countDocuments({ ...active, ...target.filter });
+            const companies = ["kerala-nursing", "gulf-nursing", "uk-ireland-nursing"].includes(
+              target.key,
+            )
+              ? await Job.distinct("company", { ...active, ...target.filter }).then(
+                  (values) => values.filter(Boolean).length,
+                )
+              : null;
+            return {
+              key: target.key,
+              label: target.label,
+              target: target.target,
+              activeJobs: count,
+              gap: Math.max(0, target.target - count),
+              progress: target.target ? Number((count / target.target).toFixed(4)) : 0,
+              distinctCompanies: companies,
+              measurement: ["india-fresher-it", "india-remote", "global-remote"].includes(
+                target.key,
+              )
+                ? "approximate_field_coverage"
+                : "structured_field_match",
+            };
+          }),
+        );
+    const locations = [
+      ...new Map(
+        [profile?.careerProfile?.homeLocation, ...(profile?.careerProfile?.targetLocations || [])]
+          .filter((item) => item?.countryCode)
+          .map((item) => [item.countryCode, item]),
+      ).values(),
+    ];
+    const targetLocations = await Promise.all(
+      locations.map(async (location) => ({
+        countryCode: location.countryCode,
+        eligibleCount: await Job.countDocuments({
+          ...active,
+          $or: [
+            { "eligibility.countries": location.countryCode },
+            { "eligibility.remoteScope": "worldwide" },
+          ],
+        }),
+      })),
+    );
+    return {
+      totalActive,
+      rawActive,
+      byOccupation,
+      byCountry,
+      byRemoteScope,
+      bySource,
+      freshness,
+      unknownEligibilityCount,
+      unknownEligibilityShare: totalActive
+        ? Number((unknownEligibilityCount / totalActive).toFixed(4))
+        : 0,
+      byOccupationCountry,
+      unclassifiedBySource: unclassifiedBySource.map((item) => ({
+        ...item,
+        unclassifiedShare: item.total ? Number((item.unclassified / item.total).toFixed(4)) : 0,
+      })),
+      targetLocations,
+      targetGaps,
+    };
   },
 
   async publicSources() {
@@ -1586,12 +2195,19 @@ export const jobIngestionService = {
     }
     const source = await JobSource.findOne({ key: sourceKey }).lean();
     if (enabled && !isSourceEnabledByEnvironment(sourceKey)) {
-      const error = new Error(`Enable ${sourceKey} ingestion with its backend environment flag before turning it on in admin.`);
+      const error = new Error(
+        `Enable ${sourceKey} ingestion with its backend environment flag before turning it on in admin.`,
+      );
       error.statusCode = 409;
       error.code = "SOURCE_ENV_DISABLED";
       throw error;
     }
-    if (!source || !source.approved || !isSourcePolicyComplete(source) || !isSourceActivationAllowed(source)) {
+    if (
+      !source ||
+      !source.approved ||
+      !isSourcePolicyComplete(source) ||
+      !isSourceActivationAllowed(source)
+    ) {
       const error = new Error("This source has not passed the approved source policy gate.");
       error.statusCode = 404;
       error.code = "SOURCE_NOT_APPROVED";
@@ -1613,13 +2229,25 @@ export const jobIngestionService = {
       throw error;
     }
     const source = await JobSource.findOne({ key: sourceKey }).lean();
-    if (!source || !isSourcePolicyComplete(source) || (approved && !isSourceActivationAllowed(source))) {
+    if (
+      !source ||
+      !isSourcePolicyComplete(source) ||
+      (approved && !isSourceActivationAllowed(source))
+    ) {
       const error = new Error("This source does not have the required policy metadata.");
       error.statusCode = 404;
       error.code = "SOURCE_POLICY_INCOMPLETE";
       throw error;
     }
-    await JobSource.updateOne({ key: sourceKey }, { $set: { approved: Boolean(approved), ...(approved ? {} : { enabled: false, runState: "disabled" }) } });
+    await JobSource.updateOne(
+      { key: sourceKey },
+      {
+        $set: {
+          approved: Boolean(approved),
+          ...(approved ? {} : { enabled: false, runState: "disabled" }),
+        },
+      },
+    );
     await bumpCatalogVersion();
     return this.sourceBudgets();
   },

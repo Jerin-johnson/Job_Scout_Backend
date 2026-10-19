@@ -2,13 +2,30 @@ export const JOB_DETAIL_FIELDS = Object.freeze(["rawDescription", "requirements"
 export const JOB_VECTOR_FIELDS = Object.freeze(["embedding", "embeddingMetadata"]);
 
 export function splitJobForStorage(job) {
-  const { rawDescription = "", requirements = [], provenance = [], embedding, embeddingMetadata, ...catalog } = job;
+  const {
+    rawDescription = "",
+    requirements = [],
+    provenance = [],
+    embedding,
+    embeddingMetadata,
+    ...catalog
+  } = job;
   return {
     catalog,
-    details: { description: String(rawDescription || ""), requirements: Array.isArray(requirements) ? requirements : [], provenance: Array.isArray(provenance) ? provenance : [] },
-    vector: Array.isArray(embedding) && embedding.length
-      ? { vector: embedding, provider: embeddingMetadata?.provider || "legacy", model: embeddingMetadata?.model || "unknown", dimension: embeddingMetadata?.dimension || embedding.length }
-      : null,
+    details: {
+      description: String(rawDescription || ""),
+      requirements: Array.isArray(requirements) ? requirements : [],
+      provenance: Array.isArray(provenance) ? provenance : [],
+    },
+    vector:
+      Array.isArray(embedding) && embedding.length
+        ? {
+            vector: embedding,
+            provider: embeddingMetadata?.provider || "legacy",
+            model: embeddingMetadata?.model || "unknown",
+            dimension: embeddingMetadata?.dimension || embedding.length,
+          }
+        : null,
   };
 }
 
@@ -30,7 +47,16 @@ export function decodeCatalogCursor(value) {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(String(value), "base64url").toString("utf8"));
-    if (!/^[a-f\d]{24}$/i.test(parsed.id) || (parsed.postedAt !== null && !Number.isFinite(Date.parse(parsed.postedAt)))) throw new Error();
+    if (
+      !/^[a-f\d]{24}$/i.test(parsed.id) ||
+      (parsed.postedAt !== null && !Number.isFinite(Date.parse(parsed.postedAt))) ||
+      (parsed.relevanceScore !== undefined &&
+        parsed.relevanceScore !== null &&
+        !Number.isFinite(parsed.relevanceScore)) ||
+      (parsed.asOfDay !== undefined && parsed.asOfDay !== null && !Number.isFinite(parsed.asOfDay))
+    ) {
+      throw new Error();
+    }
     return parsed;
   } catch {
     const error = new Error("The job list cursor is invalid. Refresh the list and try again.");
