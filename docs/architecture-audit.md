@@ -146,19 +146,25 @@ The backend operates on Node.js (>=22.0.0) with Express, MongoDB/Mongoose, Redis
 
 ## 8. Audit & Refactoring Execution Outcomes
 
-1. **Presentation Route Consolidation:**
-   - `src/presentation/http/routes/authRoutes.ts` now mounts all auth endpoints (`register`, `login`, `google`, `refresh`, `logout`, `me`).
-   - `src/presentation/http/routes/applicationRoutes.ts` now mounts all application endpoints (`list`, `create`, `getById`, `update`, `updateStatus`, `archive`, `approveFollowUp`, `delete`).
-   - `src/presentation/http/routes/profileRoutes.ts` now mounts all profile & resume endpoints (`resume-upload-url`, `resume-ai-consent`, `career-profile`, `resumes`, `preferences`, `facts`, etc.).
-   - Removed 4 redundant/orphaned route files (`src/routes/auth.ts`, `src/routes/applications.ts`, `src/routes/profile.ts`, `src/routes/index.ts`) after verifying zero external consumers.
+1. **Presentation Route Consolidation & src/routes/ Elimination:**
+   - Consolidated and migrated ALL active routes into `src/presentation/http/routes/`:
+     - `adminRoutes.ts`, `aiRoutes.ts`, `applicationRoutes.ts`, `authRoutes.ts`, `billingRoutes.ts`, `feedbackRoutes.ts`, `healthRoutes.ts`, `interviewRoutes.ts`, `jobRoutes.ts`, `memoryRoutes.ts`, `privacyRoutes.ts`, `profileRoutes.ts`, `resumeMatchRoutes.ts`, `tailorRoutes.ts`.
+   - Updated `src/presentation/http/routes/index.ts` to mount all routes canonically under `/api/v1`.
+   - Updated `src/main/routes.ts` as the composition root router factory and `src/main/app.ts` to consume it.
+   - Completely eliminated the legacy `src/routes/` directory (all 15 route files removed).
 2. **`src/models/` Verification & Disposition:**
    - Verified that all 32 canonical Mongoose models reside in `src/infrastructure/database/mongoose/models/*Model.ts`.
    - Audited 109 consumer files across the repository (68 src, 16 tests, 25 operational scripts).
    - Preserved `src/models/*.ts` as clean 1-line forwarder facades to prevent breaking operational scripts (`compact-job-hot-documents.js`, `ensure-indexes.js`, etc.) and background workers.
 3. **Husky & Lint-Staged Configuration:**
-   - Updated `lint-staged.config.mjs` to include `*.{ts,tsx}`.
+   - Updated `lint-staged.config.mjs` to format `*.{ts,tsx}` with Prettier.
    - Enhanced `.husky/pre-commit` to execute `lint-staged`, `npm run typecheck`, `node scripts/check-architecture.mjs`, and secret scanning.
 4. **Automated Architecture Boundaries & Tests:**
-   - Created `scripts/check-architecture.mjs` to programmatically enforce domain independence, use case abstraction, and zero `any` annotations.
-   - Created `tests/architecture-boundaries.test.js` containing 5 boundary enforcement tests.
-   - Test suite expanded from 260 to 265 tests: **264 passed, 1 skipped, 0 failed**.
+   - Created `scripts/check-architecture.mjs` to programmatically enforce domain independence, use case abstraction, forbidden reintroduction of `src/routes/`, and zero `any` annotations.
+   - Created `tests/architecture-boundaries.test.js` containing 11 boundary enforcement tests (both negative violation injection tests and positive production conformance checks).
+   - Test suite expanded from 260 to 271 tests: **270 passed, 1 skipped, 0 failed**.
+5. **Architectural Documentation:**
+   - Created `docs/architecture-decisions.md` (ADRs 001 - 005).
+   - Created `docs/testing-strategy.md` (Testing levels, mocking, database setup, quality gates).
+   - Created `docs/technical-debt.md` (Facade registry, impact, and sunset milestones).
+   - Updated `README.md` and `docs/development-workflow.md`.
