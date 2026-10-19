@@ -157,3 +157,16 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
   - `olderThan30dCount`: `61` (`10.70%` of active catalog)
   - `possibleRepostCount`: `0` (`0.00%` of active catalog)
   - `ghostRiskCount`: `46` (`8.07%` of active catalog; listings older than 45 days or reposted across multiple cycles)
+
+## 7. Incremental Matching at Scale (`src/services/jobs/incrementalMatching.js`)
+
+- **Inverted Profile Match Index (`profile_match_tokens_idx`)**:
+  - `Profile` documents store pre-normalized `matchTokens` (canonical skills, `.js`-stemmed skill tokens, normalized role tokens from `preferences.targetRoles`, `careerProfile.targetRoles`, `roles[].title`, and `occ:<code >` tokens) plus `matchCountryCodes`, indexed via `{ matchTokens: 1, updatedAt: -1 }`.
+  - When a batch of new or changed jobs is ingested, `extractBatchJobDemandIndex(newJobs)` extracts up to `64` weighted demand tokens (`titleTokens` weight `3`, `skills` weight `2`, `occ:<code>` weight `2`, `occupation` weight `1`) and eligible country codes.
+  - `findAffectedUsersForNewJobs(newJobs, { maxUsers: 250 })` queries `Profile` via `profile_match_tokens_idx` (never scanning unmatched users) and `rankAffectedProfilesForNewJobs` scores and caps recomputes to the bounded per-run budget (`250` users/run).
+- **10,000-User Benchmark & Index Verification (`tests/jobs-incremental-matching.test.js`)**:
+  - 10,000 synthetic user profiles benchmarked in `20.20 ms` (`< 50 ms`), enforcing the per-run cap (`40` users) and prioritizing multi-token + country-eligible matches.
+  - MongoDB `explain("executionStats")` on 500 profiles with 12 matching nurses confirmed `IXSCAN` on `profile_match_tokens_idx` with `totalDocsExamined: 12` (zero unmatched profiles scanned).
+- **Scoring Version Policy (`lexical-v2` vs `lexical-v4`)**:
+  - `lexical-v2` (`JOB_MATCH_SCORE_VERSION=lexical-v2`) remains the default production scoring version (`skills: 40, title: 20, experience: 15, location: 15, salary: 5, recency: 5`).
+  - `lexical-v4` is opt-in via `JOB_MATCH_SCORE_VERSION=lexical-v4` (`skills: 32, title: 22, experience: 10, location: 12, salary: 5, recency: 5, occupation: 8, seniority: 3, eligibility: 3`) when structured `careerProfile` (confirmed experience years, home/target locations, work authorization) and occupation classification coverage exceed the activation threshold, because `lexical-v4` explicitly downgrades confidence to `low` when role/experience facts are unconfirmed and hard-blocks country-ineligible listings.

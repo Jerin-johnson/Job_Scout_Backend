@@ -148,3 +148,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Extended `src/services/jobs/jobRisk.js` with `detectRepostSignal`, `classifyLinkHealthStatus`, `sampleJobsForPoliteLinkCheck`, `computeSourceTermExpiry`, and non-defamatory risk flags (`ghost_listing_risk`, `broken_or_expired_link`, `possible_repost`, `older_listing`).
 - Added `repostCount` to `Job`, wired polite host-bounded link check sampling (`maxTotal: 50, maxPerHost: 5`), repost detection, source-term expiry, and `trustAndFreshness` coverage metrics into `jobIngestionService.js`.
 - Measured local catalog (570 active jobs): `staleCount: 0`, `closedCount: 0`, `olderThan30dCount: 61` (`10.70%`), `possibleRepostCount: 0` (`0%`), `ghostRiskCount: 46` (`8.07%`). Verified with 11/11 passing tests in `tests/jobs-presentation-services.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 6 Matching at scale — 2026-10-19
+
+- Added `src/services/jobs/incrementalMatching.js` (`INCREMENTAL_MATCH_BUDGET`, `buildProfileMatchIndex`, `extractBatchJobDemandIndex`, `rankAffectedProfilesForNewJobs`, `findAffectedUsersForNewJobs`) and `profile_match_tokens_idx` (`{ matchTokens: 1, updatedAt: -1 }`) on `Profile`.
+- Wired `buildProfileMatchIndex` into `profileRepository.upsertProfile` and `enqueueIncrementalMatchesForNewJobs` into `matchRefreshService.js`. Kept `lexical-v2` as default scoring version.
+- Benchmarked 10,000 synthetic users in `20.20 ms` and verified `IXSCAN` (`totalDocsExamined: 12` out of 500 profiles) in `tests/jobs-incremental-matching.test.js` (3/3 passed).
