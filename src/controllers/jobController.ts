@@ -317,16 +317,14 @@ export const jobController = {
       const userId = user._id || user.id;
       const hiddenJobIds = await HiddenJob.distinct("jobId", { userId });
       const profile = await profileRepository.findByUserId(userId as string);
-      const result = (await (
-        jobIngestionService.searchJobs as (opts: unknown) => Promise<Record<string, unknown>>
-      )({
+      const result = (await jobIngestionService.searchJobs({
         ...filters,
         eligibilityCountryCodes: profileApplicantCountries(profile || {}),
         page,
         cursor,
         limit,
         excludeJobIds: hiddenJobIds,
-      })) as Record<string, unknown>;
+      })) as unknown as Record<string, unknown>;
 
       if (["admin", "super_admin"].includes(user.role || "")) {
         const sourceBudgets = (await jobIngestionService.sourceBudgets()) as Array<{ worker?: Record<string, unknown> }>;
@@ -777,7 +775,7 @@ export const jobController = {
 
       const scored = tiered.map((job) => ({
         job,
-        ...scoreJobMatch(profile || {}, { ...job, locationTier: bestTier }),
+        ...scoreJobMatch(profile || {}, { ...job, locationTier: bestTier ?? undefined }),
       }));
 
       const [stored, refresh, catalogJobs] = await Promise.all([
@@ -1075,9 +1073,10 @@ export const jobController = {
         });
         return;
       }
-      const user = req.user as { _id?: string; id?: string };
-      const userId = user?._id || user?.id;
-      const updated = await savedSearchService.update(userId, req.params.id, parsed.data);
+      const user = req.user as { _id?: string; id?: string } | undefined;
+      const userId = user?._id || user?.id || "";
+      const searchId = Array.isArray(req.params.id) ? req.params.id[0] || "" : req.params.id || "";
+      const updated = await savedSearchService.update(userId, searchId, parsed.data);
       if (!updated) {
         res.status(404).json({
           error: {
@@ -1096,9 +1095,10 @@ export const jobController = {
 
   async deleteSavedSearch(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const user = req.user as { _id?: string; id?: string };
-      const userId = user?._id || user?.id;
-      const removed = await savedSearchService.remove(userId, req.params.id);
+      const user = req.user as { _id?: string; id?: string } | undefined;
+      const userId = user?._id || user?.id || "";
+      const searchId = Array.isArray(req.params.id) ? req.params.id[0] || "" : req.params.id || "";
+      const removed = await savedSearchService.remove(userId, searchId);
       if (!removed) {
         res.status(404).json({
           error: {
@@ -1149,7 +1149,8 @@ export const jobController = {
       const token = String(req.body?.token || req.query?.token || "").trim();
       const user = req.user as { _id?: string; id?: string } | undefined;
       const userId = user?._id || user?.id || "";
-      const updated = await savedSearchService.unsubscribe(req.params.id, { token, userId });
+      const searchId = Array.isArray(req.params.id) ? req.params.id[0] || "" : req.params.id || "";
+      const updated = await savedSearchService.unsubscribe(searchId, { token, userId });
       if (!updated) {
         res.status(404).json({
           error: {

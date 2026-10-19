@@ -7,17 +7,85 @@ import { PLANS, PLAN_CONFIG } from "../../shared/constants/plans.js";
 import { jobIngestionService } from "./jobIngestionService.js";
 import { emailDigestService } from "../emailDigestService.js";
 
-const inMemorySavedSearches = new Map();
+export interface SavedSearchFilters {
+  q: string;
+  location: string;
+  countryCode: string;
+  occupation: string;
+  remoteType: string;
+  source: string;
+  postedWithinDays: number;
+  minimumSalaryInr: number | null;
+  eligibility: string;
+  showAnyway: boolean;
+}
+
+export interface QuietHoursConfig {
+  enabled: boolean;
+  startHourUtc: number;
+  endHourUtc: number;
+}
+
+export interface SavedSearchDto {
+  id: string;
+  userId: string;
+  name: string;
+  filters: SavedSearchFilters;
+  alertFrequency: string;
+  alertChannels: string[];
+  quietHours: QuietHoursConfig;
+  enabled: boolean;
+  lastAlertedAt: Date | string | null;
+  alertsSentToday: number;
+  createdAt: Date | string | null;
+  updatedAt: Date | string | null;
+  unsubscribeToken?: string;
+}
+
+export interface SavedSearchRecord {
+  _id: unknown;
+  userId: unknown;
+  name: string;
+  filters?: Partial<SavedSearchFilters>;
+  alertFrequency?: string;
+  alertChannels?: string[];
+  quietHours?: Partial<QuietHoursConfig>;
+  enabled?: boolean;
+  unsubscribeToken?: string;
+  sentJobIds?: string[];
+  lastAlertedAt?: Date | string | null;
+  alertsSentToday?: number;
+  alertWindowDay?: string;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  [key: string]: unknown;
+}
+
+export interface SavedSearchPlanLimits {
+  tier: string;
+  savedSearchesMax: number;
+  dailyAlertsMax: number;
+}
+
+export interface CanSendAlertResult {
+  allowed: boolean;
+  reason: string;
+  sentToday?: number;
+  dayKey?: string;
+  dailyAlertsMax?: number;
+}
+
+const inMemorySavedSearches = new Map<string, SavedSearchRecord>();
 const MAX_TRACKED_SENT_JOB_IDS = 200;
 
-export function utcDayKey(now = new Date()) {
+export function utcDayKey(now: Date | string | number = new Date()): string {
   const d = new Date(now);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-export function getSavedSearchPlanLimits(plan = PLANS.FREE) {
+export function getSavedSearchPlanLimits(plan: string = PLANS.FREE): SavedSearchPlanLimits {
   const tier = String(plan || PLANS.FREE).toLowerCase();
-  const config = PLAN_CONFIG[tier] || PLAN_CONFIG[PLANS.FREE];
+  const config = PLAN_CONFIG[tier as keyof typeof PLAN_CONFIG] || PLAN_CONFIG[PLANS.FREE];
   return {
     tier,
     savedSearchesMax: Number(config?.quotas?.savedSearchesMax) || 3,
@@ -25,7 +93,10 @@ export function getSavedSearchPlanLimits(plan = PLANS.FREE) {
   };
 }
 
-export function isWithinQuietHours(quietHours = {}, now = new Date()) {
+export function isWithinQuietHours(
+  quietHours: Partial<QuietHoursConfig> | null | undefined = {},
+  now: Date | string | number = new Date(),
+): boolean {
   if (!quietHours?.enabled) return false;
   const start = Number(quietHours.startHourUtc);
   const end = Number(quietHours.endHourUtc);
@@ -47,9 +118,27 @@ export function isWithinQuietHours(quietHours = {}, now = new Date()) {
   return hour >= start || hour < end;
 }
 
-export function selectUnsentAlertJobs(candidateJobs = [], sentJobIds = [], { maxJobs = 10 } = {}) {
+export interface CandidateJobLike {
+  status?: string;
+  jobId?: string;
+  _id?: unknown;
+  identityKey?: string;
+  title?: string;
+  company?: string;
+  location?: string;
+  remoteType?: string;
+  postedAt?: Date | string | null;
+  sourceBoard?: string;
+  [key: string]: unknown;
+}
+
+export function selectUnsentAlertJobs<T extends CandidateJobLike>(
+  candidateJobs: T[] = [],
+  sentJobIds: string[] = [],
+  { maxJobs = 10 }: { maxJobs?: number } = {},
+): T[] {
   const alreadySent = new Set((Array.isArray(sentJobIds) ? sentJobIds : []).map(String));
-  const unsent = [];
+  const unsent: T[] = [];
   const cap = Math.max(1, Number(maxJobs) || 10);
   for (const job of Array.isArray(candidateJobs) ? candidateJobs : []) {
     if (!job || job.status === "closed") continue;
@@ -63,10 +152,10 @@ export function selectUnsentAlertJobs(candidateJobs = [], sentJobIds = [], { max
 }
 
 export function appendBoundedSentJobIds(
-  existingIds = [],
-  newJobIds = [],
+  existingIds: unknown[] = [],
+  newJobIds: unknown[] = [],
   maxTracked = MAX_TRACKED_SENT_JOB_IDS,
-) {
+): string[] {
   const combined = [
     ...(Array.isArray(existingIds) ? existingIds : []).map(String),
     ...(Array.isArray(newJobIds) ? newJobIds : []).map(String),
@@ -77,9 +166,13 @@ export function appendBoundedSentJobIds(
 }
 
 export function canSendSavedSearchAlert(
-  savedSearch = {},
-  { plan = PLANS.FREE, now = new Date(), minInstantIntervalMs = 15 * 60_000 } = {},
-) {
+  savedSearch: Partial<SavedSearchRecord> | null | undefined = {},
+  {
+    plan = PLANS.FREE,
+    now = new Date(),
+    minInstantIntervalMs = 15 * 60_000,
+  }: { plan?: string; now?: Date | string | number; minInstantIntervalMs?: number } = {},
+): CanSendAlertResult {
   if (!savedSearch || !savedSearch.enabled) {
     return { allowed: false, reason: "disabled" };
   }
@@ -107,9 +200,13 @@ export function canSendSavedSearchAlert(
   return { allowed: true, reason: "ok", sentToday, dayKey, dailyAlertsMax };
 }
 
-export function sanitizeSavedSearchFilters(raw = {}) {
-  const remoteType = ["remote", "hybrid", "onsite"].includes(raw?.remoteType) ? raw.remoteType : "";
-  const eligibility = ["eligible", "unknown"].includes(raw?.eligibility) ? raw.eligibility : "";
+export function sanitizeSavedSearchFilters(raw: Record<string, unknown> = {}): SavedSearchFilters {
+  const remoteType = ["remote", "hybrid", "onsite"].includes(String(raw?.remoteType || ""))
+    ? String(raw.remoteType)
+    : "";
+  const eligibility = ["eligible", "unknown"].includes(String(raw?.eligibility || ""))
+    ? String(raw.eligibility)
+    : "";
   const minSalary =
     raw?.minimumSalaryInr !== null &&
     raw?.minimumSalaryInr !== undefined &&
@@ -147,13 +244,16 @@ export function sanitizeSavedSearchFilters(raw = {}) {
   };
 }
 
-function formatSavedSearchDto(doc, includeUnsubscribeToken = false) {
+function formatSavedSearchDto(
+  doc: SavedSearchRecord | null | undefined,
+  includeUnsubscribeToken = false,
+): SavedSearchDto | null {
   if (!doc) return null;
-  const dto = {
+  const dto: SavedSearchDto = {
     id: String(doc._id || doc.id),
     userId: String(doc.userId),
     name: doc.name,
-    filters: sanitizeSavedSearchFilters(doc.filters),
+    filters: sanitizeSavedSearchFilters(doc.filters as Record<string, unknown>),
     alertFrequency: doc.alertFrequency || "daily",
     alertChannels: Array.isArray(doc.alertChannels) ? doc.alertChannels : ["in_app", "email"],
     quietHours: {
@@ -173,16 +273,46 @@ function formatSavedSearchDto(doc, includeUnsubscribeToken = false) {
   return dto;
 }
 
+export interface UserLike {
+  _id?: unknown;
+  id?: string;
+  name?: string;
+  email?: string;
+  plan?: string;
+  isDeleted?: boolean;
+}
+
+export interface CreateSavedSearchPayload {
+  name?: string;
+  filters?: Record<string, unknown>;
+  alertFrequency?: string;
+  alertChannels?: string[];
+  quietHours?: Partial<QuietHoursConfig>;
+  enabled?: boolean;
+}
+
+export interface UpdateSavedSearchPayload {
+  name?: string;
+  filters?: Record<string, unknown>;
+  alertFrequency?: string;
+  alertChannels?: string[];
+  quietHours?: Partial<QuietHoursConfig>;
+  enabled?: boolean;
+}
+
 export const savedSearchService = {
-  async listByUser(userId, { plan = PLANS.FREE } = {}) {
-    const uid = String(userId || "");
+  async listByUser(
+    userId?: string | string[],
+    { plan = PLANS.FREE }: { plan?: string } = {},
+  ): Promise<{ savedSearches: Array<SavedSearchDto | null>; limits: SavedSearchPlanLimits }> {
+    const uid = Array.isArray(userId) ? String(userId[0] || "") : String(userId || "");
     const limits = getSavedSearchPlanLimits(plan);
     if (!uid) return { savedSearches: [], limits };
     if (isMongoReady()) {
-      const rows = await SavedSearch.find({ userId: uid })
+      const rows = (await SavedSearch.find({ userId: uid })
         .sort({ createdAt: -1 })
         .limit(limits.savedSearchesMax)
-        .lean();
+        .lean()) as unknown as SavedSearchRecord[];
       return {
         savedSearches: rows.map((row) => formatSavedSearchDto(row, true)),
         limits,
@@ -190,7 +320,7 @@ export const savedSearchService = {
     }
     const rows = [...inMemorySavedSearches.values()]
       .filter((row) => String(row.userId) === uid)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .sort((a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime())
       .slice(0, limits.savedSearchesMax);
     return {
       savedSearches: rows.map((row) => formatSavedSearchDto(row, true)),
@@ -198,8 +328,13 @@ export const savedSearchService = {
     };
   },
 
-  async create(user, payload = {}) {
+  async create(user?: UserLike | null, payload: CreateSavedSearchPayload = {}): Promise<SavedSearchDto | null> {
     const uid = String(user?._id || user?.id || "");
+    if (!uid) {
+      const error = new Error("Authentication required") as Error & { statusCode?: number };
+      error.statusCode = 401;
+      throw error;
+    }
     const plan = user?.plan || PLANS.FREE;
     const limits = getSavedSearchPlanLimits(plan);
     const existingCount = isMongoReady()
@@ -209,7 +344,7 @@ export const savedSearchService = {
     if (existingCount >= limits.savedSearchesMax) {
       const error = new Error(
         `Your ${limits.tier} plan supports up to ${limits.savedSearchesMax} saved searches.`,
-      );
+      ) as Error & { statusCode?: number; code?: string };
       error.statusCode = 403;
       error.code = "SAVED_SEARCH_LIMIT_REACHED";
       throw error;
@@ -225,8 +360,8 @@ export const savedSearchService = {
       String(payload.name || fallbackName)
         .trim()
         .slice(0, 80) || fallbackName;
-    const alertFrequency = ["none", "instant", "daily"].includes(payload.alertFrequency)
-      ? payload.alertFrequency
+    const alertFrequency = ["none", "instant", "daily"].includes(String(payload.alertFrequency))
+      ? String(payload.alertFrequency)
       : "daily";
     const alertChannels = Array.isArray(payload.alertChannels)
       ? payload.alertChannels.filter((channel) => ["in_app", "email"].includes(channel))
@@ -249,12 +384,12 @@ export const savedSearchService = {
         enabled: payload.enabled !== false,
         unsubscribeToken,
       });
-      return formatSavedSearchDto(created.toObject(), true);
+      return formatSavedSearchDto(created.toObject() as unknown as SavedSearchRecord, true);
     }
 
     const now = new Date();
     const id = new mongoose.Types.ObjectId().toString();
-    const record = {
+    const record: SavedSearchRecord = {
       _id: id,
       userId: uid,
       name,
@@ -275,9 +410,14 @@ export const savedSearchService = {
     return formatSavedSearchDto(record, true);
   },
 
-  async update(userId, searchId, patch = {}) {
-    const uid = String(userId || "");
-    const updates = {};
+  async update(
+    userId?: string | string[],
+    searchId?: string | string[],
+    patch: UpdateSavedSearchPayload = {},
+  ): Promise<SavedSearchDto | null> {
+    const uid = Array.isArray(userId) ? String(userId[0] || "") : String(userId || "");
+    const sid = Array.isArray(searchId) ? String(searchId[0] || "") : String(searchId || "");
+    const updates: Record<string, unknown> = {};
     if (patch.name !== undefined) {
       const cleanName = String(patch.name || "")
         .trim()
@@ -309,36 +449,40 @@ export const savedSearchService = {
     }
 
     if (isMongoReady()) {
-      if (!mongoose.Types.ObjectId.isValid(searchId)) return null;
-      const updated = await SavedSearch.findOneAndUpdate(
-        { _id: searchId, userId: uid },
+      if (!mongoose.Types.ObjectId.isValid(sid)) return null;
+      const updated = (await SavedSearch.findOneAndUpdate(
+        { _id: sid, userId: uid },
         { $set: updates },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as SavedSearchRecord;
       return formatSavedSearchDto(updated, true);
     }
 
-    const existing = inMemorySavedSearches.get(String(searchId));
+    const existing = inMemorySavedSearches.get(sid);
     if (!existing || String(existing.userId) !== uid) return null;
     const merged = { ...existing, ...updates, updatedAt: new Date() };
-    inMemorySavedSearches.set(String(searchId), merged);
+    inMemorySavedSearches.set(sid, merged);
     return formatSavedSearchDto(merged, true);
   },
 
-  async remove(userId, searchId) {
-    const uid = String(userId || "");
+  async remove(userId?: string | string[], searchId?: string | string[]): Promise<boolean> {
+    const uid = Array.isArray(userId) ? String(userId[0] || "") : String(userId || "");
+    const sid = Array.isArray(searchId) ? String(searchId[0] || "") : String(searchId || "");
     if (isMongoReady()) {
-      if (!mongoose.Types.ObjectId.isValid(searchId)) return false;
-      const res = await SavedSearch.deleteOne({ _id: searchId, userId: uid });
+      if (!mongoose.Types.ObjectId.isValid(sid)) return false;
+      const res = await SavedSearch.deleteOne({ _id: sid, userId: uid });
       return Boolean(res.deletedCount);
     }
-    const existing = inMemorySavedSearches.get(String(searchId));
+    const existing = inMemorySavedSearches.get(sid);
     if (!existing || String(existing.userId) !== uid) return false;
-    inMemorySavedSearches.delete(String(searchId));
+    inMemorySavedSearches.delete(sid);
     return true;
   },
 
-  async unsubscribe(searchId, { token = "", userId = "" } = {}) {
+  async unsubscribe(
+    searchId: string,
+    { token = "", userId = "" }: { token?: string; userId?: string } = {},
+  ): Promise<SavedSearchDto | null> {
     const cleanToken = String(token || "").trim();
     const uid = String(userId || "").trim();
     if (!cleanToken && !uid) return null;
@@ -348,11 +492,11 @@ export const savedSearchService = {
       const filter = cleanToken
         ? { _id: searchId, unsubscribeToken: cleanToken }
         : { _id: searchId, userId: uid };
-      const updated = await SavedSearch.findOneAndUpdate(
+      const updated = (await SavedSearch.findOneAndUpdate(
         filter,
         { $set: { enabled: false, alertFrequency: "none" } },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as SavedSearchRecord;
       return formatSavedSearchDto(updated, false);
     }
 
@@ -370,7 +514,23 @@ export const savedSearchService = {
     return formatSavedSearchDto(updated, false);
   },
 
-  async preview(filters = {}, { limit = 5, eligibilityCountryCodes = [] } = {}) {
+  async preview(
+    filters: Record<string, unknown> = {},
+    { limit = 5, eligibilityCountryCodes = [] }: { limit?: number; eligibilityCountryCodes?: string[] } = {},
+  ): Promise<{
+    filters: SavedSearchFilters;
+    total: number;
+    totalIsApproximate: boolean;
+    sampleJobs: Array<{
+      jobId: string;
+      title: unknown;
+      company: unknown;
+      location: unknown;
+      remoteType: unknown;
+      postedAt: unknown;
+      sourceBoard: unknown;
+    }>;
+  }> {
     const cleanFilters = sanitizeSavedSearchFilters(filters);
     const safeLimit = Math.min(10, Math.max(1, Number(limit) || 5));
     const result = await jobIngestionService.searchJobs({
@@ -398,15 +558,19 @@ export const savedSearchService = {
     frequency = "daily",
     now = new Date(),
     maxSearches = 100,
-  } = {}) {
-    const rows = isMongoReady()
-      ? await SavedSearch.find({
+  }: {
+    frequency?: string;
+    now?: Date | string | number;
+    maxSearches?: number;
+  } = {}): Promise<{ checked: number; alertsDispatched: number; skipped: number }> {
+    const rows: SavedSearchRecord[] = isMongoReady()
+      ? ((await SavedSearch.find({
           enabled: true,
           alertFrequency: frequency,
         })
           .sort({ lastAlertedAt: 1 })
           .limit(maxSearches)
-          .lean()
+          .lean()) as unknown as SavedSearchRecord[])
       : [...inMemorySavedSearches.values()]
           .filter((item) => item.enabled && item.alertFrequency === frequency)
           .slice(0, maxSearches);
@@ -414,9 +578,9 @@ export const savedSearchService = {
     let alertsDispatched = 0;
     let skipped = 0;
     for (const savedSearch of rows) {
-      const user =
-        isMongoReady() && mongoose.Types.ObjectId.isValid(savedSearch.userId)
-          ? await User.findById(savedSearch.userId).select("email name plan isDeleted").lean()
+      const user: UserLike | null =
+        isMongoReady() && mongoose.Types.ObjectId.isValid(String(savedSearch.userId))
+          ? ((await User.findById(savedSearch.userId).select("email name plan isDeleted").lean()) as unknown as UserLike)
           : { email: "candidate@example.com", name: "Candidate", plan: PLANS.FREE };
       if (!user || user.isDeleted) {
         skipped += 1;
@@ -428,7 +592,7 @@ export const savedSearchService = {
         continue;
       }
       const searchResult = await jobIngestionService.searchJobs({
-        ...sanitizeSavedSearchFilters(savedSearch.filters),
+        ...sanitizeSavedSearchFilters(savedSearch.filters as Record<string, unknown>),
         limit: 15,
       });
       const unsentJobs = selectUnsentAlertJobs(
@@ -452,8 +616,8 @@ export const savedSearchService = {
             rationale: `Matches saved search "${savedSearch.name}"`,
             missingSkills: [],
             jobDetails: {
-              title: job.title,
-              company: job.company,
+              title: String(job.title || ""),
+              company: String(job.company || ""),
             },
           })),
         });
@@ -471,7 +635,7 @@ export const savedSearchService = {
               sentJobIds: nextSentIds,
               lastAlertedAt: new Date(now),
               alertWindowDay: gate.dayKey,
-              alertsSentToday: gate.sentToday + 1,
+              alertsSentToday: (gate.sentToday || 0) + 1,
             },
           },
         );
@@ -481,7 +645,7 @@ export const savedSearchService = {
           sentJobIds: nextSentIds,
           lastAlertedAt: new Date(now),
           alertWindowDay: gate.dayKey,
-          alertsSentToday: gate.sentToday + 1,
+          alertsSentToday: (gate.sentToday || 0) + 1,
         });
       }
       alertsDispatched += 1;
@@ -494,14 +658,14 @@ export const savedSearchService = {
     };
   },
 
-  async exportForUser(userId) {
-    const uid = String(userId || "");
+  async exportForUser(userId?: string | string[]): Promise<Array<SavedSearchDto | null>> {
+    const uid = Array.isArray(userId) ? String(userId[0] || "") : String(userId || "");
     if (!uid) return [];
     if (isMongoReady()) {
-      const rows = await SavedSearch.find({ userId: uid })
+      const rows = (await SavedSearch.find({ userId: uid })
         .select("-unsubscribeToken")
         .sort({ createdAt: -1 })
-        .lean();
+        .lean()) as unknown as SavedSearchRecord[];
       return rows.map((row) => formatSavedSearchDto(row, false));
     }
     return [...inMemorySavedSearches.values()]
@@ -509,8 +673,8 @@ export const savedSearchService = {
       .map((row) => formatSavedSearchDto(row, false));
   },
 
-  async deleteAllForUser(userId) {
-    const uid = String(userId || "");
+  async deleteAllForUser(userId?: string | string[]): Promise<number> {
+    const uid = Array.isArray(userId) ? String(userId[0] || "") : String(userId || "");
     if (!uid) return 0;
     if (isMongoReady()) {
       const res = await SavedSearch.deleteMany({ userId: uid });

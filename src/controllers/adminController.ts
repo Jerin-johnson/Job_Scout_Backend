@@ -767,10 +767,11 @@ export const adminController = {
         .refine((value) => value.enabled !== undefined || value.approved !== undefined)
         .parse(req.body);
       let sources: unknown;
+      const sourceKey = Array.isArray(req.params.key) ? req.params.key[0] || "" : req.params.key || "";
       if (input.approved !== undefined)
-        sources = await jobIngestionService.setSourceApproved(req.params.key, input.approved);
+        sources = await jobIngestionService.setSourceApproved(sourceKey, input.approved);
       if (input.enabled !== undefined)
-        sources = await jobIngestionService.setSourceEnabled(req.params.key, input.enabled);
+        sources = await jobIngestionService.setSourceEnabled(sourceKey, input.enabled);
       await audit(
         req,
         input.approved !== undefined

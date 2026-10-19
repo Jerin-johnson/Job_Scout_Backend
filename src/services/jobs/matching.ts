@@ -26,7 +26,7 @@ export const LEXICAL_V4_WEIGHTS = Object.freeze({
   eligibility: 3,
 });
 
-const ALIASES = new Map([
+const ALIASES = new Map<string, string>([
   ["js", "javascript"],
   ["node", "node.js"],
   ["nodejs", "node.js"],
@@ -41,7 +41,7 @@ const ALIASES = new Map([
   ["accountant", "accounting"],
   ["teacher", "teaching"],
 ]);
-const OCCUPATION_GROUPS = [
+const OCCUPATION_GROUPS: string[][] = [
   ["nurse", "nursing", "gnm", "icu", "critical care", "staff nurse", "registered nurse"],
   ["teacher", "teaching", "educator", "tutor"],
   ["accountant", "accounting", "bookkeeper", "finance"],
@@ -49,7 +49,7 @@ const OCCUPATION_GROUPS = [
   ["frontend", "front end", "ui engineer", "web developer"],
   ["data analyst", "business analyst", "analytics"],
 ];
-const LICENSE_TERMS = [
+const LICENSE_TERMS: string[] = [
   "license",
   "licence",
   "registered nurse",
@@ -66,38 +66,49 @@ const LICENSE_TERMS = [
   "pmp",
 ];
 
-function normalize(value = "") {
+function normalize(value = ""): string {
   return String(value)
     .normalize("NFKD")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}.+#]+/gu, " ")
     .trim();
 }
-function terms(value = "") {
+function terms(value = ""): string[] {
   return normalize(value)
     .split(/\s+/)
     .filter((part) => part.length > 1);
 }
-export function canonicalSkill(value) {
-  const valueNormalized = normalize(value);
+export function canonicalSkill(value: unknown): string {
+  const valueNormalized = normalize(String(value || ""));
   return ALIASES.get(valueNormalized) || valueNormalized;
 }
-function includesPhrase(text, phrase) {
+function includesPhrase(text: string, phrase: string): boolean {
   const normalizedText = ` ${normalize(text)} `;
   return normalizedText.includes(` ${normalize(phrase)} `);
 }
 
 export function annualComparableAmount(
-  { amount, currency, period },
-  targetCurrency,
-  ratesPerEur = null,
-) {
+  {
+    amount,
+    currency,
+    period,
+  }: {
+    amount?: number | string | null;
+    currency?: string | null;
+    period?: string | null;
+  },
+  targetCurrency: string | null | undefined,
+  ratesPerEur: Record<string, number> | Map<string, number> | null = null,
+): number | null {
   const value = Number(amount);
   const code = String(currency || "").toUpperCase();
   const cadence = String(period || "").toLowerCase();
   if (!Number.isFinite(value) || value <= 0 || !targetCurrency) return null;
   const target = String(targetCurrency).toUpperCase();
-  const rates = ratesPerEur instanceof Map ? Object.fromEntries(ratesPerEur) : ratesPerEur || {};
+  const rates =
+    ratesPerEur instanceof Map
+      ? Object.fromEntries(ratesPerEur)
+      : (ratesPerEur as Record<string, number> | null) || {};
   let comparable = value;
   if (code !== target) {
     if (!Number(rates[code]) || !Number(rates[target])) return null;
@@ -109,13 +120,70 @@ export function annualComparableAmount(
   return null;
 }
 
-export function extractJobFeatures(job = {}) {
+export interface ExtractedJobFeatures {
+  version: number;
+  skills: string[];
+  requiredSkills: string[];
+  preferredSkills: string[];
+  titleTokens: string[];
+  companyTokens: string[];
+  occupation: string;
+  experienceYears: number | null;
+  seniority: string;
+  education: string[];
+  licenses: string[];
+  employmentType: string;
+  workMode: string;
+  eligibilityHints: string[];
+  salaryText: string;
+  responsibilities: string[];
+}
+
+export interface JobForFeatureExtractionLike {
+  title?: string;
+  rawDescription?: string;
+  requirements?: string[];
+  tags?: string[];
+  company?: string;
+  occupation?: string;
+  remoteType?: string;
+  employmentType?: string;
+  compensation?: {
+    originalText?: string;
+    currency?: string;
+    payPeriod?: string;
+    min?: number;
+    max?: number;
+    normalizedAnnualMax?: number;
+    normalizedCurrency?: string;
+  };
+  salaryText?: string;
+  locationTier?: number;
+  postedDateKnown?: boolean;
+  postedAt?: Date | string | null;
+  structuredLocation?: {
+    eligibleCountryCodes?: string[];
+    countryCode?: string;
+    remoteScope?: string;
+    [key: string]: unknown;
+  };
+  eligibility?: {
+    evidence?: string;
+    countries?: string[];
+    remoteScope?: string;
+    [key: string]: unknown;
+  };
+  features?: unknown;
+  [key: string]: unknown;
+}
+
+export function extractJobFeatures(job: JobForFeatureExtractionLike = {}): ExtractedJobFeatures {
   const title = String(job.title || "");
   const description = String(job.rawDescription || "").slice(0, 24000);
   const requirementText = [...(job.requirements || []), ...(job.tags || [])].join(" ");
   const text = `${title} ${requirementText} ${description}`;
-  const requiredSkills = [];
-  const preferredSkills = [];
+  const requiredSkills: string[] = [];
+  const preferredSkills: string[] = [];
   for (const requirement of job.requirements || []) {
     const normalized = normalize(requirement);
     if (
@@ -131,7 +199,7 @@ export function extractJobFeatures(job = {}) {
       : requiredSkills;
     target.push(canonicalSkill(requirement));
   }
-  const skillCandidates = new Set([
+  const skillCandidates = new Set<string>([
     ...terms(requirementText),
     ...terms(title),
     ...(job.requirements || []).map(canonicalSkill),
@@ -157,7 +225,6 @@ export function extractJobFeatures(job = {}) {
     job.occupation && job.occupation !== "unclassified"
       ? job.occupation
       : classifyJobOccupation(job).occupation;
-  // Preserve the feature extractor's established public label while the catalog taxonomy uses `nursing`.
   const occupation = classifiedOccupation === "nursing" ? "nurse" : classifiedOccupation;
   const licenses = LICENSE_TERMS.filter((term) => includesPhrase(text, term));
   const education = [
@@ -217,14 +284,54 @@ export function extractJobFeatures(job = {}) {
   };
 }
 
-function roleSimilarity(profile, features, title, version) {
+export interface ProfileForMatchLike {
+  skills?: Array<{ name?: string } | string>;
+  preferences?: {
+    targetRoles?: string[];
+    minimumSalaryUsd?: number;
+    preferredCountryCodes?: string[];
+  } | Record<string, unknown> | null;
+  careerProfile?: {
+    targetRoles?: Array<{ customRoleLabel?: string; roleCode?: string }>;
+    experience?: {
+      isFresher?: boolean;
+      needsConfirmation?: boolean;
+      confirmedYears?: number | null;
+    };
+    compensation?: {
+      currencyCode?: string;
+      minimumAmount?: number;
+      period?: string;
+    };
+    homeLocation?: { countryCode?: string; scope?: string };
+    targetLocations?: Array<{ countryCode?: string; scope?: string }>;
+    workAuthorization?: {
+      sponsorshipOrRelocation?: {
+        countryCodes?: string[];
+      };
+    };
+  };
+  roles?: unknown[] | null;
+}
+
+function roleSimilarity(
+  profile: ProfileForMatchLike,
+  features: ExtractedJobFeatures,
+  title: string | undefined,
+  version: string,
+): number {
+  const pref = (profile.preferences || {}) as Record<string, unknown>;
   const careerTargets = (profile.careerProfile?.targetRoles || []).map(
     (role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " "),
   );
   const roleTerms = [
-    ...(profile.preferences?.targetRoles || []),
+    ...((pref.targetRoles as string[] | undefined) || []),
     ...careerTargets,
-    ...(profile.roles || []).map((role) => role.title),
+    ...(profile.roles || []).map((role) =>
+      typeof role === "object" && role !== null && "title" in role
+        ? String((role as { title?: unknown }).title || "")
+        : "",
+    ),
   ]
     .map((role) => normalize(version === "lexical-v3" ? normalizeRoleForMatching(role) : role))
     .filter(Boolean);
@@ -249,6 +356,7 @@ function roleSimilarity(profile, features, title, version) {
     return 0.85;
   const titleSet = new Set(terms(titleText));
   const best = Math.max(
+    0,
     ...roleTerms.map((role) => {
       const rt = terms(role);
       return rt.length ? rt.filter((term) => titleSet.has(term)).length / rt.length : 0;
@@ -257,13 +365,59 @@ function roleSimilarity(profile, features, title, version) {
   return best;
 }
 
+export interface JobMatchBreakdown {
+  skills: number;
+  title: number;
+  experience: number;
+  location: number;
+  salary: number;
+  recency: number;
+  occupation?: number;
+  seniority?: number;
+  eligibility?: number;
+}
+
+export interface JobMatchScoreResult {
+  score: number;
+  band: "strong" | "good" | "fair" | "low";
+  reasons: string[];
+  matchingSkills: string[];
+  missingSkills: string[];
+  scoreVersion: string;
+  confidence?: "medium" | "low";
+  breakdown: JobMatchBreakdown;
+  eligibility: string;
+  eligibilityDetails: unknown;
+  hardBlocked: boolean;
+  gaps: {
+    missingRequiredSkills: string[];
+    missingPreferredSkills: string[];
+  };
+  features: ExtractedJobFeatures;
+}
+
 export function scoreJobMatch(
-  profile,
-  job,
-  { now = new Date(), version = MATCH_SCORE_VERSION, ratesPerEur = null } = {},
-) {
-  const features = job.features?.version === 1 ? job.features : extractJobFeatures(job);
-  const profileSkills = new Set((profile.skills || []).map((skill) => canonicalSkill(skill.name)));
+  profile: ProfileForMatchLike = {},
+  job: JobForFeatureExtractionLike = {},
+  {
+    now = new Date(),
+    version = MATCH_SCORE_VERSION,
+    ratesPerEur = null,
+  }: {
+    now?: Date;
+    version?: string;
+    ratesPerEur?: Record<string, number> | Map<string, number> | null;
+  } = {},
+): JobMatchScoreResult {
+  const features =
+    typeof job.features === "object" && job.features !== null && (job.features as { version?: number }).version === 1
+      ? (job.features as ExtractedJobFeatures)
+      : extractJobFeatures(job);
+  const profileSkills = new Set(
+    (profile.skills || []).map((skill) =>
+      typeof skill === "string" ? canonicalSkill(skill) : canonicalSkill(skill?.name),
+    ),
+  );
   const jobSkills = new Set(features.skills.map(canonicalSkill));
   const required = (job.requirements || []).map(canonicalSkill).filter(Boolean);
   const overlap = [...profileSkills].filter(
@@ -279,18 +433,21 @@ export function scoreJobMatch(
   const skillRatio = Math.min(1, overlap.length / denominator);
   const titleFit = roleSimilarity(profile, features, job.title, version);
   const roleYears = (profile.roles || []).map((role) => {
-    if (Number(role.years) > 0) return Number(role.years);
-    const start = Date.parse(role.startDate || "");
-    const end = role.isCurrent || !role.endDate ? now.getTime() : Date.parse(role.endDate);
+    if (typeof role !== "object" || role === null) return 0;
+    const r = role as { years?: unknown; startDate?: unknown; endDate?: unknown; isCurrent?: unknown };
+    if (Number(r.years) > 0) return Number(r.years);
+    const start = Date.parse(String(r.startDate || ""));
+    const end = r.isCurrent || !r.endDate ? now.getTime() : Date.parse(String(r.endDate));
     return Number.isFinite(start) && Number.isFinite(end) && end >= start
       ? (end - start) / (365.25 * 86400000)
       : 0;
   });
-  const confirmedCareerExperience = profile.careerProfile?.experience || {};
+  const confirmedCareerExperience = profile.careerProfile?.experience;
   const careerYears = confirmedCareerExperience?.isFresher
     ? 0
     : !confirmedCareerExperience?.needsConfirmation &&
-        confirmedCareerExperience?.confirmedYears !== null
+        confirmedCareerExperience?.confirmedYears !== null &&
+        confirmedCareerExperience?.confirmedYears !== undefined
       ? Number(confirmedCareerExperience.confirmedYears)
       : 0;
   const profileYears = Math.max(careerYears, 0, ...roleYears);
@@ -300,13 +457,14 @@ export function scoreJobMatch(
       : profileYears >= features.experienceYears
         ? 1
         : Math.max(0.25, profileYears / features.experienceYears);
-  const pref = profile.preferences || {};
+  const pref = (profile.preferences || {}) as Record<string, unknown>;
   const tier = job.locationTier || 2;
   const locationFit = Math.max(0.35, 1 - (tier - 1) * 0.15);
   const desiredCompensation = profile.careerProfile?.compensation;
   const targetCurrency =
-    desiredCompensation?.currencyCode || (pref.minimumSalaryUsd > 0 ? "USD" : null);
-  const targetMinimum = desiredCompensation?.minimumAmount ?? pref.minimumSalaryUsd;
+    desiredCompensation?.currencyCode || (Number(pref.minimumSalaryUsd || 0) > 0 ? "USD" : null);
+  const targetMinimum =
+    desiredCompensation?.minimumAmount ?? (pref.minimumSalaryUsd as number | undefined);
   const targetAnnualMinimum = annualComparableAmount(
     {
       amount: targetMinimum,
@@ -338,15 +496,18 @@ export function scoreJobMatch(
     !targetAnnualMinimum || !jobSalaryMax ? 0.6 : jobSalaryMax >= targetAnnualMinimum ? 1 : 0.25;
   const ageDays =
     job.postedDateKnown && job.postedAt
-      ? Math.max(0, (now - new Date(job.postedAt)) / 86400000)
+      ? Math.max(0, (now.getTime() - new Date(job.postedAt).getTime()) / 86400000)
       : 30;
   const recencyFit = job.postedDateKnown ? Math.max(0.1, 1 - ageDays / 60) : 0.35;
-  const eligibilityDetails = classifyEligibility(job, profile);
-  const preferredCountries = profileApplicantCountries(profile);
-  const profileHasApplicantCountry = preferredCountries.length > 0;
-  const eligibleCountries = (job.structuredLocation?.eligibleCountryCodes || []).map((code) =>
-    String(code).toUpperCase(),
+  const eligibilityDetails = classifyEligibility(
+    job as unknown as Record<string, unknown>,
+    profile as unknown as Record<string, unknown>,
   );
+  const preferredCountries = profileApplicantCountries(profile as unknown as Record<string, unknown>);
+  const profileHasApplicantCountry = preferredCountries.length > 0;
+  const eligibleCountries = (
+    ((job.structuredLocation?.eligibleCountryCodes as string[] | undefined) || [])
+  ).map((code) => String(code).toUpperCase());
   const explicitCountry = String(job.structuredLocation?.countryCode || "").toUpperCase();
   const legacyEligibility = !preferredCountries.length
     ? "unknown"
@@ -363,15 +524,13 @@ export function scoreJobMatch(
       : eligibilityDetails.status === "not_open"
         ? "excluded"
         : eligibilityDetails.status;
-  // Unknown eligibility is only informative when both sides can be compared.
-  // A profile without a home/target country should not lose score for missing data.
   const jobHasEligibilityEvidence = Boolean(
     job.eligibility?.evidence ||
-    job.eligibility?.countries?.length ||
-    (job.eligibility?.remoteScope && job.eligibility.remoteScope !== "unknown") ||
-    job.structuredLocation?.countryCode ||
-    job.structuredLocation?.eligibleCountryCodes?.length ||
-    (job.structuredLocation?.remoteScope && job.structuredLocation.remoteScope !== "unknown"),
+      job.eligibility?.countries?.length ||
+      (job.eligibility?.remoteScope && job.eligibility.remoteScope !== "unknown") ||
+      job.structuredLocation?.countryCode ||
+      (job.structuredLocation?.eligibleCountryCodes as unknown[] | undefined)?.length ||
+      (job.structuredLocation?.remoteScope && job.structuredLocation.remoteScope !== "unknown"),
   );
   const eligibilityScore =
     !profileHasApplicantCountry || !jobHasEligibilityEvidence
@@ -393,11 +552,17 @@ export function scoreJobMatch(
   );
   const v4 = version === "lexical-v4";
   const profileRoleTitles = [
-    ...(pref.targetRoles || []),
+    ...((pref.targetRoles as string[] | undefined) || []),
     ...(profile.careerProfile?.targetRoles || []).map(
       (role) => role.customRoleLabel || String(role.roleCode || "").replace(/[-_]+/g, " "),
     ),
-    ...(profile.roles || []).map((role) => role.title),
+    ...(profile.roles || []).map((role) =>
+      typeof role === "string"
+        ? role
+        : role && typeof role === "object" && "title" in role
+          ? String((role as { title?: unknown }).title || "")
+          : "",
+    ),
   ].filter(Boolean);
   const profileOccupationFamilies = profileRoleTitles
     .map((role) => classifyJobOccupation({ title: role }).occupation)

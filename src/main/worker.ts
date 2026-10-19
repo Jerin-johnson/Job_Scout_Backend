@@ -19,6 +19,9 @@ import { MATCH_SCORE_VERSION } from "../services/jobs/matching.js";
 import {
   reconcileJobIngestionSchedules,
   writeWorkerHeartbeat,
+  type BullQueueLike,
+  type RedisLike,
+  type ScheduledSource,
 } from "../services/jobs/repeatSchedule.js";
 import { refreshReferenceRates } from "../services/jobs/fxRates.js";
 
@@ -48,7 +51,7 @@ let ingestionQueue: Queue | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
 
 export async function scheduleJobIngestion(queue: Queue, sources: unknown): Promise<unknown> {
-  return reconcileJobIngestionSchedules(queue, sources);
+  return reconcileJobIngestionSchedules(queue as unknown as BullQueueLike, sources as ScheduledSource[]);
 }
 
 async function waitForRedis(redis: ReturnType<typeof getRedisClient>, timeoutMs = 5000): Promise<boolean> {
@@ -76,9 +79,9 @@ async function initializeQueues(): Promise<void> {
   }
 
   await jobIngestionService.ensureSources();
-  await writeWorkerHeartbeat(redis);
+  await writeWorkerHeartbeat(redis as unknown as RedisLike);
   heartbeatTimer = setInterval(() => {
-    writeWorkerHeartbeat(redis).catch((error: unknown) => {
+    writeWorkerHeartbeat(redis as unknown as RedisLike).catch((error: unknown) => {
       const msg = error instanceof Error ? error.message : String(error);
       logger.warn({ err: msg }, "Worker heartbeat write failed");
     });

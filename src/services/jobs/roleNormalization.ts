@@ -1,7 +1,22 @@
 import { ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
 import { ONET_SUBSET } from "./referenceData/index.js";
 
-const ROLE_CATALOG = [
+interface RoleCatalogEntry {
+  canonical: string;
+  aliases: readonly string[] | string[];
+}
+
+const roleSuggestionEntries: RoleCatalogEntry[] = ROLE_SUGGESTIONS.map((item) => ({
+  canonical: String(item.label),
+  aliases: (item.aliases || []).map((a) => String(a)),
+}));
+
+const onetEntries: RoleCatalogEntry[] = (ONET_SUBSET.occupations || []).map((item) => ({
+  canonical: String(item.label || ""),
+  aliases: Array.isArray(item.aliases) ? (item.aliases as unknown[]).map((a) => String(a)) : [],
+}));
+
+const ROLE_CATALOG: RoleCatalogEntry[] = [
   {
     canonical: "Software Engineer",
     aliases: ["software engineer", "software developer", "software engineering"],
@@ -28,11 +43,11 @@ const ROLE_CATALOG = [
     canonical: "Data Analyst",
     aliases: ["data analyst", "analytics analyst", "reporting analyst"],
   },
-  ...ROLE_SUGGESTIONS.map(({ label, aliases }) => ({ canonical: label, aliases })),
-  ...ONET_SUBSET.occupations.map(({ label, aliases }) => ({ canonical: label, aliases })),
+  ...roleSuggestionEntries,
+  ...onetEntries,
 ];
 
-function normalize(value = "") {
+function normalize(value = ""): string {
   return String(value)
     .normalize("NFKD")
     .toLowerCase()
@@ -41,7 +56,7 @@ function normalize(value = "") {
     .replace(/\s+/g, " ");
 }
 
-function editDistance(left, right) {
+function editDistance(left: string, right: string): number {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let row = 1; row <= left.length; row += 1) {
     const current = [row];
@@ -57,12 +72,18 @@ function editDistance(left, right) {
   return previous[right.length];
 }
 
-function similarity(left, right) {
+function similarity(left: string, right: string): number {
   if (!left || !right) return 0;
   return 1 - editDistance(left, right) / Math.max(left.length, right.length);
 }
 
-function bestRoleMatch(value) {
+export interface RoleMatch {
+  canonical: string;
+  confidence: number;
+  exact: boolean;
+}
+
+function bestRoleMatch(value: string): RoleMatch | null {
   const normalized = normalize(value);
   if (!normalized) return null;
 
@@ -72,7 +93,7 @@ function bestRoleMatch(value) {
     }
   }
 
-  let best = null;
+  let best: RoleMatch | null = null;
   const inputTokens = normalized.split(" ");
   for (const entry of ROLE_CATALOG) {
     for (const alias of entry.aliases) {
@@ -89,18 +110,41 @@ function bestRoleMatch(value) {
 }
 
 /** Return a canonical role only when the role is an exact alias or a high-confidence typo match. */
-export function normalizeRoleForMatching(value = "") {
+export function normalizeRoleForMatching(value = ""): string {
   return bestRoleMatch(value)?.canonical || String(value).trim();
 }
 
+export interface RoleCorrectionSuggestion {
+  source: "resume" | "preference";
+  index: number;
+  originalRole: string;
+  suggestedRole: string;
+  confidence: number;
+  proposedTargetRoles: string[];
+}
+
+export interface ProfileLike {
+  preferences?: {
+    targetRoles?: string[];
+    [key: string]: unknown;
+  } | null;
+  roles?: unknown[] | null;
+  [key: string]: unknown;
+}
+
 /** Suggestions are returned separately so callers can ask the user before saving any correction. */
-export function suggestTargetRoleCorrections(profile = {}) {
+export function suggestTargetRoleCorrections(profile: ProfileLike = {}): RoleCorrectionSuggestion[] {
   const preferences = profile.preferences || {};
   const targetRoles = (preferences.targetRoles || [])
     .map((role) => String(role).trim())
     .filter(Boolean);
-  const profileRoles = (profile.roles || [])
-    .map((role) => String(role.title || "").trim())
+  const rawRoles = Array.isArray(profile.roles) ? profile.roles : [];
+  const profileRoles = rawRoles
+    .map((role) =>
+      typeof role === "object" && role !== null && "title" in role
+        ? String((role as { title?: unknown }).title || "").trim()
+        : "",
+    )
     .filter(Boolean);
 
   if (!targetRoles.length) {

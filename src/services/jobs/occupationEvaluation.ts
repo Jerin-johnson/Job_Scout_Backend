@@ -1,6 +1,34 @@
-export function summarizeOccupationLabels(rows) {
-  const totals = new Map();
-  const goldTotals = new Map();
+export interface OccupationRow {
+  predicted?: string;
+  gold?: string;
+}
+
+export interface FamilyCounts {
+  predicted: number;
+  correct: number;
+  precision: number | null;
+}
+
+export interface GoldFamilyCounts {
+  support: number;
+  correct: number;
+  recall: number | null;
+}
+
+export interface OccupationSummary {
+  sampleSize: number;
+  accuracy: number | null;
+  unclassifiedCount: number;
+  unclassifiedShare: number | null;
+  macroPrecision: number | null;
+  macroRecall: number | null;
+  precisionByPredictedFamily: Record<string, FamilyCounts>;
+  recallByGoldFamily: Record<string, GoldFamilyCounts>;
+}
+
+export function summarizeOccupationLabels(rows: OccupationRow[]): OccupationSummary {
+  const totals = new Map<string, { predicted: number; correct: number }>();
+  const goldTotals = new Map<string, { support: number; correct: number }>();
   let correct = 0;
   let unclassifiedCount = 0;
   for (const row of rows) {
@@ -20,7 +48,7 @@ export function summarizeOccupationLabels(rows) {
     if (predicted === gold) goldEntry.correct += 1;
     goldTotals.set(gold, goldEntry);
   }
-  const precisionByPredictedFamily = Object.fromEntries(
+  const precisionByPredictedFamily: Record<string, FamilyCounts> = Object.fromEntries(
     [...totals]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([family, counts]) => [
@@ -33,7 +61,7 @@ export function summarizeOccupationLabels(rows) {
         },
       ]),
   );
-  const recallByGoldFamily = Object.fromEntries(
+  const recallByGoldFamily: Record<string, GoldFamilyCounts> = Object.fromEntries(
     [...goldTotals]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([family, counts]) => [
@@ -46,10 +74,10 @@ export function summarizeOccupationLabels(rows) {
   );
   const nonUnclassifiedPrecisions = Object.entries(precisionByPredictedFamily)
     .filter(([family, entry]) => family !== "unclassified" && typeof entry.precision === "number")
-    .map(([, entry]) => entry.precision);
+    .map(([, entry]) => entry.precision as number);
   const nonUnclassifiedRecalls = Object.entries(recallByGoldFamily)
     .filter(([family, entry]) => family !== "unclassified" && typeof entry.recall === "number")
-    .map(([, entry]) => entry.recall);
+    .map(([, entry]) => entry.recall as number);
 
   return {
     sampleSize: rows.length,

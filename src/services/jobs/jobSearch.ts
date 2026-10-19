@@ -120,7 +120,7 @@ const DEFAULT_VOCABULARY = (() => {
   return [...words];
 })();
 
-export function tokenizeSearchText(value = "") {
+export function tokenizeSearchText(value: unknown = ""): string[] {
   const matches =
     String(value || "")
       .normalize("NFKC")
@@ -129,11 +129,33 @@ export function tokenizeSearchText(value = "") {
   return matches.filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
 }
 
+export interface JobForSearchLike {
+  _id?: unknown;
+  jobId?: string;
+  title?: string;
+  company?: string;
+  tags?: string[];
+  occupation?: string;
+  searchTokens?: string[];
+  postedDateKnown?: boolean;
+  postedAt?: Date | string | null;
+  structuredLocation?: {
+    city?: string;
+    countryCode?: string;
+  };
+  features?: {
+    titleTokens?: string[];
+    companyTokens?: string[];
+    skills?: string[];
+  };
+  relevanceScore?: number;
+}
+
 /**
  * Build compact, deduplicated search tokens for a hot Job document.
  * Orders title tokens first, then company, then skills/tags/occupation/location.
  */
-export function buildSearchTokens(job = {}, maxTokens = 40) {
+export function buildSearchTokens(job: JobForSearchLike = {}, maxTokens = 40): string[] {
   const titleTokens = job.features?.titleTokens?.length
     ? job.features.titleTokens
     : tokenizeSearchText(job.title);
@@ -160,15 +182,15 @@ export function buildSearchTokens(job = {}, maxTokens = 40) {
 /**
  * Bounded Damerau-Levenshtein distance (supports adjacent transpositions and single edits).
  */
-export function boundedEditDistance(left, right, maxDistance = 2) {
+export function boundedEditDistance(left: string, right: string, maxDistance = 2): number {
   if (left === right) return 0;
   const lenLeft = left.length;
   const lenRight = right.length;
   if (Math.abs(lenLeft - lenRight) > maxDistance) return maxDistance + 1;
 
-  const prevPrev = new Array(lenRight + 1).fill(0);
+  const prevPrev = new Array<number>(lenRight + 1).fill(0);
   const prev = Array.from({ length: lenRight + 1 }, (_, idx) => idx);
-  const curr = new Array(lenRight + 1).fill(0);
+  const curr = new Array<number>(lenRight + 1).fill(0);
 
   for (let i = 1; i <= lenLeft; i += 1) {
     curr[0] = i;
@@ -191,10 +213,27 @@ export function boundedEditDistance(left, right, maxDistance = 2) {
   return prev[lenRight];
 }
 
+export interface TokenGroup {
+  original: string;
+  exact: string;
+  typos: string[];
+  all: string[];
+}
+
+export interface ExpandedQuerySpec {
+  normalizedQuery: string;
+  tokens: string[];
+  tokenGroups: TokenGroup[];
+  typoCorrections: Record<string, string>;
+}
+
 /**
  * Expand query tokens with affordable typo tolerance against the known role/skill vocabulary.
  */
-export function expandQueryTokensWithTypos(rawQuery = "", extraVocabulary = []) {
+export function expandQueryTokensWithTypos(
+  rawQuery = "",
+  extraVocabulary: string[] = [],
+): ExpandedQuerySpec {
   const tokens = [...new Set(tokenizeSearchText(rawQuery))].slice(0, 8);
   if (!tokens.length) {
     return {
@@ -208,13 +247,13 @@ export function expandQueryTokensWithTypos(rawQuery = "", extraVocabulary = []) 
     ? [...new Set([...DEFAULT_VOCABULARY, ...extraVocabulary])]
     : DEFAULT_VOCABULARY;
   const vocabSet = new Set(vocab);
-  const typoCorrections = {};
-  const tokenGroups = tokens.map((token) => {
+  const typoCorrections: Record<string, string> = {};
+  const tokenGroups: TokenGroup[] = tokens.map((token) => {
     if (token.length < 4 || vocabSet.has(token)) {
       return { original: token, exact: token, typos: [], all: [token] };
     }
     const maxDist = token.length >= 8 ? 2 : 1;
-    const candidates = [];
+    const candidates: Array<{ word: string; dist: number; lengthDiff: number }> = [];
     for (const word of vocab) {
       if (word[0] !== token[0] && word[1] !== token[0]) continue;
       if (Math.abs(word.length - token.length) > maxDist) continue;
@@ -244,18 +283,28 @@ export function expandQueryTokensWithTypos(rawQuery = "", extraVocabulary = []) 
   };
 }
 
+export interface RelevanceScoreResult {
+  relevanceScore: number;
+  lexicalScore: number;
+  recencyScore: number;
+}
+
 /**
  * Deterministic relevance + recency scoring for catalog search.
  * Uses quantized reference day (UTC midnight) so scores remain stable across cursor pages.
  */
-export function scoreCatalogSearchRelevance(job = {}, querySpec, asOfDayMs = null) {
+export function scoreCatalogSearchRelevance(
+  job: JobForSearchLike = {},
+  querySpec?: ExpandedQuerySpec | null,
+  asOfDayMs: number | null = null,
+): RelevanceScoreResult {
   const referenceMs =
-    Number.isFinite(asOfDayMs) && asOfDayMs > 0
+    typeof asOfDayMs === "number" && Number.isFinite(asOfDayMs) && asOfDayMs > 0
       ? asOfDayMs
       : Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
 
   const postedAtMs =
-    job.postedDateKnown !== false && job.postedAt ? Date.parse(job.postedAt) : Number.NaN;
+    job.postedDateKnown !== false && job.postedAt ? Date.parse(String(job.postedAt)) : Number.NaN;
   const ageDays = Number.isFinite(postedAtMs)
     ? Math.max(0, (referenceMs - postedAtMs) / 86400000)
     : 30;
@@ -332,7 +381,7 @@ export function scoreCatalogSearchRelevance(job = {}, querySpec, asOfDayMs = nul
 /**
  * Comparator for relevance sort: (relevanceScore DESC, postedAt DESC, _id ASC)
  */
-export function compareJobsByRelevance(a, b) {
+export function compareJobsByRelevance(a: JobForSearchLike, b: JobForSearchLike): number {
   if ((b.relevanceScore || 0) !== (a.relevanceScore || 0)) {
     return (b.relevanceScore || 0) - (a.relevanceScore || 0);
   }
@@ -344,10 +393,20 @@ export function compareJobsByRelevance(a, b) {
   return String(a._id || a.jobId).localeCompare(String(b._id || b.jobId));
 }
 
+export interface RelevanceCursorLike {
+  relevanceScore?: number | null;
+  postedAt?: Date | string | null;
+  id?: string;
+  [key: string]: unknown;
+}
+
 /**
  * Returns true if `job` strictly follows `cursor` in the relevance sort order.
  */
-export function isAfterRelevanceCursor(job, cursor) {
+export function isAfterRelevanceCursor(
+  job: JobForSearchLike,
+  cursor: RelevanceCursorLike | null | undefined,
+): boolean {
   if (!cursor || typeof cursor.relevanceScore !== "number") return true;
   const score = job.relevanceScore || 0;
   if (score < cursor.relevanceScore) return true;

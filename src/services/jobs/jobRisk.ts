@@ -1,21 +1,57 @@
+export interface RiskFlag {
+  code: string;
+  reason: string;
+}
+
+export interface JobRiskInput {
+  title?: string;
+  company?: string;
+  rawDescription?: string;
+  tags?: string[];
+  postedDateKnown?: boolean;
+  postedAt?: Date | string | null;
+  firstSeenAt?: Date | string | null;
+  lastSeenAt?: Date | string | null;
+  repostCount?: number;
+  status?: string;
+  linkHealthStatus?: string;
+  reportCounts?:
+    | Map<string, number>
+    | Record<string, number>
+    | { get?: (key: string) => number | undefined; [key: string]: unknown };
+  canonicalUrl?: string;
+  sourceUrl?: string;
+  sourceCheckedAt?: Date | string | null;
+  [key: string]: unknown;
+}
+
 /** Explainable warnings only; these signals are not a fraud verdict. */
-export function getJobRiskFlags(job = {}, { now = new Date() } = {}) {
+export function getJobRiskFlags(
+  job: JobRiskInput = {},
+  { now = new Date() }: { now?: Date | string | number } = {},
+): RiskFlag[] {
   const nowMs = new Date(now).getTime();
   const text =
     `${job.title || ""} ${job.company || ""} ${job.rawDescription || ""} ${(job.tags || []).join(" ")}`.slice(
       0,
       16000,
     );
-  const flags = [];
+  const flags: RiskFlag[] = [];
   const postedAt = job.postedDateKnown === false || !job.postedAt ? null : new Date(job.postedAt);
   const firstSeenAt = job.firstSeenAt ? new Date(job.firstSeenAt) : null;
   const lastSeenAt = job.lastSeenAt ? new Date(job.lastSeenAt) : null;
   const repostCount = Number(job.repostCount || 0);
+
+  const reportCountsObj = job.reportCounts as Record<string, unknown> | undefined;
   const expiredReports = Number(
-    job.reportCounts?.expired ?? job.reportCounts?.get?.("expired") ?? 0,
+    reportCountsObj?.expired ??
+      (typeof reportCountsObj?.get === "function" ? reportCountsObj.get("expired") : 0) ??
+      0,
   );
   const brokenLinkReports = Number(
-    job.reportCounts?.broken_link ?? job.reportCounts?.get?.("broken_link") ?? 0,
+    reportCountsObj?.broken_link ??
+      (typeof reportCountsObj?.get === "function" ? reportCountsObj.get("broken_link") : 0) ??
+      0,
   );
 
   if (postedAt && !Number.isNaN(postedAt.getTime()) && nowMs - postedAt.getTime() > 30 * 86400000) {
@@ -65,39 +101,54 @@ export function getJobRiskFlags(job = {}, { now = new Date() } = {}) {
   }
   if (
     /\b(?:pay|send|transfer)\s+(?:a\s+)?(?:fee|deposit|registration fee|training fee)\b/i.test(text)
-  )
+  ) {
     flags.push({ code: "fees_requested", reason: "The listing appears to request a fee." });
-  if (/\b(?:whatsapp|telegram|signal)\s+(?:only|message|contact|apply)\b/i.test(text))
+  }
+  if (/\b(?:whatsapp|telegram|signal)\s+(?:only|message|contact|apply)\b/i.test(text)) {
     flags.push({
       code: "messaging_app_only",
       reason: "Contact or applications appear to rely on a messaging app.",
     });
+  }
   if (
     /\b(?:gmail\.com|yahoo\.com|outlook\.com)\b/i.test(text) &&
     /\b(?:recruit|hr|hiring|apply)\b/i.test(text)
-  )
+  ) {
     flags.push({
       code: "free_email_contact",
       reason: "Recruiter contact uses a free email provider.",
     });
+  }
   if (
     /\b(?:earn|salary|pay)\s+(?:up to\s+)?(?:\$|₹|usd\s*)\s?(?:[1-9]\d{4,}|[1-9]\d{2,}\s*(?:lpa|per month))\b/i.test(
       text,
     )
-  )
+  ) {
     flags.push({
       code: "salary_unusually_high",
       reason: "The stated pay may be unusually high for the role.",
     });
+  }
   if (
     String(job.company || "").trim().length < 2 ||
     /\b(?:unknown|confidential|undisclosed|stealth company)\b/i.test(job.company || "")
-  )
+  ) {
     flags.push({ code: "company_unclear", reason: "The employer name is unclear." });
+  }
   return flags;
 }
 
-export function detectRepostSignal(existingJob, incomingJob) {
+export interface RepostSignalResult {
+  isRepost: boolean;
+  repostCountDelta: number;
+  repostCount: number;
+  reason: string | null;
+}
+
+export function detectRepostSignal(
+  existingJob: JobRiskInput | null | undefined,
+  incomingJob: JobRiskInput | null | undefined,
+): RepostSignalResult {
   const baseCount = Number(existingJob?.repostCount || 0);
   if (!existingJob) {
     return { isRepost: false, repostCountDelta: 0, repostCount: 0, reason: null };
@@ -123,7 +174,20 @@ export function detectRepostSignal(existingJob, incomingJob) {
   return { isRepost: false, repostCountDelta: 0, repostCount: baseCount, reason: null };
 }
 
-export function classifyLinkHealthStatus({ httpStatus, finalUrl = "", bodySnippet = "" } = {}) {
+export interface LinkHealthResult {
+  status: "active" | "closed" | "unknown";
+  reason: string;
+}
+
+export function classifyLinkHealthStatus({
+  httpStatus,
+  finalUrl = "",
+  bodySnippet = "",
+}: {
+  httpStatus?: number | string;
+  finalUrl?: string;
+  bodySnippet?: string;
+} = {}): LinkHealthResult {
   const code = Number(httpStatus) || 0;
   if (code === 404 || code === 410) {
     return { status: "closed", reason: `http_${code}` };
@@ -144,16 +208,24 @@ export function classifyLinkHealthStatus({ httpStatus, finalUrl = "", bodySnippe
   return { status: "unknown", reason: code ? `http_${code}` : "network_or_timeout" };
 }
 
-export function sampleJobsForPoliteLinkCheck(
-  jobs = [],
+export interface SampleOptions {
+  maxSample?: number;
+  maxTotal?: number;
+  maxPerHost?: number;
+  minRecheckAgeMs?: number;
+  now?: Date | string | number;
+}
+
+export function sampleJobsForPoliteLinkCheck<T extends JobRiskInput>(
+  jobs: T[] = [],
   {
     maxSample = 25,
     maxTotal,
     maxPerHost = 3,
     minRecheckAgeMs = 24 * 3600_000,
     now = new Date(),
-  } = {},
-) {
+  }: SampleOptions = {},
+): T[] {
   const cap = Number(maxTotal ?? maxSample) || 25;
   const nowMs = new Date(now).getTime();
   const candidates = (Array.isArray(jobs) ? jobs : [])
@@ -171,8 +243,8 @@ export function sampleJobsForPoliteLinkCheck(
       return aSeen - bSeen;
     });
 
-  const selected = [];
-  const hostCounts = new Map();
+  const selected: T[] = [];
+  const hostCounts = new Map<string, number>();
   for (const job of candidates) {
     if (selected.length >= cap) break;
     const rawUrl = job.canonicalUrl || job.sourceUrl || "";
@@ -198,7 +270,13 @@ export function computeSourceTermExpiry({
   now = new Date(),
   retentionDays = 30,
   sourceExpiresAt = null,
-} = {}) {
+}: {
+  postedAt?: Date | string | null;
+  firstSeenAt?: Date | string | null;
+  now?: Date | string | number;
+  retentionDays?: number | string;
+  sourceExpiresAt?: Date | string | null;
+} = {}): Date {
   const nowDate = new Date(now);
   const anchor =
     postedAt && !Number.isNaN(new Date(postedAt).getTime())

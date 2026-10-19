@@ -3,7 +3,7 @@ import { ONET_SUBSET } from "./referenceData/index.js";
 
 export const OCCUPATION_FEATURES_VERSION = 8;
 
-const normalize = (value = "") =>
+const normalize = (value = ""): string =>
   String(value)
     .normalize("NFKD")
     .toLowerCase()
@@ -12,11 +12,25 @@ const normalize = (value = "") =>
     .trim()
     .replace(/\s+/g, " ");
 
-const ROLE_RULES = ROLE_SUGGESTIONS.flatMap((role) =>
-  [role.label, ...role.aliases].map((alias) => ({ role, alias: normalize(alias) })),
+interface RoleRule {
+  role: { family: string; label: string };
+  alias: string;
+}
+
+const ROLE_RULES: RoleRule[] = ROLE_SUGGESTIONS.flatMap((role) =>
+  [role.label, ...(role.aliases || [])].map((alias) => ({
+    role: { family: role.family, label: role.label },
+    alias: normalize(alias),
+  })),
 ).sort((left, right) => right.alias.length - left.alias.length);
 
-const SOURCE_CATEGORY_RULES = [
+interface CategoryRule {
+  family: string;
+  label: string;
+  aliases: string[];
+}
+
+const SOURCE_CATEGORY_RULES: CategoryRule[] = [
   {
     family: "software",
     label: "Software Engineer",
@@ -315,15 +329,14 @@ const SOURCE_CATEGORY_RULES = [
   },
 ];
 
-// Job-title aliases not consistently covered by the profile suggestion catalog,
-// augmented by the curated O*NET 29.0 subset (CC BY 4.0).
-// Keep phrases specific to reduce false positives from generic words such as "assistant".
-const TITLE_RULES = [
-  ...ONET_SUBSET.occupations.map((occ) => ({
-    family: occ.family,
-    label: occ.label,
-    aliases: occ.aliases,
-  })),
+const onetTitleRules: CategoryRule[] = (ONET_SUBSET.occupations || []).map((occ) => ({
+  family: String(occ.family || "unclassified"),
+  label: String(occ.label || ""),
+  aliases: Array.isArray(occ.aliases) ? (occ.aliases as unknown[]).map(String) : [],
+}));
+
+const TITLE_RULES: CategoryRule[] = [
+  ...onetTitleRules,
   { family: "software", label: "Software Engineer", aliases: ["analytics lead full stack"] },
   {
     family: "nursing",
@@ -435,15 +448,22 @@ const TITLE_RULES = [
     ],
   },
 ];
-const NORMALIZED_TITLE_RULES = TITLE_RULES.flatMap((rule) =>
+
+interface NormalizedRule {
+  family: string;
+  label: string;
+  alias: string;
+}
+
+const NORMALIZED_TITLE_RULES: NormalizedRule[] = TITLE_RULES.flatMap((rule) =>
   rule.aliases.map((alias) => ({ ...rule, alias: normalize(alias) })),
 ).sort((left, right) => right.alias.length - left.alias.length);
 
-function titleCase(value) {
+function titleCase(value: string): string {
   return normalize(value).replace(/\b([\p{L}\p{N}])/gu, (letter) => letter.toLocaleUpperCase());
 }
 
-function matchRoleTitle(title) {
+function matchRoleTitle(title: string | undefined): { family: string; label: string } | null {
   const normalizedTitle = normalize(title);
   if (!normalizedTitle) return null;
   const roleRule = ROLE_RULES.find(({ alias }) => ` ${normalizedTitle} `.includes(` ${alias} `));
@@ -460,9 +480,9 @@ function matchRoleTitle(title) {
   return null;
 }
 
-function matchCategory(values = []) {
+function matchCategory(values: unknown[] = []): CategoryRule | null {
   const candidates = values
-    .map((value) => normalize(String(value).split(":").at(-1)))
+    .map((value) => normalize(String(value || "").split(":").at(-1)))
     .filter(Boolean);
   return (
     SOURCE_CATEGORY_RULES.find((rule) =>
@@ -477,7 +497,25 @@ function matchCategory(values = []) {
   );
 }
 
-export function classifyJobOccupation(job = {}) {
+export interface JobForClassificationLike {
+  title?: string;
+  sourceCategory?: string;
+  category?: string;
+  categories?: string[];
+  occupationCodes?: string[];
+  tags?: string[];
+}
+
+export interface JobOccupationClassification {
+  occupation: string;
+  occupationConfidence: number;
+  normalizedTitle: string;
+  occupationFeaturesVersion: number;
+}
+
+export function classifyJobOccupation(
+  job: JobForClassificationLike = {},
+): JobOccupationClassification {
   const titleMatch = matchRoleTitle(job.title);
   if (titleMatch)
     return {

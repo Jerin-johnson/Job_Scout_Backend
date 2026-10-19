@@ -4,13 +4,19 @@ import { canonicalSkill } from "./matching.js";
 import { normalizeRoleForMatching } from "./roleNormalization.js";
 import { profileApplicantCountries } from "./eligibility.js";
 
-export const INCREMENTAL_MATCH_BUDGET = Object.freeze({
+export interface IncrementalMatchBudget {
+  readonly maxJobTokens: number;
+  readonly maxUsersPerRun: number;
+  readonly minTokenOverlap: number;
+}
+
+export const INCREMENTAL_MATCH_BUDGET: IncrementalMatchBudget = Object.freeze({
   maxJobTokens: 64,
   maxUsersPerRun: 250,
   minTokenOverlap: 1,
 });
 
-function splitNormalizedTokens(text = "") {
+function splitNormalizedTokens(text = ""): string[] {
   return String(normalizeRoleForMatching(text))
     .toLowerCase()
     .split(/[^\p{L}\p{N}.+#]+/u)
@@ -18,18 +24,49 @@ function splitNormalizedTokens(text = "") {
     .filter((token) => token.length > 1 && token.length <= 32);
 }
 
+export interface ProfileMatchIndex {
+  matchTokens: string[];
+  matchCountryCodes: string[];
+}
+
+export interface ProfileForIndexLike {
+  userId?: unknown;
+  version?: number;
+  updatedAt?: Date | string | null;
+  skills?: Array<{ name?: string } | string>;
+  preferences?: {
+    targetRoles?: string[];
+    occupationCodes?: string[];
+    preferredCountryCodes?: string[];
+  };
+  careerProfile?: {
+    targetRoles?: Array<{ customRoleLabel?: string; roleCode?: string }>;
+    homeLocation?: { countryCode?: string; scope?: string };
+    targetLocations?: Array<{ countryCode?: string; scope?: string }>;
+    workAuthorization?: {
+      sponsorshipOrRelocation?: {
+        countryCodes?: string[];
+      };
+    };
+  };
+  roles?: unknown[] | null;
+  matchTokens?: string[];
+  matchCountryCodes?: string[];
+}
+
 /**
  * Build inverted-index match tokens and country codes for a user Profile document
  * so newly ingested jobs can query only affected users via multikey index.
  */
-export function buildProfileMatchIndex(profile = {}) {
-  const tokenSet = new Set();
+export function buildProfileMatchIndex(profile: ProfileForIndexLike = {}): ProfileMatchIndex {
+  const tokenSet = new Set<string>();
 
-  for (const skill of profile?.skills || []) {
-    const rawName = String(skill?.name || "")
+  for (const skill of profile.skills || []) {
+    const skillName = typeof skill === "string" ? skill : skill?.name || "";
+    const rawName = String(skillName)
       .trim()
       .toLowerCase();
-    const canonical = canonicalSkill(skill?.name || "");
+    const canonical = canonicalSkill(skillName);
     if (canonical && canonical.length > 1) {
       const lower = canonical.toLowerCase();
       tokenSet.add(lower);
@@ -43,12 +80,16 @@ export function buildProfileMatchIndex(profile = {}) {
     }
   }
 
-  const roleStrings = [
-    ...(profile?.preferences?.targetRoles || []),
-    ...(profile?.careerProfile?.targetRoles || []).map(
+  const roleStrings: string[] = [
+    ...(profile.preferences?.targetRoles || []),
+    ...(profile.careerProfile?.targetRoles || []).map(
       (role) => role?.customRoleLabel || String(role?.roleCode || "").replace(/[-_]+/g, " "),
     ),
-    ...(profile?.roles || []).map((role) => role?.title),
+    ...(profile.roles || []).map((role) =>
+      typeof role === "object" && role !== null && "title" in role
+        ? String((role as { title?: unknown }).title || "")
+        : "",
+    ),
   ].filter(Boolean);
 
   for (const roleText of roleStrings) {
@@ -57,17 +98,17 @@ export function buildProfileMatchIndex(profile = {}) {
     }
   }
 
-  for (const occCode of profile?.preferences?.occupationCodes || []) {
+  for (const occCode of profile.preferences?.occupationCodes || []) {
     const clean = String(occCode || "")
       .trim()
       .toLowerCase();
     if (clean) tokenSet.add(`occ:${clean}`);
   }
 
-  const countrySet = new Set(
+  const countrySet = new Set<string>(
     [
-      ...profileApplicantCountries(profile || {}),
-      ...(profile?.preferences?.preferredCountryCodes || []).map((code) =>
+      ...profileApplicantCountries(profile),
+      ...(profile.preferences?.preferredCountryCodes || []).map((code) =>
         String(code || "").toUpperCase(),
       ),
     ].filter((code) => /^[A-Z]{2}$/.test(code)),
@@ -79,19 +120,47 @@ export function buildProfileMatchIndex(profile = {}) {
   };
 }
 
+export interface BatchJobDemandIndex {
+  tokens: string[];
+  tokenWeights: Record<string, number>;
+  occupationCodes: string[];
+  countryCodes: string[];
+  hasWorldwideOrUnknown: boolean;
+}
+
+export interface JobForDemandIndexLike {
+  status?: string;
+  title?: string;
+  features?: {
+    titleTokens?: string[];
+    skills?: string[];
+  };
+  occupationCodes?: string[];
+  occupation?: string;
+  eligibility?: {
+    remoteScope?: string;
+    countries?: string[];
+  };
+  structuredLocation?: {
+    remoteScope?: string;
+    countryCode?: string;
+    eligibleCountryCodes?: string[];
+  };
+}
+
 /**
  * Extract bounded demand tokens and country codes from a batch of newly ingested or updated jobs.
  */
 export function extractBatchJobDemandIndex(
-  jobs = [],
-  { maxTokens = INCREMENTAL_MATCH_BUDGET.maxJobTokens } = {},
-) {
-  const tokenCounts = new Map();
-  const occupationCodes = new Set();
-  const countryCodes = new Set();
+  jobs: JobForDemandIndexLike[] = [],
+  { maxTokens = INCREMENTAL_MATCH_BUDGET.maxJobTokens }: { maxTokens?: number } = {},
+): BatchJobDemandIndex {
+  const tokenCounts = new Map<string, number>();
+  const occupationCodes = new Set<string>();
+  const countryCodes = new Set<string>();
   let hasWorldwideOrUnknown = false;
 
-  const bumpToken = (token, weight = 1) => {
+  const bumpToken = (token: string, weight = 1): void => {
     const clean = String(token || "")
       .trim()
       .toLowerCase();
@@ -101,13 +170,13 @@ export function extractBatchJobDemandIndex(
 
   for (const job of Array.isArray(jobs) ? jobs : []) {
     if (!job || job.status === "closed") continue;
-    for (const token of job?.features?.titleTokens || splitNormalizedTokens(job?.title || "")) {
+    for (const token of job.features?.titleTokens || splitNormalizedTokens(job.title || "")) {
       bumpToken(token, 3);
     }
-    for (const skill of job?.features?.skills || []) {
+    for (const skill of job.features?.skills || []) {
       bumpToken(canonicalSkill(skill) || skill, 2);
     }
-    for (const occCode of job?.occupationCodes || []) {
+    for (const occCode of job.occupationCodes || []) {
       const clean = String(occCode || "")
         .trim()
         .toLowerCase();
@@ -116,19 +185,19 @@ export function extractBatchJobDemandIndex(
         bumpToken(`occ:${clean}`, 2);
       }
     }
-    if (job?.occupation && job.occupation !== "unclassified") {
+    if (job.occupation && job.occupation !== "unclassified") {
       bumpToken(job.occupation, 1);
     }
 
     const scope =
-      job?.eligibility?.remoteScope || job?.structuredLocation?.remoteScope || "unknown";
+      job.eligibility?.remoteScope || job.structuredLocation?.remoteScope || "unknown";
     if (scope === "worldwide" || scope === "unknown") {
       hasWorldwideOrUnknown = true;
     }
     const jobCountries = [
-      job?.structuredLocation?.countryCode,
-      ...(job?.structuredLocation?.eligibleCountryCodes || []),
-      ...(job?.eligibility?.countries || []),
+      job.structuredLocation?.countryCode,
+      ...(job.structuredLocation?.eligibleCountryCodes || []),
+      ...(job.eligibility?.countries || []),
     ]
       .map((code) => String(code || "").toUpperCase())
       .filter((code) => /^[A-Z]{2}$/.test(code));
@@ -155,28 +224,41 @@ export function extractBatchJobDemandIndex(
   };
 }
 
+export interface AffectedProfileRank {
+  userId: string;
+  profileVersion: number;
+  overlapScore: number;
+  matchedTokenCount: number;
+  matchedTokens: string[];
+}
+
+export interface RankProfilesOptions {
+  maxUsers?: number;
+  minOverlap?: number;
+}
+
 /**
  * Score and rank candidate profiles against a batch of new jobs, enforcing the
  * per-run user recompute budget.
  */
 export function rankAffectedProfilesForNewJobs(
-  profiles = [],
-  batchIndex = {},
+  profiles: ProfileForIndexLike[] = [],
+  batchIndex: Partial<BatchJobDemandIndex> = {},
   {
     maxUsers = INCREMENTAL_MATCH_BUDGET.maxUsersPerRun,
     minOverlap = INCREMENTAL_MATCH_BUDGET.minTokenOverlap,
-  } = {},
-) {
+  }: RankProfilesOptions = {},
+): AffectedProfileRank[] {
   const tokens = Array.isArray(batchIndex?.tokens) ? batchIndex.tokens : [];
   if (!tokens.length) return [];
   const tokenSet = new Set(tokens);
-  const weights = batchIndex?.tokenWeights || {};
-  const jobCountrySet = new Set(batchIndex?.countryCodes || []);
-  const allowAnyCountry = Boolean(batchIndex?.hasWorldwideOrUnknown || jobCountrySet.size === 0);
+  const weights = batchIndex.tokenWeights || {};
+  const jobCountrySet = new Set(batchIndex.countryCodes || []);
+  const allowAnyCountry = Boolean(batchIndex.hasWorldwideOrUnknown || jobCountrySet.size === 0);
   const cap = Math.max(1, Number(maxUsers) || INCREMENTAL_MATCH_BUDGET.maxUsersPerRun);
   const minHits = Math.max(1, Number(minOverlap) || INCREMENTAL_MATCH_BUDGET.minTokenOverlap);
 
-  const scored = [];
+  const scored: Array<AffectedProfileRank & { updatedAtMs: number }> = [];
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (!profile?.userId) continue;
     const indexed =
@@ -220,14 +302,21 @@ export function rankAffectedProfilesForNewJobs(
   return scored.slice(0, cap).map(({ updatedAtMs: _updatedAtMs, ...rest }) => rest);
 }
 
+export interface FindAffectedUsersResult {
+  affectedUsers: AffectedProfileRank[];
+  candidateCount: number;
+  budgetMaxUsers: number;
+  batchTokens: string[];
+}
+
 /**
  * Query MongoDB using the Profile `matchTokens` multikey index to find only
  * affected users for newly ingested jobs within a bounded per-run budget.
  */
 export async function findAffectedUsersForNewJobs(
-  newJobs = [],
-  { maxUsers = INCREMENTAL_MATCH_BUDGET.maxUsersPerRun } = {},
-) {
+  newJobs: JobForDemandIndexLike[] = [],
+  { maxUsers = INCREMENTAL_MATCH_BUDGET.maxUsersPerRun }: { maxUsers?: number } = {},
+): Promise<FindAffectedUsersResult> {
   const batchIndex = extractBatchJobDemandIndex(newJobs);
   if (!batchIndex.tokens.length || !isMongoReady()) {
     return {
@@ -242,11 +331,11 @@ export async function findAffectedUsersForNewJobs(
   const query = {
     matchTokens: { $in: batchIndex.tokens },
   };
-  const candidates = await Profile.find(query)
+  const candidates = (await Profile.find(query)
     .sort({ updatedAt: -1 })
     .limit(fetchCap)
     .select("userId version updatedAt matchTokens matchCountryCodes")
-    .lean();
+    .lean()) as unknown as ProfileForIndexLike[];
 
   const affectedUsers = rankAffectedProfilesForNewJobs(candidates, batchIndex, {
     maxUsers: safeMax,
