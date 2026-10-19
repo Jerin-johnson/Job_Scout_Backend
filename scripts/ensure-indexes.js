@@ -1,15 +1,15 @@
 import { connectMongo, disconnectMongo } from "../src/config/database.js";
 import { env } from "../src/config/env.js";
 import { logger } from "../src/shared/utils/logger.js";
-import { InterviewSession } from "../src/models/InterviewSession.js";
-import { InterviewMessage } from "../src/models/InterviewMessage.js";
-import { InterviewReport } from "../src/models/InterviewReport.js";
-import { User } from "../src/models/User.js";
-import { Application } from "../src/models/Application.js";
-import { Job } from "../src/models/Job.js";
-import { JobSource } from "../src/models/JobSource.js";
-import { JobDetail } from "../src/models/JobDetail.js";
-import { JobVector } from "../src/models/JobVector.js";
+import { InterviewSession } from "../src/infrastructure/database/mongoose/models/InterviewSessionModel.js";
+import { InterviewMessage } from "../src/infrastructure/database/mongoose/models/InterviewMessageModel.js";
+import { InterviewReport } from "../src/infrastructure/database/mongoose/models/InterviewReportModel.js";
+import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
+import { Application } from "../src/infrastructure/database/mongoose/models/ApplicationModel.js";
+import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
+import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
+import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
+import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
 import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
 
 const INDEXED_MODELS = [

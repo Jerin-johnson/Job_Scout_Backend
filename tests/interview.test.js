@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InterviewMessage } from "../src/models/InterviewMessage.js";
-import { InterviewSession } from "../src/models/InterviewSession.js";
-import { User } from "../src/models/User.js";
+import { InterviewMessage } from "../src/infrastructure/database/mongoose/models/InterviewMessageModel.js";
+import { InterviewSession } from "../src/infrastructure/database/mongoose/models/InterviewSessionModel.js";
+import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
 import {
   canTransitionInterview,
   INTERVIEW_MODE_CONFIGS,
   INTERVIEW_PROMPT_VERSION,
 } from "../src/shared/constants/interviews.js";
-import { ownedSessionFilter } from "../src/repositories/interviewRepository.js";
+import { ownedSessionFilter } from "../src/infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
 import { interviewGraph } from "../src/ai/graphs/interviewGraph.js";
 import { interviewFixtures } from "../evals/interviewFixtures.js";
 import {

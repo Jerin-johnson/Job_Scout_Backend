@@ -3,41 +3,66 @@ import { createHash } from "node:crypto";
 import { detectAtsCareersUrl } from "../src/services/jobs/trackedCompanyService.js";
 
 const ENDPOINTS = {
-  greenhouse: (slug) => `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs?content=false`,
+  greenhouse: (slug) =>
+    `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs?content=false`,
   lever: (slug) => `https://api.lever.co/v0/postings/${encodeURIComponent(slug)}?mode=json`,
-  ashby: (slug) => `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}?includeCompensation=false`,
+  ashby: (slug) =>
+    `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}?includeCompensation=false`,
 };
 
 export function parseCompanyCsv(text) {
   const rows = [];
-  let row = [], field = "", quoted = false;
+  let row = [],
+    field = "",
+    quoted = false;
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    if (quoted && char === '"' && text[index + 1] === '"') { field += '"'; index += 1; }
-    else if (char === '"') quoted = !quoted;
-    else if (!quoted && char === ",") { row.push(field); field = ""; }
-    else if (!quoted && (char === "\n" || char === "\r")) {
+    if (quoted && char === '"' && text[index + 1] === '"') {
+      field += '"';
+      index += 1;
+    } else if (char === '"') quoted = !quoted;
+    else if (!quoted && char === ",") {
+      row.push(field);
+      field = "";
+    } else if (!quoted && (char === "\n" || char === "\r")) {
       if (char === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(field); field = "";
+      row.push(field);
+      field = "";
       if (row.some((value) => value.trim())) rows.push(row);
       row = [];
     } else field += char;
   }
   if (quoted) throw new Error("CSV contains an unterminated quoted field.");
-  if (field || row.length) { row.push(field); rows.push(row); }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
   const [header = [], ...records] = rows;
   const keys = header.map((value) => value.trim().toLowerCase());
-  return records.map((values) => Object.fromEntries(keys.map((key, index) => [key, (values[index] || "").trim()])));
+  return records.map((values) =>
+    Object.fromEntries(keys.map((key, index) => [key, (values[index] || "").trim()])),
+  );
 }
 
 export function normalizeCompanyCandidate(candidate) {
   const careersUrl = candidate.careersUrl || candidate.careersurl || candidate.careers_url;
-  const slug = String(candidate.slug || "").trim().toLowerCase();
-  const platform = String(candidate.ats || candidate.platform || "").trim().toLowerCase();
-  const detected = careersUrl ? detectAtsCareersUrl(careersUrl)
+  const slug = String(candidate.slug || "")
+    .trim()
+    .toLowerCase();
+  const platform = String(candidate.ats || candidate.platform || "")
+    .trim()
+    .toLowerCase();
+  const detected = careersUrl
+    ? detectAtsCareersUrl(careersUrl)
     : platform && /^[a-z0-9_-]{1,100}$/.test(slug) && ENDPOINTS[platform]
-      ? { platform, slug, careersUrl: "" } : null;
-  if (!detected) return { company: String(candidate.name || "").trim(), valid: false, error: "Unsupported ATS careers URL or missing ATS/slug." };
+      ? { platform, slug, careersUrl: "" }
+      : null;
+  if (!detected)
+    return {
+      company: String(candidate.name || "").trim(),
+      valid: false,
+      error: "Unsupported ATS careers URL or missing ATS/slug.",
+    };
   return { company: String(candidate.name || detected.slug).trim(), ...detected, valid: false };
 }
 
@@ -55,40 +80,83 @@ function postingLocation(platform, job) {
 }
 
 async function readBoundedBody(response, cap = 2_000_000) {
-  if (Number(response.headers.get("content-length") || 0) > cap) throw new Error("Response exceeded the 2 MB safety limit.");
+  if (Number(response.headers.get("content-length") || 0) > cap)
+    throw new Error("Response exceeded the 2 MB safety limit.");
   const reader = response.body?.getReader?.();
   if (!reader) {
     const body = await response.text();
     if (Buffer.byteLength(body) > cap) throw new Error("Response exceeded the 2 MB safety limit.");
     return body;
   }
-  const chunks = []; let bytes = 0;
+  const chunks = [];
+  let bytes = 0;
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > cap) { await reader.cancel(); throw new Error("Response exceeded the 2 MB safety limit."); }
+      if (bytes > cap) {
+        await reader.cancel();
+        throw new Error("Response exceeded the 2 MB safety limit.");
+      }
       chunks.push(Buffer.from(value));
     }
-  } finally { reader.releaseLock(); }
+  } finally {
+    reader.releaseLock();
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
 export async function validateCompanyCandidate(company, { fetchImpl = fetch } = {}) {
-  if (!company.platform || !ENDPOINTS[company.platform] || !company.slug) return { ...company, valid: false, jobCount: 0, remoteCount: 0, indiaCount: 0, error: company.error || "Invalid source identity." };
+  if (!company.platform || !ENDPOINTS[company.platform] || !company.slug)
+    return {
+      ...company,
+      valid: false,
+      jobCount: 0,
+      remoteCount: 0,
+      indiaCount: 0,
+      error: company.error || "Invalid source identity.",
+    };
   try {
-    const response = await fetchImpl(ENDPOINTS[company.platform](company.slug), { headers: { accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(5000) });
-    if (response.status >= 300 && response.status < 400) throw new Error("Redirect rejected by source URL policy.");
+    const response = await fetchImpl(ENDPOINTS[company.platform](company.slug), {
+      headers: { accept: "application/json" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (response.status >= 300 && response.status < 400)
+      throw new Error("Redirect rejected by source URL policy.");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = JSON.parse(await readBoundedBody(response));
     const postings = postingsFrom(company.platform, body);
     if (!postings) throw new Error("Unexpected public job-board response shape.");
     const locations = postings.map((job) => postingLocation(company.platform, job));
-    return { ...company, valid: true, jobCount: postings.length, remoteCount: locations.filter((value) => /remote|anywhere/i.test(value)).length, indiaCount: locations.filter((value) => /india|bengaluru|bangalore|kerala|kochi|chennai|hyderabad|mumbai|pune|delhi|gurugram|noida|kolkata|ahmedabad/i.test(value)).length, checkedAt: new Date().toISOString(), error: "" };
+    return {
+      ...company,
+      valid: true,
+      jobCount: postings.length,
+      remoteCount: locations.filter((value) => /remote|anywhere/i.test(value)).length,
+      indiaCount: locations.filter((value) =>
+        /india|bengaluru|bangalore|kerala|kochi|chennai|hyderabad|mumbai|pune|delhi|gurugram|noida|kolkata|ahmedabad/i.test(
+          value,
+        ),
+      ).length,
+      checkedAt: new Date().toISOString(),
+      error: "",
+    };
   } catch (error) {
-    const message = error.name === "TimeoutError" || error.name === "AbortError" ? "Request timed out." : error.message;
-    return { ...company, valid: false, jobCount: 0, remoteCount: 0, indiaCount: 0, checkedAt: new Date().toISOString(), error: message.slice(0, 160) };
+    const message =
+      error.name === "TimeoutError" || error.name === "AbortError"
+        ? "Request timed out."
+        : error.message;
+    return {
+      ...company,
+      valid: false,
+      jobCount: 0,
+      remoteCount: 0,
+      indiaCount: 0,
+      checkedAt: new Date().toISOString(),
+      error: message.slice(0, 160),
+    };
   }
 }
 
@@ -101,27 +169,51 @@ async function loadCompanies(path) {
 
 async function validateFile() {
   const input = process.argv.find((arg) => arg.startsWith("--file="))?.slice(7);
-  if (!input) throw new Error("Usage: npm run jobs:ats:validate -- --file=companies.csv [--output=verified.json]");
+  if (!input)
+    throw new Error(
+      "Usage: npm run jobs:ats:validate -- --file=companies.csv [--output=verified.json]",
+    );
   const candidates = await loadCompanies(input);
-  if (!Array.isArray(candidates)) throw new Error("Input must be an array, {companies: []}, or CSV with a header row.");
+  if (!Array.isArray(candidates))
+    throw new Error("Input must be an array, {companies: []}, or CSV with a header row.");
   if (candidates.length > 10_000) throw new Error("Validate at most 10,000 companies per run.");
   const normalizedRows = candidates.map(normalizeCompanyCandidate);
-  const uniqueRows = [...new Map(normalizedRows.map((row, index) => [`${row.platform || "invalid"}:${row.slug || index}`, row])).values()];
-  const output = process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) || "ats-verified.json";
+  const uniqueRows = [
+    ...new Map(
+      normalizedRows.map((row, index) => [
+        `${row.platform || "invalid"}:${row.slug || index}`,
+        row,
+      ]),
+    ).values(),
+  ];
+  const output =
+    process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) || "ats-verified.json";
   const progressPath = `${output}.progress.json`;
-  const inputHash = createHash("sha256").update(await readFile(input)).digest("hex");
+  const inputHash = createHash("sha256")
+    .update(await readFile(input))
+    .digest("hex");
   const resume = process.argv.includes("--resume");
   let progress = { version: 1, inputHash, completed: {} };
   if (resume) {
-    try { progress = JSON.parse(await readFile(progressPath, "utf8")); }
-    catch { throw new Error("No resumable validation checkpoint exists for this output path."); }
-    if (progress.version !== 1 || progress.inputHash !== inputHash) throw new Error("Input changed since the checkpoint. Choose a new output path or remove the checkpoint after review.");
+    try {
+      progress = JSON.parse(await readFile(progressPath, "utf8"));
+    } catch {
+      throw new Error("No resumable validation checkpoint exists for this output path.");
+    }
+    if (progress.version !== 1 || progress.inputHash !== inputHash)
+      throw new Error(
+        "Input changed since the checkpoint. Choose a new output path or remove the checkpoint after review.",
+      );
   }
-  const concurrencyArg = Number(process.argv.find((arg) => arg.startsWith("--concurrency="))?.slice(14)) || 4;
+  const concurrencyArg =
+    Number(process.argv.find((arg) => arg.startsWith("--concurrency="))?.slice(14)) || 4;
   const concurrency = Math.min(8, Math.max(1, concurrencyArg));
   const results = Array(uniqueRows.length);
   const checkpointKey = (row, index) => `${row.platform || "invalid"}:${row.slug || index}`;
-  uniqueRows.forEach((row, index) => { if (progress.completed[checkpointKey(row, index)]) results[index] = progress.completed[checkpointKey(row, index)]; });
+  uniqueRows.forEach((row, index) => {
+    if (progress.completed[checkpointKey(row, index)])
+      results[index] = progress.completed[checkpointKey(row, index)];
+  });
   let nextIndex = 0;
   const workers = Array.from({ length: concurrency }, async () => {
     while (true) {
@@ -129,10 +221,19 @@ async function validateFile() {
       if (index >= uniqueRows.length) return;
       if (results[index]) continue;
       const row = uniqueRows[index];
-      const result = row.platform ? await validateCompanyCandidate(row) : { ...row, jobCount: 0, remoteCount: 0, indiaCount: 0, error: row.error || "Invalid source identity." };
+      const result = row.platform
+        ? await validateCompanyCandidate(row)
+        : {
+            ...row,
+            jobCount: 0,
+            remoteCount: 0,
+            indiaCount: 0,
+            error: row.error || "Invalid source identity.",
+          };
       results[index] = result;
       progress.completed[checkpointKey(row, index)] = result;
-      if (Object.keys(progress.completed).length % 50 === 0 || index === uniqueRows.length - 1) await writeFile(progressPath, JSON.stringify(progress), "utf8");
+      if (Object.keys(progress.completed).length % 50 === 0 || index === uniqueRows.length - 1)
+        await writeFile(progressPath, JSON.stringify(progress), "utf8");
       // Bounded request-start rate across workers; no provider receives a burst.
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -140,35 +241,91 @@ async function validateFile() {
   await Promise.all(workers);
   await writeFile(progressPath, JSON.stringify(progress), "utf8");
   console.log("Company | ATS | Status | Jobs | Remote | India jobs | Error");
-  for (const row of results) console.log(`${row.company} | ${row.platform || "—"} | ${row.valid ? "valid" : "invalid"} | ${row.jobCount} | ${row.remoteCount} | ${row.indiaCount} | ${row.error || "—"}`);
-  await writeFile(output, `${JSON.stringify({ version: 1, inputHash, verifiedAt: new Date().toISOString(), companies: results.filter((row) => row.valid).map((row) => ({ name: row.company, platform: row.platform, slug: row.slug, careersUrl: row.careersUrl || `https://${row.platform === "greenhouse" ? "boards.greenhouse.io" : row.platform === "lever" ? "jobs.lever.co" : row.platform === "ashby" ? "jobs.ashbyhq.com" : row.platform === "smartrecruiters" ? "jobs.smartrecruiters.com" : row.platform === "recruitee" ? `${row.slug}.recruitee.com` : "apply.workable.com"}/${row.slug}`, status: "pending", validation: { valid: true, jobCount: row.jobCount, remoteCount: row.remoteCount, indiaCount: row.indiaCount, checkedAt: row.checkedAt } })) }, null, 2)}\n`, { flag: "wx" });
-  console.log(`Verified companies ready for approval import: ${results.filter((row) => row.valid).length}; failures: ${results.filter((row) => !row.valid).length}; deduplicated input: ${uniqueRows.length}; output: ${output}; resume checkpoint: ${progressPath}`);
+  for (const row of results)
+    console.log(
+      `${row.company} | ${row.platform || "—"} | ${row.valid ? "valid" : "invalid"} | ${row.jobCount} | ${row.remoteCount} | ${row.indiaCount} | ${row.error || "—"}`,
+    );
+  await writeFile(
+    output,
+    `${JSON.stringify({ version: 1, inputHash, verifiedAt: new Date().toISOString(), companies: results.filter((row) => row.valid).map((row) => ({ name: row.company, platform: row.platform, slug: row.slug, careersUrl: row.careersUrl || `https://${row.platform === "greenhouse" ? "boards.greenhouse.io" : row.platform === "lever" ? "jobs.lever.co" : row.platform === "ashby" ? "jobs.ashbyhq.com" : row.platform === "smartrecruiters" ? "jobs.smartrecruiters.com" : row.platform === "recruitee" ? `${row.slug}.recruitee.com` : "apply.workable.com"}/${row.slug}`, status: "pending", validation: { valid: true, jobCount: row.jobCount, remoteCount: row.remoteCount, indiaCount: row.indiaCount, checkedAt: row.checkedAt } })) }, null, 2)}\n`,
+    { flag: "wx" },
+  );
+  console.log(
+    `Verified companies ready for approval import: ${results.filter((row) => row.valid).length}; failures: ${results.filter((row) => !row.valid).length}; deduplicated input: ${uniqueRows.length}; output: ${output}; resume checkpoint: ${progressPath}`,
+  );
 }
 
 async function importFile() {
   const input = process.argv.find((arg) => arg.startsWith("--file="))?.slice(7);
   const requestedBy = process.argv.find((arg) => arg.startsWith("--requested-by="))?.slice(15);
-  if (!input || !requestedBy) throw new Error("Usage: npm run jobs:ats:import -- --file=ats-verified.json --requested-by=<admin-user-id>");
+  if (!input || !requestedBy)
+    throw new Error(
+      "Usage: npm run jobs:ats:import -- --file=ats-verified.json --requested-by=<admin-user-id>",
+    );
   const { connectMongo, disconnectMongo } = await import("../src/config/database.js");
   const { env } = await import("../src/config/env.js");
   const mongoose = (await import("mongoose")).default;
-  const { User } = await import("../src/models/User.js");
-  const { TrackedCompany } = await import("../src/models/TrackedCompany.js");
+  const { User } = await import("../src/infrastructure/database/mongoose/models/UserModel.js");
+  const { TrackedCompany } =
+    await import("../src/infrastructure/database/mongoose/models/TrackedCompanyModel.js");
   const hostname = new URL(env.MONGODB_URI).hostname;
-  if (env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(hostname)) throw new Error("Refusing company import: only a non-production loopback Mongo URI is allowed.");
-  if (!mongoose.isValidObjectId(requestedBy)) throw new Error("--requested-by must be an admin user's ObjectId.");
+  if (env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(hostname))
+    throw new Error(
+      "Refusing company import: only a non-production loopback Mongo URI is allowed.",
+    );
+  if (!mongoose.isValidObjectId(requestedBy))
+    throw new Error("--requested-by must be an admin user's ObjectId.");
   const file = JSON.parse(await readFile(input, "utf8"));
-  if (file.version !== 1 || !Array.isArray(file.companies) || file.companies.some((row) => row.status !== "pending" || row.validation?.valid !== true)) throw new Error("Import accepts only a valid version-1 output from jobs:ats:validate.");
+  if (
+    file.version !== 1 ||
+    !Array.isArray(file.companies) ||
+    file.companies.some((row) => row.status !== "pending" || row.validation?.valid !== true)
+  )
+    throw new Error("Import accepts only a valid version-1 output from jobs:ats:validate.");
   await connectMongo();
   try {
-    if (!await User.findOne({ _id: requestedBy, role: { $in: ["admin", "super_admin"] } }).select("_id").lean()) throw new Error("Requested-by user is not an admin.");
-    const ops = file.companies.map((row) => ({ updateOne: { filter: { platform: row.platform, slug: row.slug }, update: { $setOnInsert: { platform: row.platform, slug: row.slug, careersUrl: row.careersUrl, requestedBy, verifiedAt: new Date(row.validation.checkedAt), status: "pending" } }, upsert: true } }));
-    const result = ops.length ? await TrackedCompany.bulkWrite(ops, { ordered: false }) : { upsertedCount: 0 };
-    console.log(JSON.stringify({ importedPending: result.upsertedCount || 0, alreadyPresent: ops.length - (result.upsertedCount || 0), count: ops.length }));
-  } finally { await disconnectMongo(); }
+    if (
+      !(await User.findOne({ _id: requestedBy, role: { $in: ["admin", "super_admin"] } })
+        .select("_id")
+        .lean())
+    )
+      throw new Error("Requested-by user is not an admin.");
+    const ops = file.companies.map((row) => ({
+      updateOne: {
+        filter: { platform: row.platform, slug: row.slug },
+        update: {
+          $setOnInsert: {
+            platform: row.platform,
+            slug: row.slug,
+            careersUrl: row.careersUrl,
+            requestedBy,
+            verifiedAt: new Date(row.validation.checkedAt),
+            status: "pending",
+          },
+        },
+        upsert: true,
+      },
+    }));
+    const result = ops.length
+      ? await TrackedCompany.bulkWrite(ops, { ordered: false })
+      : { upsertedCount: 0 };
+    console.log(
+      JSON.stringify({
+        importedPending: result.upsertedCount || 0,
+        alreadyPresent: ops.length - (result.upsertedCount || 0),
+        count: ops.length,
+      }),
+    );
+  } finally {
+    await disconnectMongo();
+  }
 }
 
 if (process.argv[1]?.endsWith("ats-company-tools.js")) {
-  try { await (process.argv[2] === "import" ? importFile() : validateFile()); }
-  catch (error) { console.error(error.message); process.exitCode = 1; }
+  try {
+    await (process.argv[2] === "import" ? importFile() : validateFile());
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

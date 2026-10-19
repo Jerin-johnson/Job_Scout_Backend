@@ -1,4 +1,4 @@
-import { Profile } from "../../models/Profile.js";
+import { Profile } from "../../infrastructure/database/mongoose/models/ProfileModel.js";
 import { isMongoReady } from "../../config/database.js";
 import { canonicalSkill } from "./matching.js";
 import { normalizeRoleForMatching } from "./roleNormalization.js";
@@ -63,9 +63,7 @@ export function buildProfileMatchIndex(profile: ProfileForIndexLike = {}): Profi
 
   for (const skill of profile.skills || []) {
     const skillName = typeof skill === "string" ? skill : skill?.name || "";
-    const rawName = String(skillName)
-      .trim()
-      .toLowerCase();
+    const rawName = String(skillName).trim().toLowerCase();
     const canonical = canonicalSkill(skillName);
     if (canonical && canonical.length > 1) {
       const lower = canonical.toLowerCase();
@@ -189,8 +187,7 @@ export function extractBatchJobDemandIndex(
       bumpToken(job.occupation, 1);
     }
 
-    const scope =
-      job.eligibility?.remoteScope || job.structuredLocation?.remoteScope || "unknown";
+    const scope = job.eligibility?.remoteScope || job.structuredLocation?.remoteScope || "unknown";
     if (scope === "worldwide" || scope === "unknown") {
       hasWorldwideOrUnknown = true;
     }

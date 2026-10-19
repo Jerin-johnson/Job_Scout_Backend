@@ -2,8 +2,8 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { Job } from "../src/models/Job.js";
-import { JobSource } from "../src/models/JobSource.js";
+import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
+import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
 import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
 
 let mongo;

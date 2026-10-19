@@ -1,5 +1,5 @@
 import { BaseJobAdapter, sourceDescriptionText } from "./baseAdapter.js";
-import { TrackedCompany } from "../../../models/TrackedCompany.js";
+import { TrackedCompany } from "../../../infrastructure/database/mongoose/models/TrackedCompanyModel.js";
 
 export interface NormalizedPublicAtsJob {
   sourceJobId: string;
@@ -31,11 +31,14 @@ export function normalizePublicAtsJob(
       tags: [
         ...((raw?.departments as Array<{ name?: string }>) || []).map((item) => item.name || ""),
         ...((raw?.offices as Array<{ name?: string }>) || []).map((item) => item.name || ""),
-      ].filter(Boolean).slice(0, 30),
+      ]
+        .filter(Boolean)
+        .slice(0, 30),
     };
   }
   if (platform === "lever") {
-    const cats = raw?.categories as { location?: string; team?: string; department?: string; commitment?: string } | undefined;
+    const cats = raw?.categories as
+      { location?: string; team?: string; department?: string; commitment?: string } | undefined;
     return {
       sourceJobId: String(raw?.id),
       title: String(raw?.text || ""),
@@ -44,7 +47,9 @@ export function normalizePublicAtsJob(
       sourceUrl: String(raw?.hostedUrl || ""),
       postedAt: raw?.createdAt ? new Date(String(raw.createdAt)) : null,
       rawDescription: sourceDescriptionText(raw?.descriptionPlain),
-      tags: [cats?.team, cats?.department, cats?.commitment].filter((t): t is string => Boolean(t)).slice(0, 30),
+      tags: [cats?.team, cats?.department, cats?.commitment]
+        .filter((t): t is string => Boolean(t))
+        .slice(0, 30),
     };
   }
   return {
@@ -100,24 +105,30 @@ export class PublicAtsAdapter extends BaseJobAdapter {
 
   async fetchBoard(slug: string): Promise<NormalizedPublicAtsJob[]> {
     if (this.platform !== "ashby") {
-      const response = await this.requestJson<Record<string, unknown> | Array<Record<string, unknown>>>(
-        this.endpoint(slug),
-        { acceptNotModified: false },
-      );
+      const response = await this.requestJson<
+        Record<string, unknown> | Array<Record<string, unknown>>
+      >(this.endpoint(slug), { acceptNotModified: false });
       const records =
         this.platform === "greenhouse"
           ? (response.data as { jobs?: Array<Record<string, unknown>> })?.jobs
           : (response.data as Array<Record<string, unknown>>);
       return (Array.isArray(records) ? records : [])
         .map((record) => normalizePublicAtsJob(this.platform, slug, record))
-        .filter((job): job is NormalizedPublicAtsJob => Boolean(job && job.title && job.sourceJobId && job.sourceUrl));
+        .filter((job): job is NormalizedPublicAtsJob =>
+          Boolean(job && job.title && job.sourceJobId && job.sourceUrl),
+        );
     }
-    const response = await this.requestJson<{ jobs?: Array<Record<string, unknown>> }>(this.endpoint(slug), {
-      acceptNotModified: false,
-    });
+    const response = await this.requestJson<{ jobs?: Array<Record<string, unknown>> }>(
+      this.endpoint(slug),
+      {
+        acceptNotModified: false,
+      },
+    );
     return (response.data?.jobs || [])
       .map((record) => normalizePublicAtsJob("ashby", slug, record))
-      .filter((job): job is NormalizedPublicAtsJob => Boolean(job && job.title && job.sourceJobId && job.sourceUrl));
+      .filter((job): job is NormalizedPublicAtsJob =>
+        Boolean(job && job.title && job.sourceJobId && job.sourceUrl),
+      );
   }
 
   async fetchPage({ cursor }: { cursor?: string | null } = {}): Promise<{

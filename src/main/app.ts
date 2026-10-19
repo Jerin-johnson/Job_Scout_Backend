@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -7,7 +8,7 @@ import { env } from "../config/env.js";
 import { httpLogger } from "../shared/utils/logger.js";
 import { isTrustedWebOrigin } from "../shared/utils/webOrigin.js";
 import { createApiRouter } from "../presentation/http/routes/index.js";
-import { healthRouter } from "../routes/health.js";
+import { healthRouter } from "../presentation/http/routes/healthRoutes.js";
 import { errorHandlerMiddleware } from "../presentation/http/middleware/errorHandlerMiddleware.js";
 
 export function createApp(): Express {
@@ -27,7 +28,10 @@ export function createApp(): Express {
   // Strict CORS allowlist
   app.use(
     cors({
-      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      origin: (
+        origin: string | undefined,
+        callback: (err: Error | null, allow?: boolean) => void,
+      ) => {
         if (isTrustedWebOrigin(origin, env)) {
           return callback(null, true);
         }

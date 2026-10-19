@@ -1,11 +1,11 @@
-import { Memory } from "../../models/Memory.js";
-import { User } from "../../models/User.js";
+import { Memory } from "../../infrastructure/database/mongoose/models/MemoryModel.js";
+import { User } from "../../infrastructure/database/mongoose/models/UserModel.js";
 import { isMongoReady } from "../../config/database.js";
 import { embeddingService, cosineSimilarity } from "../../services/embeddingService.js";
 import { get, set, bumpVersion, getVersion, CacheKeys, TTL } from "../../shared/cache.js";
 import { PLAN_CONFIG, PLANS } from "../../shared/constants/plans.js";
 import { logger } from "../../shared/utils/logger.js";
-import { userRepository } from "../../repositories/userRepository.js";
+import { userRepository } from "../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 
 export const MEMORY_CONSENT_VERSION = "memory-consent-v1";
 
@@ -162,7 +162,10 @@ export interface RetrieveRelevantOptions {
 export const longTermMemory = {
   MEMORY_CONSENT_VERSION,
 
-  async checkConsent(userId: string | unknown, user: UserConsentLike | null = null): Promise<{ consented: boolean; paused: boolean }> {
+  async checkConsent(
+    userId: string | unknown,
+    user: UserConsentLike | null = null,
+  ): Promise<{ consented: boolean; paused: boolean }> {
     return resolveUserConsentState(userId, user);
   },
 
@@ -189,7 +192,10 @@ export const longTermMemory = {
       return null;
     }
     if (requireConsent && !state.consented) {
-      const err = new Error("Memory consent is required before saving preferences.") as Error & { code?: string; statusCode?: number };
+      const err = new Error("Memory consent is required before saving preferences.") as Error & {
+        code?: string;
+        statusCode?: number;
+      };
       err.code = "MEMORY_CONSENT_REQUIRED";
       err.statusCode = 403;
       throw err;
@@ -204,7 +210,9 @@ export const longTermMemory = {
     // 2. Compliance Defense: Filter protected attributes and secrets
     if (isSensitiveMemoryContent(key, content)) {
       logger.warn({ key }, "Memory rejected by compliance filter: protected attribute detected");
-      const err = new Error("Compliance violation: Protected attributes cannot be retained") as Error & { code?: string; statusCode?: number };
+      const err = new Error(
+        "Compliance violation: Protected attributes cannot be retained",
+      ) as Error & { code?: string; statusCode?: number };
       err.code = "PROTECTED_ATTRIBUTE_REJECTED";
       err.statusCode = 400;
       throw err;
@@ -215,7 +223,10 @@ export const longTermMemory = {
       getEmbeddingWithMetadata: (
         text: string,
         opts?: { user?: unknown; feature?: string; requestId?: string },
-      ) => Promise<{ vector: number[]; metadata: { provider?: string; model?: string; dimension?: number; [key: string]: unknown } }>;
+      ) => Promise<{
+        vector: number[];
+        metadata: { provider?: string; model?: string; dimension?: number; [key: string]: unknown };
+      }>;
     };
     const { vector: embedding, metadata: embeddingMetadata } =
       await embeddingClient.getEmbeddingWithMetadata(content, {
@@ -281,7 +292,9 @@ export const longTermMemory = {
       }
     } else {
       // 5. Enforce plan capacity caps (Free: 50, Pro: 300, Premium: 1000)
-      const planConfig = (PLAN_CONFIG as Record<string, { quotas?: { maxMemories?: number } }>)[userPlan] || PLAN_CONFIG[PLANS.FREE];
+      const planConfig =
+        (PLAN_CONFIG as Record<string, { quotas?: { maxMemories?: number } }>)[userPlan] ||
+        PLAN_CONFIG[PLANS.FREE];
       const maxMemories = planConfig.quotas?.maxMemories || 50;
 
       if (existingMemories.length >= maxMemories) {
@@ -290,7 +303,8 @@ export const longTermMemory = {
           (a, b) =>
             a.importance * 0.6 +
             (new Date(a.lastUsedAt || a.createdAt || 0).getTime() / 1e12) * 0.4 -
-            (b.importance * 0.6 + (new Date(b.lastUsedAt || b.createdAt || 0).getTime() / 1e12) * 0.4),
+            (b.importance * 0.6 +
+              (new Date(b.lastUsedAt || b.createdAt || 0).getTime() / 1e12) * 0.4),
         );
         const victim = sorted[0];
         if (victim) {
@@ -347,7 +361,11 @@ export const longTermMemory = {
     first: RetrieveRelevantOptions | string | unknown,
     queryTextParam?: string,
     limitParam?: number,
-    optsParam?: { user?: UserConsentLike | null; profileCard?: ProfileCardLike | null; requireConsent?: boolean },
+    optsParam?: {
+      user?: UserConsentLike | null;
+      profileCard?: ProfileCardLike | null;
+      requireConsent?: boolean;
+    },
   ): Promise<MemoryRecord[]> {
     let userId: string | unknown;
     let user: UserConsentLike | null = null;
@@ -356,7 +374,11 @@ export const longTermMemory = {
     let requireConsent = false;
     let profileCard: ProfileCardLike | null = null;
 
-    if (typeof first === "object" && first !== null && ("userId" in first || "queryText" in first)) {
+    if (
+      typeof first === "object" &&
+      first !== null &&
+      ("userId" in first || "queryText" in first)
+    ) {
       const opts = first as RetrieveRelevantOptions;
       userId = opts.userId;
       user = opts.user ?? null;
@@ -388,7 +410,10 @@ export const longTermMemory = {
       getEmbeddingWithMetadata: (
         text: string,
         opts?: { user?: unknown; feature?: string; requestId?: string },
-      ) => Promise<{ vector: number[]; metadata: { provider?: string; model?: string; dimension?: number; [key: string]: unknown } }>;
+      ) => Promise<{
+        vector: number[];
+        metadata: { provider?: string; model?: string; dimension?: number; [key: string]: unknown };
+      }>;
     };
     const { vector: queryEmbedding, metadata: queryMetadata } =
       await embeddingClient.getEmbeddingWithMetadata(queryText || "general preferences", {
@@ -404,7 +429,8 @@ export const longTermMemory = {
         m.embeddingMetadata?.dimension === queryMetadata.dimension;
       const sim =
         sameEmbeddingSpace && m.embedding ? cosineSimilarity(queryEmbedding, m.embedding) : 0.5;
-      const ageHours = (now - new Date(m.lastUsedAt || m.createdAt || now).getTime()) / (1000 * 3600);
+      const ageHours =
+        (now - new Date(m.lastUsedAt || m.createdAt || now).getTime()) / (1000 * 3600);
       const recencyScore = Math.max(0.1, 1 / (1 + ageHours * 0.05)); // decay over time
       const finalScore = sim * 0.5 + (m.importance / 5) * 0.3 + recencyScore * 0.2;
 
@@ -431,7 +457,9 @@ export const longTermMemory = {
     const nextKey = updates.key?.trim();
     const nextContent = updates.content?.trim();
     if (isSensitiveMemoryContent(nextKey || "", nextContent || "")) {
-      const err = new Error("Compliance violation: Protected attributes cannot be retained") as Error & { code?: string; statusCode?: number };
+      const err = new Error(
+        "Compliance violation: Protected attributes cannot be retained",
+      ) as Error & { code?: string; statusCode?: number };
       err.code = "PROTECTED_ATTRIBUTE_REJECTED";
       err.statusCode = 400;
       throw err;

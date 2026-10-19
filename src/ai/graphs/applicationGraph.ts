@@ -12,8 +12,8 @@
 import { invokeLLM } from "../llm.js";
 import { z } from "zod";
 import { logger } from "../../shared/utils/logger.js";
-import { applicationRepository } from "../../repositories/applicationRepository.js";
-import type { ApplicationRecord } from "../../repositories/applicationRepository.js";
+import { applicationRepository } from "../../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
+import type { ApplicationRecord } from "../../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
 export interface UserLike {
   _id?: unknown;
   id?: string;
@@ -55,7 +55,12 @@ export const applicationGraph = {
    * Process a stage change in the application pipeline
    * Updates timeline, schedules follow-up, and drafts follow-up email
    */
-  async handleStageChange({ application, user, newStatus, note }: StageChangeParams): Promise<ApplicationRecord | null> {
+  async handleStageChange({
+    application,
+    user,
+    newStatus,
+    note,
+  }: StageChangeParams): Promise<ApplicationRecord | null> {
     const isDev =
       process.env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev" ||
       process.env.NODE_ENV === "test";
@@ -159,7 +164,10 @@ Return a JSON object with:
   /**
    * Dispatch approved email (simulated via Resend in dev/test)
    */
-  async sendApprovedEmail({ application, user: _user }: SendApprovedEmailParams): Promise<ApplicationRecord | null> {
+  async sendApprovedEmail({
+    application,
+    user: _user,
+  }: SendApprovedEmailParams): Promise<ApplicationRecord | null> {
     if (!application.followUpDraft || application.followUpDraft.status !== "draft") {
       throw Object.assign(new Error("No draft email awaiting approval"), {
         code: "NO_PENDING_DRAFT",

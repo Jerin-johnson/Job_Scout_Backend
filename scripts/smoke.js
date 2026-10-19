@@ -32,7 +32,10 @@ async function recordStep(name, fn) {
 
 async function startServerIfNeeded() {
   const url = new URL(BASE_URL);
-  if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase())) {
+  if (
+    url.protocol !== "http:" ||
+    !["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase())
+  ) {
     throw new Error("Smoke tests can only target an HTTP loopback URL.");
   }
 
@@ -222,7 +225,8 @@ async function run() {
     if (!testUserRefreshToken) {
       // If cookie was not accessible in node fetch, generate token through service directly
       const { authService } = await import("../src/services/authService.js");
-      const { userRepository } = await import("../src/repositories/userRepository.js");
+      const { userRepository } =
+        await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
       const u = await userRepository.findByEmail(testEmail);
       const session = await authService.generateSession(u);
       testUserRefreshToken = session.refreshToken;
@@ -296,22 +300,25 @@ async function run() {
     if (!proBlocked) throw new Error("Pro feature was not blocked on Free tier");
   });
 
-  await recordStep("PUT /api/v1/profile/resume-ai-consent (accept current processing terms)", async () => {
-    const res = await fetch(`${BASE_URL}/api/v1/profile/resume-ai-consent`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${testUserToken}`,
-        "Content-Type": "application/json",
-        "X-Requested-With": "JobScoutClient",
-      },
-      body: JSON.stringify({ accepted: true, version: RESUME_AI_CONSENT_VERSION }),
-    });
-    if (res.status !== 200) throw new Error(`Resume consent failed: ${res.status}`);
-    const data = await res.json();
-    if (!data.data.accepted || data.data.version !== RESUME_AI_CONSENT_VERSION) {
-      throw new Error("Resume consent response did not confirm the current version");
-    }
-  });
+  await recordStep(
+    "PUT /api/v1/profile/resume-ai-consent (accept current processing terms)",
+    async () => {
+      const res = await fetch(`${BASE_URL}/api/v1/profile/resume-ai-consent`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${testUserToken}`,
+          "Content-Type": "application/json",
+          "X-Requested-With": "JobScoutClient",
+        },
+        body: JSON.stringify({ accepted: true, version: RESUME_AI_CONSENT_VERSION }),
+      });
+      if (res.status !== 200) throw new Error(`Resume consent failed: ${res.status}`);
+      const data = await res.json();
+      if (!data.data.accepted || data.data.version !== RESUME_AI_CONSENT_VERSION) {
+        throw new Error("Resume consent response did not confirm the current version");
+      }
+    },
+  );
 
   // Step 10: B4 Magic Bytes Rejection (Fake PDF with invalid magic bytes)
   await recordStep("POST /api/v1/profile/upload-resume (reject fake PDF)", async () => {
@@ -370,19 +377,33 @@ async function run() {
     await set(
       CacheKeys.resumeParse(`${computeSha256(validPdfBuffer)}:facts-v4`),
       {
-        roles: [{
-          title: "Principal Engineer",
-          company: "Tech Systems Inc",
-          startDate: "2020",
-          endDate: "Present",
-          isCurrent: true,
-          achievements: [{
-            bullet: "Architected event-driven microservices handling 25,000 requests per second with 99.99% uptime.",
-            metrics: "25,000 requests per second",
-          }],
-        }],
-        skills: ["Node.js", "Express", "MongoDB", "Redis", "Docker", "Kubernetes"].map((name) => ({ name, category: "engineering" })),
-        education: [{ degree: "B.S. in Computer Science", institution: "State University", graduationYear: 2019 }],
+        roles: [
+          {
+            title: "Principal Engineer",
+            company: "Tech Systems Inc",
+            startDate: "2020",
+            endDate: "Present",
+            isCurrent: true,
+            achievements: [
+              {
+                bullet:
+                  "Architected event-driven microservices handling 25,000 requests per second with 99.99% uptime.",
+                metrics: "25,000 requests per second",
+              },
+            ],
+          },
+        ],
+        skills: ["Node.js", "Express", "MongoDB", "Redis", "Docker", "Kubernetes"].map((name) => ({
+          name,
+          category: "engineering",
+        })),
+        education: [
+          {
+            degree: "B.S. in Computer Science",
+            institution: "State University",
+            graduationYear: 2019,
+          },
+        ],
       },
       TTL.RESUME_PARSE,
     );
@@ -655,7 +676,9 @@ async function run() {
       });
       const error = await unavailable.json();
       if (unavailable.status !== 400 || error.error?.code !== "CHAT_MODEL_UNAVAILABLE") {
-        throw new Error("Expected explicit model-unavailable response when no provider is configured");
+        throw new Error(
+          "Expected explicit model-unavailable response when no provider is configured",
+        );
       }
       return;
     }
@@ -823,13 +846,14 @@ async function run() {
       // Keep the default smoke path offline and deterministic. The full adapter
       // contract and ingestion behavior are exercised by fixture-based tests.
       await jobIngestionService.ensureSources();
-      const { Job } = await import("../src/models/Job.js");
+      const { Job } = await import("../src/infrastructure/database/mongoose/models/JobModel.js");
       const { extractJobFeatures } = await import("../src/services/jobs/matching.js");
       const fixture = {
         contentHash: `smoke-${newSmokeUserId()}`,
         title: "Principal Software Engineer",
         company: "JobScout Smoke Fixture",
-        rawDescription: "Build Node.js and Express services with MongoDB, Redis, Docker, and Kubernetes.",
+        rawDescription:
+          "Build Node.js and Express services with MongoDB, Redis, Docker, and Kubernetes.",
         sourceBoard: "remoteok",
         sourceJobId: `smoke-${newSmokeUserId()}`,
         sourceUrl: "https://example.invalid/smoke-fixture",
@@ -838,8 +862,17 @@ async function run() {
         status: "active",
         postedAt: new Date(),
         expiresAt: new Date(Date.now() + 86400000),
-        structuredLocation: { countryCode: "IN", remoteScope: "worldwide", eligibleCountryCodes: ["IN"] },
-        eligibility: { countries: ["IN"], remoteScope: "worldwide", confidence: 1, evidence: "Synthetic smoke fixture" },
+        structuredLocation: {
+          countryCode: "IN",
+          remoteScope: "worldwide",
+          eligibleCountryCodes: ["IN"],
+        },
+        eligibility: {
+          countries: ["IN"],
+          remoteScope: "worldwide",
+          confidence: 1,
+          evidence: "Synthetic smoke fixture",
+        },
         tags: ["Node.js", "Express", "MongoDB", "Redis", "Docker", "Kubernetes"],
       };
       fixture.features = extractJobFeatures(fixture);
@@ -852,8 +885,10 @@ async function run() {
       throw new Error("Job ingestion failed to produce jobs");
     }
     // ingestAll reports per-source totals; persisted records are read separately.
-    const { Job } = await import("../src/models/Job.js");
-    const jobs = await Job.find({ contentHash: { $type: "string" } }).select("contentHash").lean();
+    const { Job } = await import("../src/infrastructure/database/mongoose/models/JobModel.js");
+    const jobs = await Job.find({ contentHash: { $type: "string" } })
+      .select("contentHash")
+      .lean();
     if (!jobs.length) throw new Error("Ingestion did not persist jobs with content hashes");
     for (const j of jobs) {
       if (!j.contentHash) throw new Error("Job missing contentHash");
@@ -863,7 +898,8 @@ async function run() {
   // Step 25: B8 Discovery Graph A Execution & Rule Filtering
   let discoveredJobId = null;
   await recordStep("Discovery Graph A (vector matching, rule filter & top matches)", async () => {
-    const { userRepository } = await import("../src/repositories/userRepository.js");
+    const { userRepository } =
+      await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
     const { discoveryGraph } = await import("../src/ai/graphs/discoveryGraph.js");
 
     const u = await userRepository.findByEmail(testEmail);
@@ -1139,7 +1175,8 @@ async function run() {
     "POST /api/v1/interview/prep (company brief, question bank & STAR stories)",
     async () => {
       // Upgrade user to premium in repository to pass quota gate
-      const { userRepository } = await import("../src/repositories/userRepository.js");
+      const { userRepository } =
+        await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
       const u = await userRepository.findByEmail(testEmail);
       await userRepository.update(u._id, { plan: "premium" });
 
@@ -1241,7 +1278,8 @@ async function run() {
     }
 
     // 2. Create Admin user and obtain token
-    const { userRepository } = await import("../src/repositories/userRepository.js");
+    const { userRepository } =
+      await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
     const { authService } = await import("../src/services/authService.js");
     const adminUser = await userRepository.create({
       email: `admin_${Date.now()}@jobscout.internal`,

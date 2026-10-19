@@ -2,7 +2,7 @@ import { z } from "zod";
 import { get, CacheKeys } from "../shared/cache.js";
 import { computeSha256 } from "../shared/utils/crypto.js";
 import { invokeLLM } from "./llm.js";
-import { RoutingLog } from "../models/RoutingLog.js";
+import { RoutingLog } from "../infrastructure/database/mongoose/models/RoutingLogModel.js";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
 
@@ -280,7 +280,8 @@ export async function routeRequest({
     }
 
     const heuristic = classifyHeuristically(prompt);
-    let tier1Result = heuristic as (RouterClassifierOutput & { _costUsd?: number; suggestedTools?: string[] }) | null;
+    let tier1Result = heuristic as
+      (RouterClassifierOutput & { _costUsd?: number; suggestedTools?: string[] }) | null;
     if (!heuristic) {
       tier1Result = await runTier1Classifier({ prompt, user, requestId });
     }
@@ -367,7 +368,15 @@ export async function routeRequest({
 }
 
 export interface HeuristicClassification {
-  intent: "chat_simple" | "extract" | "db_lookup" | "match_jobs" | "tailor_resume" | "interview_prep" | "full_strategy" | "track_application";
+  intent:
+    | "chat_simple"
+    | "extract"
+    | "db_lookup"
+    | "match_jobs"
+    | "tailor_resume"
+    | "interview_prep"
+    | "full_strategy"
+    | "track_application";
   complexity: "low" | "medium" | "high";
   needsTools: boolean;
   needsMemory: boolean;

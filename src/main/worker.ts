@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import { env } from "../config/env.js";
 import { logger } from "../shared/utils/logger.js";
 import { initSentry } from "../config/sentry.js";
@@ -7,13 +8,13 @@ import { registerShutdownHandler, setupGracefulShutdown } from "../config/shutdo
 import { jobIngestionService } from "../services/jobs/jobIngestionService.js";
 import { emailDigestService } from "../services/emailDigestService.js";
 import { Queue, Worker, Job } from "bullmq";
-import { applicationRepository } from "../repositories/applicationRepository.js";
-import { userRepository } from "../repositories/userRepository.js";
+import { applicationRepository } from "../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
+import { userRepository } from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { assertValidAIConfiguration } from "../config/aiStartupValidation.js";
 import { discoveryGraph } from "../ai/graphs/discoveryGraph.js";
-import { User } from "../models/User.js";
+import { User } from "../infrastructure/database/mongoose/models/UserModel.js";
 import { CacheKeys, del } from "../shared/cache.js";
-import { Profile } from "../models/Profile.js";
+import { Profile } from "../infrastructure/database/mongoose/models/ProfileModel.js";
 import { enqueueMatchRefreshForUser, markMatchRefresh } from "../services/matchRefreshService.js";
 import { MATCH_SCORE_VERSION } from "../services/jobs/matching.js";
 import {
@@ -51,10 +52,16 @@ let ingestionQueue: Queue | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
 
 export async function scheduleJobIngestion(queue: Queue, sources: unknown): Promise<unknown> {
-  return reconcileJobIngestionSchedules(queue as unknown as BullQueueLike, sources as ScheduledSource[]);
+  return reconcileJobIngestionSchedules(
+    queue as unknown as BullQueueLike,
+    sources as ScheduledSource[],
+  );
 }
 
-async function waitForRedis(redis: ReturnType<typeof getRedisClient>, timeoutMs = 5000): Promise<boolean> {
+async function waitForRedis(
+  redis: ReturnType<typeof getRedisClient>,
+  timeoutMs = 5000,
+): Promise<boolean> {
   if (isRedisReady()) return true;
   return new Promise((resolve) => {
     const timer = setTimeout(() => finish(false), timeoutMs);
