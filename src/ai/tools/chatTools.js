@@ -366,11 +366,11 @@ export function createChatTools(defaultConfig = {}) {
       "Search active jobs in the catalog using optional keyword, location, remoteType, or countryCode filters, scored against the user's profile.",
     schema: z
       .object({
-        query: z.string().trim().max(120).optional().default(""),
-        location: z.string().trim().max(100).optional().default(""),
-        remoteType: z.enum(["", "remote", "hybrid", "onsite"]).optional().default(""),
-        countryCode: z.string().trim().max(2).optional().default(""),
-        limit: z.number().int().min(1).max(10).optional().default(5),
+        query: z.string().trim().max(120).nullable().optional().default(""),
+        location: z.string().trim().max(100).nullable().optional().default(""),
+        remoteType: z.enum(["", "remote", "hybrid", "onsite"]).nullable().optional().default(""),
+        countryCode: z.string().trim().max(2).nullable().optional().default(""),
+        limit: z.number().int().min(1).max(10).nullable().optional().default(5),
       })
       .strict(),
     func: async (args, callConfig) => {
@@ -479,9 +479,9 @@ export function createChatTools(defaultConfig = {}) {
       "Run deterministic resume-to-job match analysis for the current user's resume against a catalog jobId or tracked applicationId.",
     schema: z
       .object({
-        jobId: z.string().trim().max(100).optional(),
-        applicationId: z.string().trim().max(100).optional(),
-        resumeId: z.string().trim().max(100).optional(),
+        jobId: z.string().trim().max(100).nullable().optional(),
+        applicationId: z.string().trim().max(100).nullable().optional(),
+        resumeId: z.string().trim().max(100).nullable().optional(),
       })
       .strict(),
     func: async (args, callConfig) => {
@@ -593,12 +593,13 @@ export function createChatTools(defaultConfig = {}) {
       .object({
         stage: z
           .enum(["", "saved", "applied", "screening", "interviewing", "offer", "rejected"])
+          .nullable()
           .optional()
           .default(""),
-        priority: z.enum(["", "high", "medium", "low"]).optional().default(""),
-        followUp: z.enum(["", "overdue", "due-soon"]).optional().default(""),
-        search: z.string().trim().max(100).optional().default(""),
-        limit: z.number().int().min(1).max(15).optional().default(8),
+        priority: z.enum(["", "high", "medium", "low"]).nullable().optional().default(""),
+        followUp: z.enum(["", "overdue", "due-soon"]).nullable().optional().default(""),
+        search: z.string().trim().max(100).nullable().optional().default(""),
+        limit: z.number().int().min(1).max(15).nullable().optional().default(8),
       })
       .strict(),
     func: async (args, callConfig) => {
@@ -699,7 +700,7 @@ export function createChatTools(defaultConfig = {}) {
       "List the current user's recent mock interview sessions and their report scores, strengths, and focus areas.",
     schema: z
       .object({
-        limit: z.number().int().min(1).max(10).optional().default(5),
+        limit: z.number().int().min(1).max(10).nullable().optional().default(5),
       })
       .strict(),
     func: async ({ limit }, callConfig) => {
@@ -892,13 +893,13 @@ export function createChatTools(defaultConfig = {}) {
       "Propose adding a job to the user's application tracker. Does not write to the database until the user clicks Confirm on the action card.",
     schema: z
       .object({
-        jobId: z.string().trim().max(100).optional(),
-        company: z.string().trim().min(1).max(160).optional(),
-        role: z.string().trim().min(1).max(160).optional(),
-        location: z.string().trim().max(160).optional().default(""),
-        status: z.enum(["saved", "applied"]).optional().default("saved"),
-        priority: z.enum(["high", "medium", "low"]).optional().default("medium"),
-        notes: z.string().trim().max(500).optional().default(""),
+        jobId: z.string().trim().max(100).nullable().optional(),
+        company: z.string().trim().min(1).max(160).nullable().optional(),
+        role: z.string().trim().min(1).max(160).nullable().optional(),
+        location: z.string().trim().max(160).nullable().optional().default(""),
+        status: z.enum(["saved", "applied"]).nullable().optional().default("saved"),
+        priority: z.enum(["high", "medium", "low"]).nullable().optional().default("medium"),
+        notes: z.string().trim().max(500).nullable().optional().default(""),
       })
       .strict(),
     func: async (args, callConfig) => {
@@ -973,9 +974,9 @@ export function createChatTools(defaultConfig = {}) {
     schema: z
       .object({
         applicationId: z.string().trim().min(1).max(100),
-        followUpInDays: z.number().int().min(1).max(90).optional().default(7),
-        nextFollowUpAt: z.string().datetime().optional(),
-        reminderEnabled: z.boolean().optional().default(true),
+        followUpInDays: z.number().int().min(1).max(90).nullable().optional().default(7),
+        nextFollowUpAt: z.string().datetime().nullable().optional(),
+        reminderEnabled: z.boolean().nullable().optional().default(true),
       })
       .strict(),
     func: async (args, callConfig) => {
@@ -1086,14 +1087,15 @@ export function createChatTools(defaultConfig = {}) {
     schema: z
       .object({
         role: z.string().trim().min(2).max(120),
-        level: z.enum(["fresher", "mid", "senior"]).optional().default("mid"),
+        level: z.enum(["fresher", "mid", "senior"]).nullable().optional().default("mid"),
         mode: z
           .enum(["behavioral", "technical", "hr", "aptitude_case", "founder"])
+          .nullable()
           .optional()
           .default("behavioral"),
-        durationMinutes: z.enum(["15", "30"]).optional().default("15"),
-        jobId: z.string().trim().max(100).optional(),
-        applicationId: z.string().trim().max(100).optional(),
+        durationMinutes: z.enum(["15", "30"]).nullable().optional().default("15"),
+        jobId: z.string().trim().max(100).nullable().optional(),
+        applicationId: z.string().trim().max(100).nullable().optional(),
       })
       .strict(),
     func: async (args, callConfig) => {
@@ -1158,8 +1160,8 @@ export function createChatTools(defaultConfig = {}) {
       "Propose generating and opening a persisted Resume Match report for a specific catalog jobId or tracked applicationId. Requires user confirmation.",
     schema: z
       .object({
-        jobId: z.string().trim().max(100).optional(),
-        applicationId: z.string().trim().max(100).optional(),
+        jobId: z.string().trim().max(100).nullable().optional(),
+        applicationId: z.string().trim().max(100).nullable().optional(),
       })
       .strict(),
     func: async (args, callConfig) => {
