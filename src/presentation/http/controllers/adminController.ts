@@ -1,840 +1,659 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import { getCacheMetrics } from "../../../shared/cache.js";
 import { isMongoReady } from "../../../config/database.js";
 import { isRedisReady } from "../../../config/redis.js";
-import { RoutingLog } from "../../../infrastructure/database/mongoose/models/RoutingLogModel.js";
-import { UsageEvent } from "../../../infrastructure/database/mongoose/models/UsageEventModel.js";
-import { User } from "../../../infrastructure/database/mongoose/models/UserModel.js";
-import { Job } from "../../../infrastructure/database/mongoose/models/JobModel.js";
-import { AuditLog } from "../../../infrastructure/database/mongoose/models/AuditLogModel.js";
-import { Subscription } from "../../../infrastructure/database/mongoose/models/SubscriptionModel.js";
-import { Payment } from "../../../infrastructure/database/mongoose/models/PaymentModel.js";
 import { jobIngestionService } from "../../../services/jobs/jobIngestionService.js";
-import { logger } from "../../../shared/utils/logger.js";
-import { PLANS, ROLES, PlanType, RoleType } from "../../../shared/constants/plans.js";
-import { z } from "zod";
+import { PLANS, ROLES } from "../../../shared/constants/plans.js";
 import mongoose from "mongoose";
 import { billingService } from "../../../services/billingService.js";
-import { TrackedCompany } from "../../../infrastructure/database/mongoose/models/TrackedCompanyModel.js";
-import { InteractionEvent } from "../../../infrastructure/database/mongoose/models/InteractionEventModel.js";
-import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
+import { adminPersistenceService } from "../../../services/adminPersistenceService.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
+import {
+  updateTrackedCompanySchema,
+  updateUserAdminSchema,
+  updateJobSourceSchema,
+} from "../../../shared/schemas/adminSchemas.js";
+
+interface UserLike {
+  _id?: unknown;
+  id?: unknown;
+  role?: string;
+  plan?: string;
+  planVersion?: number;
+  subscriptionProvider?: string | null;
+  subscriptionStatus?: string | null;
+  subscriptionId?: string | null;
+  [key: string]: unknown;
+}
 
 async function audit(
   req: Request,
   action: string,
   metadata: Record<string, unknown> = {},
 ): Promise<void> {
-  if (!isMongoReady()) return;
-  const user = req.user as UserRecord;
-  await AuditLog.create({
-    userId: user?._id,
+  const user = req.user as UserLike | undefined;
+  await adminPersistenceService.logAudit(
+    user?._id || user?.id,
     action,
-    ipAddress: req.ip,
-    userAgent: req.get("user-agent"),
+    req.ip,
+    req.get("user-agent"),
     metadata,
-  }).catch((err: Error) =>
-    logger.error({ err: err.message, action }, "Failed to write admin audit log"),
   );
 }
 
 export const adminController = {
-  async listTrackedCompanies(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<Response | void> {
-    try {
-      const statusParam = String(req.query.status || "");
-      const status = ["pending", "approved", "disabled"].includes(statusParam)
-        ? statusParam
-        : undefined;
-      const companies = await TrackedCompany.find(status ? { status } : {})
-        .select("platform slug careersUrl status verifiedAt createdAt")
-        .sort({ createdAt: -1 })
-        .limit(500)
-        .lean();
-      return res.json({ data: { companies } });
-    } catch (error) {
-      return next(error);
-    }
-  },
+  listTrackedCompanies: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const statusParam = String(req.query.status || "");
+    const status = ["pending", "approved", "disabled"].includes(statusParam)
+      ? statusParam
+      : undefined;
+    const companies = await adminPersistenceService.listTrackedCompanies(status);
+    res.json(successResponse({ companies }));
+  }),
 
-  async jobCoverage(_req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const since = new Date(Date.now() - 30 * 86400000);
-      const [coverage, interactions] = await Promise.all([
-        jobIngestionService.coverageReport(),
-        InteractionEvent.aggregate([
-          { $match: { createdAt: { $gte: since } } },
-          {
-            $group: {
-              _id: {
-                event: "$event",
-                source: "$source",
-                occupation: "$occupation",
-                country: "$country",
-                scoreBand: "$scoreBand",
-              },
-              count: { $sum: "$count" },
-            },
-          },
-          { $sort: { "_id.event": 1, count: -1 } },
-        ]).option({ maxTimeMS: 1500 }),
-      ]);
-      const [profiles, consentedActorKeys, zeroResultActorKeys] = await Promise.all([
-        User.countDocuments({ isDeleted: false }),
-        InteractionEvent.distinct("actorKey", { createdAt: { $gte: since } }),
-        InteractionEvent.distinct("actorKey", { event: "zero_result", createdAt: { $gte: since } }),
-      ]);
-      return res.json({
-        data: {
-          ...coverage,
-          interactions: {
-            windowDays: 30,
-            totalUsers: profiles,
-            consentedAnalyticsUsers: consentedActorKeys.length,
-            usersWithZeroEligibleJobs: zeroResultActorKeys.length,
-            eligibleUserMeasurement:
-              "Count of consented pseudonymous users with at least one zero-result event in the 30-day window; not an all-user eligibility census.",
-            groups: interactions,
-          },
-        },
-      });
-    } catch (error) {
-      return next(error);
-    }
-  },
-
-  async updateTrackedCompany(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<Response | void> {
-    try {
-      const { status } = z
-        .object({ status: z.enum(["approved", "disabled"]) })
-        .strict()
-        .parse(req.body);
-      const company = (await TrackedCompany.findByIdAndUpdate(
-        req.params.id,
-        { $set: { status } },
-        { new: true },
-      )
-        .select("platform slug careersUrl status verifiedAt createdAt")
-        .lean()) as { platform?: string } | null;
-      if (!company) return res.sendStatus(404);
-      await audit(req, "admin.jobs.company.status", { platform: company.platform, status });
-      return res.json({ data: { company } });
-    } catch (error) {
-      return next(error);
-    }
-  },
-
-  async listJobReports(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
-      const limit = Math.min(
-        100,
-        Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
-      );
-      const reported = {
-        $or: ["expired", "broken_link", "misleading", "spam", "other"].map((reason) => ({
-          [`reportCounts.${reason}`]: { $gt: 0 },
-        })),
-      };
-      interface JobWithReports {
-        _id: string;
-        title?: string;
-        company?: string;
-        sourceBoard?: string;
-        sourceUrl?: string;
-        reportCounts?: [string, number][] | Record<string, number>;
-      }
-      const jobs = (await mongoose
-        .model("Job")
-        .find(reported)
-        .select("title company sourceBoard sourceUrl reportCounts")
-        .sort({ updatedAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .lean()) as JobWithReports[];
-      const reports = jobs.map((job) => ({
-        jobId: {
-          _id: job._id,
-          title: job.title,
-          company: job.company,
-          sourceBoard: job.sourceBoard,
-          sourceUrl: job.sourceUrl,
-        },
-        reasonCounts: Array.isArray(job.reportCounts)
-          ? Object.fromEntries(job.reportCounts)
-          : job.reportCounts || {},
-      }));
-      const total = await mongoose.model("Job").countDocuments(reported);
-      res.json({ data: { reports, total, page, limit, pages: Math.ceil(total / limit) } });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  /**
-   * GET /api/v1/admin/metrics
-   * Returns system telemetry, router tier distribution, and cost guardrail status
-   */
-  async getMetrics(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const cacheMetrics = getCacheMetrics();
-
-      let tierDistribution = {
-        tier0: 0,
-        tier1: 0,
-        tier2: 0,
-        tier0Percentage: 0,
-        tier1Percentage: 0,
-        tier2Percentage: 0,
-      };
-      let todayCostUsd = 0;
-
-      if (isMongoReady()) {
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-
-        // Aggregate routing logs by tier
-        const logs = await RoutingLog.aggregate([
-          { $match: { createdAt: { $gte: startOfDay } } },
-          { $group: { _id: "$tier", count: { $sum: 1 } } },
-        ]);
-
-        const counts: Record<number, number> = { 0: 0, 1: 0, 2: 0 };
-        for (const l of logs) {
-          counts[l._id as number] = l.count;
-        }
-
-        const total = counts[0] + counts[1] + counts[2];
-        if (total > 0) {
-          tierDistribution = {
-            tier0: counts[0],
-            tier1: counts[1],
-            tier2: counts[2],
-            tier0Percentage: Number(((counts[0] / total) * 100).toFixed(1)),
-            tier1Percentage: Number(((counts[1] / total) * 100).toFixed(1)),
-            tier2Percentage: Number(((counts[2] / total) * 100).toFixed(1)),
-          };
-        }
-
-        // Aggregate daily spend
-        const spend = await UsageEvent.aggregate([
-          { $match: { createdAt: { $gte: startOfDay } } },
-          { $group: { _id: null, totalCost: { $sum: "$costUsd" } } },
-        ]);
-        if (spend.length > 0) {
-          todayCostUsd = Number(spend[0].totalCost.toFixed(4));
-        }
-      }
-
-      const [userCount, jobCount] = isMongoReady()
-        ? await Promise.all([
-            User.countDocuments({ isDeleted: false }),
-            Job.countDocuments({ expiresAt: { $gt: new Date() } }),
-          ])
-        : [null, null];
-      await audit(req, "admin.metrics.read");
-      return res.status(200).json({
-        data: {
-          uptimeSeconds: Math.round(process.uptime()),
-          status: isMongoReady() && isRedisReady() ? "healthy" : "degraded",
-          totals: { users: userCount, jobs: jobCount },
-          dependencies: {
-            mongo: isMongoReady() ? "connected" : "offline_fallback",
-            redis: isRedisReady() ? "connected" : "in_memory_fallback",
-          },
-          cache: {
-            ...cacheMetrics,
-            hitRate:
-              cacheMetrics.hits + cacheMetrics.misses > 0
-                ? Number(
-                    ((cacheMetrics.hits / (cacheMetrics.hits + cacheMetrics.misses)) * 100).toFixed(
-                      1,
-                    ),
-                  )
-                : 0.0,
-          },
-          aiRouter: {
-            ...tierDistribution,
-            meetsTarget:
-              tierDistribution.tier0Percentage + tierDistribution.tier1Percentage >= 70.0,
-          },
-          costTelemetry: {
-            todayCostUsd,
-            dailyBudgetCapUsd: Number(process.env.GLOBAL_DAILY_USD_CAP || 500),
-            spendRatioPercent: Number(
-              ((todayCostUsd / Number(process.env.GLOBAL_DAILY_USD_CAP || 500)) * 100).toFixed(2),
-            ),
-          },
-          queues: {
-            ingestJobs: { depth: null, status: "not_configured" },
-            dailyMatch: { depth: null, status: "not_configured" },
-            sendEmailDigest: { depth: null, status: "not_configured" },
-            sendFollowUp: { depth: null, status: "not_configured" },
-          },
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async listUsers(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "User directory requires MongoDB",
-            requestId: req.id,
-          },
-        });
-      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
-      const limit = Math.min(
-        100,
-        Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
-      );
-      const q = String(req.query.q || "").trim();
-      const filter: Record<string, unknown> = { isDeleted: false };
-      if (q)
-        filter.$or = [
-          { email: new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") },
-          { name: new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") },
-        ];
-      const [users, total] = await Promise.all([
-        User.find(filter)
-          .select(
-            "name email role plan planSource subscriptionProvider subscriptionStatus subscriptionId createdAt",
-          )
-          .sort({ createdAt: -1 })
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .lean(),
-        User.countDocuments(filter),
-      ]);
-      await audit(req, "admin.users.list", { page, limit, query: Boolean(q) });
-      res
-        .status(200)
-        .json({ data: { users, total, page, limit, pages: Math.ceil(total / limit) } });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async updateUser(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "User management requires MongoDB",
-            requestId: req.id,
-          },
-        });
-      const schema = z
-        .object({
-          plan: z.enum([PLANS.FREE, PLANS.PRO, PLANS.PREMIUM]).optional(),
-          role: z.enum([ROLES.USER, ROLES.ADMIN, ROLES.SUPER_ADMIN]).optional(),
-        })
-        .refine((value) => value.plan || value.role, "Provide a role or plan update");
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success)
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: parsed.error.issues[0].message,
-            requestId: req.id,
-          },
-        });
-      if (!mongoose.isValidObjectId(req.params.id))
-        return res
-          .status(404)
-          .json({ error: { code: "NOT_FOUND", message: "User not found", requestId: req.id } });
-      const target = (await User.findOne({
-        _id: req.params.id,
-        isDeleted: false,
-      }).lean()) as UserRecord | null;
-      if (!target)
-        return res
-          .status(404)
-          .json({ error: { code: "NOT_FOUND", message: "User not found", requestId: req.id } });
-      const adminUser = req.user as UserRecord;
-      if (
-        target._id.toString() === adminUser?._id?.toString() &&
-        parsed.data.role &&
-        parsed.data.role !== ROLES.SUPER_ADMIN
-      ) {
-        return res.status(409).json({
-          error: {
-            code: "SELF_DEMOTION_BLOCKED",
-            message: "You cannot remove your own super administrator access",
-            requestId: req.id,
-          },
-        });
-      }
-      if (
-        target.role === ROLES.SUPER_ADMIN &&
-        parsed.data.role &&
-        parsed.data.role !== ROLES.SUPER_ADMIN
-      ) {
-        const superAdminCount = await User.countDocuments({
-          role: ROLES.SUPER_ADMIN,
-          isDeleted: false,
-        });
-        if (superAdminCount <= 1)
-          return res.status(409).json({
-            error: {
-              code: "LAST_SUPER_ADMIN",
-              message: "At least one super administrator must remain",
-              requestId: req.id,
-            },
-          });
-      }
-      if (
-        parsed.data.plan &&
-        parsed.data.plan !== target.plan &&
-        target.subscriptionProvider === "razorpay" &&
-        ["active", "past_due"].includes(target.subscriptionStatus as string)
-      ) {
-        return res.status(409).json({
-          error: {
-            code: "ACTIVE_PROVIDER_SUBSCRIPTION",
-            message:
-              "This user has an active or past-due Razorpay subscription. Change or cancel it in Razorpay before applying a manual plan override.",
-            requestId: req.id,
-          },
-        });
-      }
-      const updates: Record<string, unknown> = { ...parsed.data };
-      if (parsed.data.plan) {
-        updates.planSource = "admin";
-        updates.planVersion = (target.planVersion || 0) + 1;
-        if (
-          parsed.data.plan === PLANS.FREE &&
-          !(target.subscriptionProvider === "razorpay" && target.subscriptionStatus === "active")
-        ) {
-          updates.subscriptionStatus = null;
-          updates.subscriptionId = null;
-          updates.subscriptionProvider = null;
-        }
-      }
-      const updated = await User.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true })
-        .select(
-          "name email role plan planSource subscriptionProvider subscriptionStatus subscriptionId createdAt",
-        )
-        .lean();
-      await audit(req, "admin.user.update", {
-        targetUserId: target._id.toString(),
-        changes: parsed.data,
-      });
-      return res.status(200).json({ data: { user: updated } });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async billingOverview(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "Billing reports require MongoDB",
-            requestId: req.id,
-          },
-        });
-      const since = new Date();
-      since.setUTCDate(since.getUTCDate() - 30);
-      const [
-        revenue,
-        totalPayments,
-        activeSubscriptions,
-        pastDueSubscriptions,
-        scheduledCancellations,
-        subscriptionsByPlan,
-        paymentsByStatus,
-      ] = await Promise.all([
-        Payment.aggregate([
-          {
-            $match: {
-              paidAt: { $gte: since },
-              status: { $in: ["captured", "partially_refunded", "refund_pending", "refunded"] },
-            },
-          },
-          {
-            $group: {
-              _id: "$currency",
-              grossMinor: { $sum: "$amountMinor" },
-              refundsMinor: { $sum: "$amountRefundedMinor" },
-              transactions: { $sum: 1 },
-            },
-          },
-          {
-            $project: {
-              currency: "$_id",
-              grossMinor: 1,
-              refundsMinor: 1,
-              netMinor: { $subtract: ["$grossMinor", "$refundsMinor"] },
-              transactions: 1,
-              _id: 0,
-            },
-          },
-        ]),
-        Payment.countDocuments(),
-        User.countDocuments({
-          isDeleted: false,
-          subscriptionProvider: "razorpay",
-          subscriptionStatus: "active",
-        }),
-        User.countDocuments({
-          isDeleted: false,
-          subscriptionProvider: "razorpay",
-          subscriptionStatus: "past_due",
-        }),
-        Subscription.countDocuments({
-          provider: "razorpay",
-          status: "active",
-          cancelAtPeriodEnd: true,
-        }),
-        User.aggregate([
-          { $match: { isDeleted: false } },
-          { $group: { _id: "$plan", count: { $sum: 1 } } },
-        ]),
-        Payment.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
-      ]);
-      await audit(req, "admin.billing.overview.read");
-      return res.status(200).json({
-        data: {
+  jobCoverage: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    const since = new Date(Date.now() - 30 * 86400000);
+    const [coverage, interactionsData] = await Promise.all([
+      jobIngestionService.coverageReport(),
+      adminPersistenceService.getJobCoverageInteractions(since),
+    ]);
+    res.json(
+      successResponse({
+        ...(coverage as Record<string, unknown>),
+        interactions: {
           windowDays: 30,
-          revenue,
-          totalPayments,
-          activeSubscriptions,
-          pastDueSubscriptions,
-          scheduledCancellations,
-          subscriptionsByPlan: Object.fromEntries(
-            subscriptionsByPlan.map((item: { _id: string; count: number }) => [
-              item._id,
-              item.count,
-            ]),
-          ),
-          paymentsByStatus: Object.fromEntries(
-            paymentsByStatus.map((item: { _id: string; count: number }) => [item._id, item.count]),
+          totalUsers: interactionsData.totalUsers,
+          consentedAnalyticsUsers: interactionsData.consentedAnalyticsUsers,
+          usersWithZeroEligibleJobs: interactionsData.usersWithZeroEligibleJobs,
+          eligibleUserMeasurement:
+            "Count of consented pseudonymous users with at least one zero-result event in the 30-day window; not an all-user eligibility census.",
+          groups: interactionsData.groups,
+        },
+      }),
+    );
+  }),
+
+  updateTrackedCompany: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { status } = updateTrackedCompanySchema.parse(req.body);
+    const company = await adminPersistenceService.updateTrackedCompanyStatus(
+      String(req.params.id),
+      status,
+    );
+    if (!company) {
+      res.sendStatus(404);
+      return;
+    }
+    await audit(req, "admin.jobs.company.status", { platform: company.platform, status });
+    res.json(successResponse({ company }));
+  }),
+
+  listJobReports: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+    );
+    const { reports, total } = await adminPersistenceService.listJobReports(page, limit);
+    res.json(
+      successResponse(
+        { reports, total, page, limit, pages: Math.ceil(total / limit) },
+        { page, limit, total, totalPages: Math.ceil(total / limit) },
+      ),
+    );
+  }),
+
+  getMetrics: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const cacheMetrics = getCacheMetrics();
+    const telemetry = await adminPersistenceService.getPlatformTelemetry();
+
+    let tierDistribution = {
+      tier0: 0,
+      tier1: 0,
+      tier2: 0,
+      tier0Percentage: 0,
+      tier1Percentage: 0,
+      tier2Percentage: 0,
+    };
+
+    const totalTiers = telemetry.tierCounts[0] + telemetry.tierCounts[1] + telemetry.tierCounts[2];
+    if (totalTiers > 0) {
+      tierDistribution = {
+        tier0: telemetry.tierCounts[0],
+        tier1: telemetry.tierCounts[1],
+        tier2: telemetry.tierCounts[2],
+        tier0Percentage: Number(((telemetry.tierCounts[0] / totalTiers) * 100).toFixed(1)),
+        tier1Percentage: Number(((telemetry.tierCounts[1] / totalTiers) * 100).toFixed(1)),
+        tier2Percentage: Number(((telemetry.tierCounts[2] / totalTiers) * 100).toFixed(1)),
+      };
+    }
+
+    await audit(req, "admin.metrics.read");
+    res.status(200).json(
+      successResponse({
+        uptimeSeconds: Math.round(process.uptime()),
+        status: isMongoReady() && isRedisReady() ? "healthy" : "degraded",
+        totals: { users: telemetry.userCount, jobs: telemetry.jobCount },
+        dependencies: {
+          mongo: isMongoReady() ? "connected" : "offline_fallback",
+          redis: isRedisReady() ? "connected" : "in_memory_fallback",
+        },
+        cache: {
+          ...cacheMetrics,
+          hitRate:
+            cacheMetrics.hits + cacheMetrics.misses > 0
+              ? Number(
+                  ((cacheMetrics.hits / (cacheMetrics.hits + cacheMetrics.misses)) * 100).toFixed(
+                    1,
+                  ),
+                )
+              : 0.0,
+        },
+        aiRouter: {
+          ...tierDistribution,
+          meetsTarget: tierDistribution.tier0Percentage + tierDistribution.tier1Percentage >= 70.0,
+        },
+        costTelemetry: {
+          todayCostUsd: telemetry.todayCostUsd,
+          dailyBudgetCapUsd: Number(process.env.GLOBAL_DAILY_USD_CAP || 500),
+          spendRatioPercent: Number(
+            (
+              (telemetry.todayCostUsd / Number(process.env.GLOBAL_DAILY_USD_CAP || 500)) *
+              100
+            ).toFixed(2),
           ),
         },
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
+        queues: {
+          ingestJobs: { depth: null, status: "not_configured" },
+          dailyMatch: { depth: null, status: "not_configured" },
+          sendEmailDigest: { depth: null, status: "not_configured" },
+          sendFollowUp: { depth: null, status: "not_configured" },
+        },
+      }),
+    );
+  }),
 
-  async listSubscriptions(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "Subscription records require MongoDB",
-            requestId: req.id,
-          },
-        });
-      const limit = Math.min(
-        100,
-        Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+  listUsers: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "User directory requires MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+    );
+    const q = String(req.query.q || "").trim();
+    const { users, total } = await adminPersistenceService.listUsers(page, limit, q);
+    await audit(req, "admin.users.list", { page, limit, query: Boolean(q) });
+    res
+      .status(200)
+      .json(
+        successResponse(
+          { users, total, page, limit, pages: Math.ceil(total / limit) },
+          { page, limit, total, totalPages: Math.ceil(total / limit) },
+        ),
       );
-      const subscriptions = await Subscription.find()
-        .populate("userId", "name email")
-        .sort({ updatedAt: -1 })
-        .limit(limit)
-        .lean();
-      await audit(req, "admin.billing.subscriptions.list", { limit });
-      return res.status(200).json({ data: { subscriptions } });
-    } catch (err) {
-      next(err);
-    }
-  },
+  }),
 
-  async cancelSubscription(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "Subscription records require MongoDB",
-            requestId: req.id,
-          },
-        });
-      if (!mongoose.isValidObjectId(req.params.id))
-        return res.status(404).json({
-          error: { code: "NOT_FOUND", message: "Subscription not found", requestId: req.id },
-        });
-      interface SubscriptionDoc extends mongoose.Document {
-        provider: string;
-        status: string;
-        cancelAtPeriodEnd: boolean;
-        subscriptionId: string;
-        userId: mongoose.Types.ObjectId;
+  updateUser: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "User management requires MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const parsed = updateUserAdminSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json(
+          errorResponse(
+            "VALIDATION_ERROR",
+            parsed.error.issues[0].message,
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const targetUserId = String(req.params.id);
+    if (!mongoose.isValidObjectId(targetUserId)) {
+      res
+        .status(404)
+        .json(errorResponse("NOT_FOUND", "User not found", req.id ? String(req.id) : undefined));
+      return;
+    }
+    const target = (await adminPersistenceService.findUserById(targetUserId)) as UserLike | null;
+    if (!target) {
+      res
+        .status(404)
+        .json(errorResponse("NOT_FOUND", "User not found", req.id ? String(req.id) : undefined));
+      return;
+    }
+
+    const adminUser = req.user as UserLike | undefined;
+    const adminUserId = String(adminUser?._id || adminUser?.id || "");
+    const targetIdStr = String(target._id || target.id || "");
+
+    if (targetIdStr === adminUserId && parsed.data.role && parsed.data.role !== ROLES.SUPER_ADMIN) {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "SELF_DEMOTION_BLOCKED",
+            "You cannot remove your own super administrator access",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+
+    if (
+      target.role === ROLES.SUPER_ADMIN &&
+      parsed.data.role &&
+      parsed.data.role !== ROLES.SUPER_ADMIN
+    ) {
+      const superAdminCount = await adminPersistenceService.countSuperAdmins();
+      if (superAdminCount <= 1) {
+        res
+          .status(409)
+          .json(
+            errorResponse(
+              "LAST_SUPER_ADMIN",
+              "At least one super administrator must remain",
+              req.id ? String(req.id) : undefined,
+            ),
+          );
+        return;
       }
-      const subscription = (await Subscription.findById(req.params.id)) as SubscriptionDoc | null;
-      if (!subscription)
-        return res.status(404).json({
-          error: { code: "NOT_FOUND", message: "Subscription not found", requestId: req.id },
-        });
-      if (subscription.provider !== "razorpay" || subscription.status !== "active")
-        return res.status(409).json({
-          error: {
-            code: "SUBSCRIPTION_NOT_ACTIVE",
-            message: "Only active Razorpay subscriptions can be cancelled",
-            requestId: req.id,
-          },
-        });
-      if (subscription.cancelAtPeriodEnd)
-        return res.status(409).json({
-          error: {
-            code: "CANCELLATION_ALREADY_SCHEDULEALREADY_SCHEDULED",
-            message: "Cancellation is already scheduled",
-            requestId: req.id,
-          },
-        });
-      const result = await billingService.cancelSubscription(subscription.subscriptionId, true);
-      subscription.cancelAtPeriodEnd = true;
-      await subscription.save();
-      await audit(req, "admin.billing.subscription.cancel_scheduled", {
-        subscriptionId: subscription.subscriptionId,
-        userId: String(subscription.userId),
-      });
-      return res.status(200).json({
-        data: {
-          message: "Subscription cancellation scheduled for the end of the billing period",
-          subscription: result,
-        },
-      });
-    } catch (err) {
-      next(err);
     }
-  },
 
-  async listPayments(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "Payment records require MongoDB",
-            requestId: req.id,
-          },
-        });
-      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
-      const limit = Math.min(
-        100,
-        Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+    if (
+      parsed.data.plan &&
+      parsed.data.plan !== target.plan &&
+      target.subscriptionProvider === "razorpay" &&
+      ["active", "past_due"].includes(target.subscriptionStatus as string)
+    ) {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "ACTIVE_PROVIDER_SUBSCRIPTION",
+            "This user has an active or past-due Razorpay subscription. Change or cancel it in Razorpay before applying a manual plan override.",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+
+    const updates: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.plan) {
+      updates.planSource = "admin";
+      updates.planVersion = (target.planVersion || 0) + 1;
+      if (
+        parsed.data.plan === PLANS.FREE &&
+        !(target.subscriptionProvider === "razorpay" && target.subscriptionStatus === "active")
+      ) {
+        updates.subscriptionStatus = null;
+        updates.subscriptionId = null;
+        updates.subscriptionProvider = null;
+      }
+    }
+
+    const updated = await adminPersistenceService.updateUserById(targetUserId, updates);
+    await audit(req, "admin.user.update", {
+      targetUserId,
+      changes: parsed.data,
+    });
+    res.status(200).json(successResponse({ user: updated }));
+  }),
+
+  billingOverview: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "Billing reports require MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - 30);
+    const overview = await adminPersistenceService.getBillingOverview(since);
+    await audit(req, "admin.billing.overview.read");
+    res.status(200).json(
+      successResponse({
+        windowDays: 30,
+        ...overview,
+      }),
+    );
+  }),
+
+  listSubscriptions: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "Subscription records require MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+    );
+    const subscriptions = await adminPersistenceService.listSubscriptions(limit);
+    await audit(req, "admin.billing.subscriptions.list", { limit });
+    res.status(200).json(successResponse({ subscriptions }));
+  }),
+
+  cancelSubscription: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "Subscription records require MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const subId = String(req.params.id);
+    if (!mongoose.isValidObjectId(subId)) {
+      res
+        .status(404)
+        .json(
+          errorResponse("NOT_FOUND", "Subscription not found", req.id ? String(req.id) : undefined),
+        );
+      return;
+    }
+    interface SubscriptionRecord {
+      _id: unknown;
+      provider?: string;
+      status?: string;
+      cancelAtPeriodEnd?: boolean;
+      subscriptionId?: string;
+      userId?: unknown;
+    }
+    const subscription = (await adminPersistenceService.findSubscriptionById(
+      subId,
+    )) as SubscriptionRecord | null;
+    if (!subscription) {
+      res
+        .status(404)
+        .json(
+          errorResponse("NOT_FOUND", "Subscription not found", req.id ? String(req.id) : undefined),
+        );
+      return;
+    }
+    if (subscription.provider !== "razorpay" || subscription.status !== "active") {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "SUBSCRIPTION_NOT_ACTIVE",
+            "Only active Razorpay subscriptions can be cancelled",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    if (subscription.cancelAtPeriodEnd) {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "CANCELLATION_ALREADY_SCHEDULED",
+            "Cancellation is already scheduled",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const result = await billingService.cancelSubscription(
+      subscription.subscriptionId as string,
+      true,
+    );
+    await adminPersistenceService.markSubscriptionCancelAtPeriodEnd(subId);
+    await audit(req, "admin.billing.subscription.cancel_scheduled", {
+      subscriptionId: subscription.subscriptionId,
+      userId: String(subscription.userId),
+    });
+    res.status(200).json(
+      successResponse({
+        message: "Subscription cancellation scheduled for the end of the billing period",
+        subscription: result,
+      }),
+    );
+  }),
+
+  listPayments: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "Payment records require MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+    );
+    const { payments, total } = await adminPersistenceService.listPayments(page, limit);
+    await audit(req, "admin.billing.payments.list", { page, limit });
+    res
+      .status(200)
+      .json(
+        successResponse(
+          { payments, total, page, limit, pages: Math.ceil(total / limit) },
+          { page, limit, total, totalPages: Math.ceil(total / limit) },
+        ),
       );
-      const [payments, total] = await Promise.all([
-        Payment.find()
-          .populate("userId", "name email")
-          .sort({ paidAt: -1 })
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .lean(),
-        Payment.countDocuments(),
-      ]);
-      await audit(req, "admin.billing.payments.list", { page, limit });
-      return res
-        .status(200)
-        .json({ data: { payments, total, page, limit, pages: Math.ceil(total / limit) } });
-    } catch (err) {
-      next(err);
-    }
-  },
+  }),
 
-  async refundPayment(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    interface PaymentDoc extends mongoose.Document {
+  refundPayment: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
+      res
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "Payment records require MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    interface PaymentRecord {
+      _id: unknown;
       providerPaymentId: string;
       status: string;
       amountMinor: number;
       amountRefundedMinor: number;
     }
-    let payment: PaymentDoc | null = null;
-    let previousStatus: string | undefined;
+    const payment = (await adminPersistenceService.findPaymentByProviderPaymentId(
+      String(req.params.paymentId),
+    )) as PaymentRecord | null;
+
+    if (!payment) {
+      res
+        .status(404)
+        .json(errorResponse("NOT_FOUND", "Payment not found", req.id ? String(req.id) : undefined));
+      return;
+    }
+    if (!["captured", "partially_refunded"].includes(payment.status)) {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "PAYMENT_NOT_REFUNDABLE",
+            "Payment is not currently refundable",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+    const remaining = payment.amountMinor - payment.amountRefundedMinor;
+    if (remaining <= 0) {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "PAYMENT_ALREADY_REFUNDED",
+            "No refundable balance remains",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+
+    const previousStatus = payment.status;
+    const claimed = await adminPersistenceService.claimPaymentRefund(
+      payment._id,
+      previousStatus,
+      payment.amountRefundedMinor,
+    );
+    if (!claimed) {
+      res
+        .status(409)
+        .json(
+          errorResponse(
+            "REFUND_ALREADY_IN_PROGRESS",
+            "Another refund request is already in progress",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
+    }
+
     try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "Payment records require MongoDB",
-            requestId: req.id,
-          },
-        });
-      payment = (await Payment.findOne({
-        providerPaymentId: req.params.paymentId,
-      })) as PaymentDoc | null;
-      if (!payment)
-        return res
-          .status(404)
-          .json({ error: { code: "NOT_FOUND", message: "Payment not found", requestId: req.id } });
-      if (!["captured", "partially_refunded"].includes(payment.status))
-        return res.status(409).json({
-          error: {
-            code: "PAYMENT_NOT_REFUNDABLE",
-            message: "Payment is not currently refundable",
-            requestId: req.id,
-          },
-        });
-      const remaining = payment.amountMinor - payment.amountRefundedMinor;
-      if (remaining <= 0)
-        return res.status(409).json({
-          error: {
-            code: "PAYMENT_ALREADY_REFUNDED",
-            message: "No refundable balance remains",
-            requestId: req.id,
-          },
-        });
-      previousStatus = payment.status;
-      const claimed = await Payment.findOneAndUpdate(
-        {
-          _id: payment._id,
-          status: previousStatus,
-          amountRefundedMinor: payment.amountRefundedMinor,
-        },
-        { $set: { status: "refund_pending" } },
-        { new: true },
-      );
-      if (!claimed)
-        return res.status(409).json({
-          error: {
-            code: "REFUND_ALREADY_IN_PROGRESS",
-            message: "Another refund request is already in progress",
-            requestId: req.id,
-          },
-        });
-      const adminUser = req.user as UserRecord;
+      const adminUser = req.user as UserLike | undefined;
       interface RefundResult {
         id: string;
         [key: string]: unknown;
       }
       const refund = (await billingService.refundPayment(payment.providerPaymentId, remaining, {
         initiated_by: "super_admin",
-        admin_user_id: String(adminUser?._id),
+        admin_user_id: String(adminUser?._id || adminUser?.id || ""),
       })) as unknown as RefundResult;
+
       await audit(req, "admin.billing.payment.refund_requested", {
         paymentId: payment.providerPaymentId,
         amountMinor: remaining,
         refundId: refund.id,
       });
-      return res.status(202).json({
-        data: {
+
+      res.status(202).json(
+        successResponse({
           message:
             "Refund requested from Razorpay; the ledger will update when its webhook arrives",
           refundId: refund.id,
-        },
-      });
-    } catch (err) {
-      if (payment && previousStatus)
-        await Payment.updateOne(
-          { _id: payment._id, status: "refund_pending" },
-          { $set: { status: previousStatus } },
-        );
-      next(err);
-    }
-  },
-
-  async listJobs(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const result = await jobIngestionService.searchJobs({
-        q: String(req.query.q || "").trim(),
-        source: String(req.query.source || "").trim(),
-        page: Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1),
-        limit: Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25)),
-      });
-      await audit(req, "admin.jobs.list", { page: result.page });
-      res.status(200).json({ data: result });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async listAudit(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      if (!isMongoReady())
-        return res.status(503).json({
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "Admin audit history requires MongoDB",
-            requestId: req.id,
-          },
-        });
-      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
-      const limit = Math.min(
-        100,
-        Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+        }),
       );
-      const [events, total] = await Promise.all([
-        AuditLog.find()
-          .populate("userId", "name email")
-          .sort({ createdAt: -1 })
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .lean(),
-        AuditLog.countDocuments(),
-      ]);
+    } catch (err) {
+      await adminPersistenceService.revertPaymentStatus(payment._id, previousStatus);
+      throw err;
+    }
+  }),
+
+  listJobs: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const result = await jobIngestionService.searchJobs({
+      q: String(req.query.q || "").trim(),
+      source: String(req.query.source || "").trim(),
+      page: Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1),
+      limit: Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25)),
+    });
+    await audit(req, "admin.jobs.list", { page: result.page });
+    res.status(200).json(successResponse(result));
+  }),
+
+  listAudit: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    if (!isMongoReady()) {
       res
-        .status(200)
-        .json({ data: { events, total, page, limit, pages: Math.ceil(total / limit) } });
-    } catch (err) {
-      next(err);
+        .status(503)
+        .json(
+          errorResponse(
+            "DATABASE_UNAVAILABLE",
+            "Admin audit history requires MongoDB",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
     }
-  },
-
-  async listJobSources(_req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const sources = await jobIngestionService.sourceBudgets();
-      res.status(200).json({ data: { sources } });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async updateJobSource(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const input = z
-        .object({ enabled: z.boolean().optional(), approved: z.boolean().optional() })
-        .strict()
-        .refine((value) => value.enabled !== undefined || value.approved !== undefined)
-        .parse(req.body);
-      let sources: unknown;
-      const sourceKey = Array.isArray(req.params.key)
-        ? req.params.key[0] || ""
-        : req.params.key || "";
-      if (input.approved !== undefined)
-        sources = await jobIngestionService.setSourceApproved(sourceKey, input.approved);
-      if (input.enabled !== undefined)
-        sources = await jobIngestionService.setSourceEnabled(sourceKey, input.enabled);
-      await audit(
-        req,
-        input.approved !== undefined
-          ? input.approved
-            ? "admin.jobs.source.approve"
-            : "admin.jobs.source.unapprove"
-          : input.enabled
-            ? "admin.jobs.source.enable"
-            : "admin.jobs.source.disable",
-        { source: req.params.key },
+    const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25),
+    );
+    const { events, total } = await adminPersistenceService.listAuditLogs(page, limit);
+    res
+      .status(200)
+      .json(
+        successResponse(
+          { events, total, page, limit, pages: Math.ceil(total / limit) },
+          { page, limit, total, totalPages: Math.ceil(total / limit) },
+        ),
       );
-      res.status(200).json({ data: { sources } });
-    } catch (err) {
-      next(err);
+  }),
+
+  listJobSources: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    const sources = await jobIngestionService.sourceBudgets();
+    res.status(200).json(successResponse({ sources }));
+  }),
+
+  updateJobSource: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const input = updateJobSourceSchema.parse(req.body);
+    let sources: unknown;
+    const sourceKey = Array.isArray(req.params.key)
+      ? req.params.key[0] || ""
+      : req.params.key || "";
+    if (input.approved !== undefined) {
+      sources = await jobIngestionService.setSourceApproved(sourceKey, input.approved);
     }
-  },
+    if (input.enabled !== undefined) {
+      sources = await jobIngestionService.setSourceEnabled(sourceKey, input.enabled);
+    }
+    await audit(
+      req,
+      input.approved !== undefined
+        ? input.approved
+          ? "admin.jobs.source.approve"
+          : "admin.jobs.source.unapprove"
+        : input.enabled
+          ? "admin.jobs.source.enable"
+          : "admin.jobs.source.disable",
+      { source: req.params.key },
+    );
+    res.status(200).json(successResponse({ sources }));
+  }),
 };
