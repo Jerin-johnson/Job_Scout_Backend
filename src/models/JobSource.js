@@ -53,7 +53,11 @@ const JobSourceSchema = new mongoose.Schema(
     lastSuccessAt: { type: Date, default: null },
     lastFullSyncAt: { type: Date, default: null },
     lastLinkCheckAt: { type: Date, default: null },
-    runState: { type: String, enum: ["idle", "running", "healthy", "degraded", "disabled"], default: "idle" },
+    runState: {
+      type: String,
+      enum: ["idle", "running", "healthy", "degraded", "disabled"],
+      default: "idle",
+    },
     circuit: {
       failures: { type: Number, default: 0 },
       openUntil: { type: Date, default: null },
@@ -64,9 +68,24 @@ const JobSourceSchema = new mongoose.Schema(
       updated: { type: Number, default: 0 },
       duplicates: { type: Number, default: 0 },
       errors: { type: Number, default: 0 },
+      deadLettered: { type: Number, default: 0 },
       latencyMs: { type: Number, default: 0 },
       countryCounts: { type: Map, of: Number, default: {} },
       occupationCounts: { type: Map, of: Number, default: {} },
+    },
+    deadLetters: {
+      type: [
+        new mongoose.Schema(
+          {
+            sourceJobId: { type: String, default: "" },
+            reasonCode: { type: String, default: "" },
+            message: { type: String, default: "" },
+            recordedAt: { type: Date, default: Date.now },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
     },
     lastErrorCode: { type: String, default: "" },
   },

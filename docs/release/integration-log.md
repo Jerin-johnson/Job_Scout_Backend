@@ -136,3 +136,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 
 - Normalized `provenance` subdocuments (`_id: false` + `normalizeProvenanceList`) across `Job`, `JobDetail`, `migrate-job-storage-split.js`, `verify-job-storage-split.js`, and `compact-job-hot-documents.js`, resolving all 570 provenance mismatches (`detailMismatch: 0`, `safeToRemoveLegacyFields: true`).
 - Added `compactHotFeatures` and `compactHotJobFields` in `src/services/jobs/jobStorage.js` and updated `scripts/compact-job-hot-documents.js` to compact hot `Job` documents below 2 KB (`29,262 B` -> `2,047 B` across all 570 docs, `1,960 B` sample mean; logical collection size reduced 93.0% from 16.68 MB to 1.17 MB; discovery `explain()` latency reduced from 231 ms to 9 ms). Verified dry-run, `--apply`, `--rollback`, and re-apply on local loopback MongoDB.
+
+## Task A (`feat/jobs-production`) — Item 4 Ingestion robustness — 2026-10-19
+
+- Added `src/services/jobs/ingestionResilience.js` (`INGESTION_ALERT_THRESHOLDS`, `computeRetryBackoffMs`, `computeCircuitOpenUntil`, `validateRawIngestJob`, `buildDeadLetterEntry`, `appendDeadLetters`, `evaluateSourceHealthAlerts`, `requestIngestionShutdown`, `resetIngestionShutdown`, `isIngestionShuttingDown`).
+- Wired per-record dead-letter isolation (`JobSource.deadLetters` and `metrics.deadLettered`), exponential circuit breaker cooldown, batch-completing graceful shutdown with checkpoint persistence and idempotent restart, and admin health/alert reporting into `jobIngestionService.js`, `baseAdapter.js`, `JobSource.js`, and `src/worker.js`.
+- Verified with 27/27 passing tests in `tests/jobs-ingestion-resilience.test.js` and `tests/jobs-catalog.mongo.integration.test.js`.

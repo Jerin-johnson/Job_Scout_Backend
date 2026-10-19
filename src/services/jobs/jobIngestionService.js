@@ -30,6 +30,17 @@ import {
   compareJobsByRelevance,
   isAfterRelevanceCursor,
 } from "./jobSearch.js";
+import {
+  INGESTION_ALERT_THRESHOLDS,
+  appendDeadLetters,
+  buildDeadLetterEntry,
+  computeCircuitOpenUntil,
+  evaluateSourceHealthAlerts,
+  isIngestionShuttingDown,
+  requestIngestionShutdown,
+  resetIngestionShutdown,
+  validateRawIngestJob,
+} from "./ingestionResilience.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
@@ -633,12 +644,35 @@ export const jobIngestionService = {
     return (await Promise.all(sources.map((source) => this.getAdapter(source)))).filter(Boolean);
   },
 
+  requestShutdown() {
+    requestIngestionShutdown();
+  },
+
+  resetShutdown() {
+    resetIngestionShutdown();
+  },
+
+  isShuttingDown() {
+    return isIngestionShuttingDown();
+  },
+
   async ingestAll(options = {}) {
     const sources = await listSourceRecords({ enabledOnly: true });
     const results = [];
     for (const source of sources) {
+      if (isIngestionShuttingDown()) {
+        results.push({
+          source: source.key,
+          skipped: true,
+          stoppedForShutdown: true,
+          reason: "graceful_shutdown",
+        });
+        break;
+      }
       try {
-        results.push(await this.ingestSource(source.key, options));
+        const res = await this.ingestSource(source.key, options);
+        results.push(res);
+        if (res.stoppedForShutdown) break;
       } catch (error) {
         logger.warn(
           { source: source.key, errorCode: error.code || "SOURCE_INGESTION_FAILED" },
@@ -659,7 +693,7 @@ export const jobIngestionService = {
     };
   },
 
-  async ingestSource(sourceKey, { user, requestId } = {}) {
+  async ingestSource(sourceKey, { user, requestId, onBatchComplete } = {}) {
     if (!isMongoReady() && env.NODE_ENV === "production") {
       const error = new Error("The job source registry is unavailable.");
       error.statusCode = 503;
@@ -679,6 +713,14 @@ export const jobIngestionService = {
     if (source.circuit?.openUntil && new Date(source.circuit.openUntil) > new Date()) {
       return { source: sourceKey, skipped: true, reason: "circuit_open" };
     }
+    if (isIngestionShuttingDown()) {
+      return {
+        source: sourceKey,
+        skipped: true,
+        stoppedForShutdown: true,
+        reason: "graceful_shutdown",
+      };
+    }
     const adapter = await this.getAdapter(source);
     if (!adapter) return { source: sourceKey, skipped: true, reason: "adapter_not_registered" };
     source.adapter = adapter;
@@ -688,6 +730,9 @@ export const jobIngestionService = {
     let duplicates = 0;
     let fetched = 0;
     let embedded = 0;
+    let deadLettered = 0;
+    const newDeadLetters = [];
+    let stoppedForShutdown = false;
     let cursor = source.cursor || null;
     let etag = source.etag || null;
     let lastModified = source.lastModified || null;
@@ -839,7 +884,33 @@ export const jobIngestionService = {
           break;
         }
         const processBatch = async (rawJobs) => {
-          const normalized = rawJobs.map((job) => cleanNormalizedJob(job, source));
+          const normalized = [];
+          for (const rawJob of rawJobs) {
+            const validation = validateRawIngestJob(rawJob);
+            if (!validation.valid) {
+              deadLettered += 1;
+              newDeadLetters.push(
+                buildDeadLetterEntry({
+                  sourceJobId: rawJob?.sourceJobId || rawJob?.id || "",
+                  reasonCode: validation.reasonCode,
+                  message: validation.message,
+                }),
+              );
+              continue;
+            }
+            try {
+              normalized.push(cleanNormalizedJob(rawJob, source));
+            } catch (err) {
+              deadLettered += 1;
+              newDeadLetters.push(
+                buildDeadLetterEntry({
+                  sourceJobId: rawJob?.sourceJobId || rawJob?.id || "",
+                  reasonCode: err.code || "NORMALIZATION_FAILED",
+                  message: err.message || "Failed to normalize raw job record",
+                }),
+              );
+            }
+          }
           const seenBatch = new Set();
           for (const job of normalized) {
             setContentHash(job, adapter);
@@ -1029,9 +1100,13 @@ export const jobIngestionService = {
                 });
             }
           }
+          if (typeof onBatchComplete === "function") {
+            await onBatchComplete({ fetched, created, updated, duplicates, deadLettered });
+          }
         };
         let rawBatch = [];
         let inactiveBatch = [];
+        let stoppedMidStream = false;
         const flushInactive = async () => {
           if (!inactiveBatch.length || !isMongoReady()) {
             inactiveBatch = [];
@@ -1060,6 +1135,11 @@ export const jobIngestionService = {
               const sourceJobId = String(event.sourceJobId || "").slice(0, 200);
               if (sourceJobId) inactiveBatch.push(sourceJobId);
               if (inactiveBatch.length >= BULK_WRITE_BATCH_SIZE) await flushInactive();
+              if (isIngestionShuttingDown()) {
+                stoppedForShutdown = true;
+                stoppedMidStream = true;
+                break;
+              }
               continue;
             }
             if (event?.type !== "upsert" || !event.job) continue;
@@ -1070,11 +1150,21 @@ export const jobIngestionService = {
           if (rawBatch.length >= BULK_WRITE_BATCH_SIZE) {
             await processBatch(rawBatch);
             rawBatch = [];
+            if (isIngestionShuttingDown()) {
+              stoppedForShutdown = true;
+              stoppedMidStream = true;
+              break;
+            }
           }
         }
         if (rawBatch.length) await processBatch(rawBatch);
         await flushInactive();
-        cursor = page.cursor || null;
+        if (isIngestionShuttingDown()) {
+          stoppedForShutdown = true;
+        }
+        if (!stoppedMidStream) {
+          cursor = page.cursor || null;
+        }
         if (isMongoReady())
           await JobSource.updateOne(
             { key: sourceKey },
@@ -1089,10 +1179,13 @@ export const jobIngestionService = {
                 conditionalQuery,
                 etag,
                 lastModified,
-                ...(!cursor && !demandTerm ? { lastFullSyncAt: new Date() } : {}),
+                ...(!cursor && !demandTerm && !stoppedMidStream
+                  ? { lastFullSyncAt: new Date() }
+                  : {}),
               },
             },
           );
+        if (stoppedForShutdown) break;
         if (page.done || !cursor) fullSyncCompleted = !demandTerm;
         if (page.done || !cursor) break;
         // Internal pacing; Jobicy recommends no more than hourly sync passes.
@@ -1104,7 +1197,7 @@ export const jobIngestionService = {
         occupationCounts: coverageOccupationCounts,
       };
       if (isMongoReady()) {
-        if (fullSyncCompleted) {
+        if (fullSyncCompleted && !stoppedForShutdown) {
           const staleBefore = new Date(Date.now() - source.staleAfterDays * 86400000);
           await Job.updateMany(
             { sourceBoard: sourceKey, status: "active", lastSeenAt: { $lt: staleBefore } },
@@ -1143,7 +1236,7 @@ export const jobIngestionService = {
           );
         }
         const metricsSet = {
-          runState: "healthy",
+          runState: stoppedForShutdown ? "idle" : "healthy",
           lastSuccessAt: new Date(),
           runLeaseExpiresAt: null,
           "circuit.failures": 0,
@@ -1151,7 +1244,10 @@ export const jobIngestionService = {
           lastErrorCode: "",
           "metrics.latencyMs": latencyMs,
         };
-        if (fullSyncCompleted) {
+        if (newDeadLetters.length) {
+          metricsSet.deadLetters = appendDeadLetters(source.deadLetters, newDeadLetters, 50);
+        }
+        if (fullSyncCompleted && !stoppedForShutdown) {
           metricsSet["metrics.countryCounts"] = coverage.countryCounts;
           metricsSet["metrics.occupationCounts"] = coverage.occupationCounts;
         }
@@ -1164,6 +1260,7 @@ export const jobIngestionService = {
               "metrics.created": created,
               "metrics.updated": updated,
               "metrics.duplicates": duplicates,
+              "metrics.deadLettered": deadLettered,
             },
           },
         );
@@ -1176,10 +1273,14 @@ export const jobIngestionService = {
         created,
         updated,
         duplicates,
+        deadLettered,
         errors: 0,
         embedded,
         statusChecks: statusCheckRequests,
         latencyMs,
+        ...(stoppedForShutdown
+          ? { partial: true, stoppedForShutdown: true, reason: "graceful_shutdown" }
+          : {}),
         quotaUsed: isMongoReady()
           ? (await JobSource.findOne({ key: sourceKey }).select("quotaUsed").lean())?.quotaUsed
           : fetched,
@@ -1201,7 +1302,11 @@ export const jobIngestionService = {
                 runState: "healthy",
                 runLeaseExpiresAt: null,
                 "metrics.latencyMs": latencyMs,
+                ...(newDeadLetters.length
+                  ? { deadLetters: appendDeadLetters(source.deadLetters, newDeadLetters, 50) }
+                  : {}),
               },
+              ...(deadLettered ? { $inc: { "metrics.deadLettered": deadLettered } } : {}),
             },
           );
         return {
@@ -1210,6 +1315,7 @@ export const jobIngestionService = {
           created,
           updated,
           duplicates,
+          deadLettered,
           errors: 0,
           embedded,
           partial: true,
@@ -1218,24 +1324,40 @@ export const jobIngestionService = {
         };
       }
       if (isMongoReady()) {
+        const errorCode = error.code || `HTTP_${error.status || "NETWORK"}`;
+        const runDeadLetters = [
+          ...newDeadLetters,
+          buildDeadLetterEntry({
+            sourceJobId: cursor || "__sync__",
+            reasonCode: errorCode,
+            message: error.message || "Source ingestion run failed",
+          }),
+        ];
         await JobSource.updateOne(
           { key: sourceKey },
           {
-            $inc: { "circuit.failures": 1, "metrics.errors": 1 },
+            $inc: {
+              "circuit.failures": 1,
+              "metrics.errors": 1,
+              "metrics.deadLettered": deadLettered + 1,
+            },
             $set: {
               runState: "degraded",
               runLeaseExpiresAt: null,
-              lastErrorCode: error.code || `HTTP_${error.status || "NETWORK"}`,
+              lastErrorCode: errorCode,
               "metrics.latencyMs": latencyMs,
+              deadLetters: appendDeadLetters(source.deadLetters, runDeadLetters, 50),
             },
           },
         );
         const state = await JobSource.findOne({ key: sourceKey }).select("circuit.failures").lean();
-        if ((state?.circuit?.failures || 0) >= 5)
+        const openUntil = computeCircuitOpenUntil(state?.circuit?.failures || 0);
+        if (openUntil) {
           await JobSource.updateOne(
             { key: sourceKey },
-            { $set: { "circuit.openUntil": new Date(Date.now() + 5 * 60000) } },
+            { $set: { "circuit.openUntil": openUntil } },
           );
+        }
       }
       throw error;
     }
@@ -1943,45 +2065,57 @@ export const jobIngestionService = {
         /* worker status remains unknown/offline when Redis is unavailable */
       }
     }
-    return records.map((source) => ({
-      worker,
-      key: source.key,
-      displayName: source.displayName,
-      enabled: Boolean(
+    return records.map((source) => {
+      const effectiveEnabled = Boolean(
         source.enabled &&
         source.approved &&
         isSourcePolicyComplete(source) &&
         isSourceEnabledByEnvironment(source.key) &&
         isSourceActivationAllowed(source),
-      ),
-      approved: Boolean(source.approved),
-      quota: source.quota,
-      quotaUsed: new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : source.quotaUsed || 0,
-      quotaRemaining: Math.max(
-        0,
-        source.quota.requestsPerDay -
-          (new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : source.quotaUsed || 0),
-      ),
-      quotaResetsAt: new Date(dayStart().getTime() + 86400000),
-      runState: source.runState || "idle",
-      lastSuccessAt: source.lastSuccessAt || null,
-      lastRunAt: source.lastRunAt || null,
-      nextRunAt:
-        source.enabled && isSourceEnabledByEnvironment(source.key) && source.quota?.intervalMs
-          ? new Date(
-              Math.max(
-                Date.now(),
-                new Date(source.lastRunAt || 0).getTime() + source.quota.intervalMs,
-              ),
-            )
-          : null,
-      indexedCount: countByKey.get(source.key) || 0,
-      lastErrorCode: source.lastErrorCode || "",
-      metrics: source.metrics || {},
-      attributionText: source.attributionText,
-      attributionUrl: source.attributionUrl,
-      termsVerifiedAt: source.termsVerifiedAt,
-    }));
+      );
+      const effectiveQuotaUsed =
+        new Date(source.quotaWindowStart || 0) < dayStart() ? 0 : source.quotaUsed || 0;
+      const health = evaluateSourceHealthAlerts({
+        ...source,
+        enabled: effectiveEnabled,
+        quotaUsed: effectiveQuotaUsed,
+      });
+      return {
+        worker,
+        key: source.key,
+        displayName: source.displayName,
+        enabled: effectiveEnabled,
+        approved: Boolean(source.approved),
+        quota: source.quota,
+        quotaUsed: effectiveQuotaUsed,
+        quotaRemaining: Math.max(0, source.quota.requestsPerDay - effectiveQuotaUsed),
+        quotaResetsAt: new Date(dayStart().getTime() + 86400000),
+        runState: source.runState || "idle",
+        healthStatus: health.healthStatus,
+        alerts: health.alerts,
+        alertThresholds: INGESTION_ALERT_THRESHOLDS,
+        circuit: source.circuit || { failures: 0, openUntil: null },
+        deadLetterCount: Number(source.metrics?.deadLettered ?? source.deadLetters?.length ?? 0),
+        recentDeadLetters: (source.deadLetters || []).slice(-5),
+        lastSuccessAt: source.lastSuccessAt || null,
+        lastRunAt: source.lastRunAt || null,
+        nextRunAt:
+          source.enabled && isSourceEnabledByEnvironment(source.key) && source.quota?.intervalMs
+            ? new Date(
+                Math.max(
+                  Date.now(),
+                  new Date(source.lastRunAt || 0).getTime() + source.quota.intervalMs,
+                ),
+              )
+            : null,
+        indexedCount: countByKey.get(source.key) || 0,
+        lastErrorCode: source.lastErrorCode || "",
+        metrics: source.metrics || {},
+        attributionText: source.attributionText,
+        attributionUrl: source.attributionUrl,
+        termsVerifiedAt: source.termsVerifiedAt,
+      };
+    });
   },
 
   async coverageReport(profile = null) {

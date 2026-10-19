@@ -122,3 +122,24 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
   - **Logical `jobs` collection size**: `16,679,594 B` (15.91 MiB) -> **`1,167,046 B` (1.11 MiB, -93.0%)**.
   - **Discovery `explain("executionStats")` latency**: `231 ms` -> **`9 ms` (25.6x faster)**.
   - **Rollback & re-apply**: `JOB_HOT_DOCUMENT_COMPACTION_ENABLED=true node scripts/compact-job-hot-documents.js --rollback` restored inline `rawDescription`, `requirements`, `provenance`, `features`, and `embedding` from `JobDetail` and `JobVector` (`verify-job-storage-split.js` reported `detailMismatch: 0, safeToRemoveLegacyFields: true`), and re-running `--apply` returned the hot collection to `1,960 B` sample mean (`2,047 B` full-catalog mean).
+
+---
+
+## 4. Ingestion robustness (`src/services/jobs/ingestionResilience.js`, `src/services/jobs/jobIngestionService.js`)
+
+- **Dead-letter isolation**:
+  - `validateRawIngestJob`, `buildDeadLetterEntry`, and `appendDeadLetters` isolate malformed records (`MALFORMED_RECORD`, `MISSING_TITLE_AND_COMPANY`, `MISSING_TITLE`, `MISSING_COMPANY`, `NORMALIZATION_FAILED`) inside `processBatch` without aborting valid records in the same batch.
+  - Bounded dead-letter records (max 50 most recent entries per source) and cumulative `metrics.deadLettered` counts are persisted on `JobSource` without retaining PII or raw HTML payloads.
+- **Circuit breaker & exponential backoff**:
+  - `BaseJobAdapter.requestJson` uses `computeRetryBackoffMs(attempt, { baseMs, maxMs: 4000 })` for transient HTTP `429`/`5xx` and network errors.
+  - `computeCircuitOpenUntil(failures)` opens the source circuit breaker at `5` consecutive failures with exponential cooldown (`5m`, `10m`, `20m`, capped at `60m`).
+- **Per-source budgets, graceful shutdown & idempotent restarts**:
+  - Atomic Mongo quota reservation (`reserveSourceRequest`) enforces per-minute, daily, weekly, and monthly request budgets.
+  - `jobIngestionService.requestShutdown()` (registered in `src/worker.js` shutdown handler) finishes the in-flight batch, persists the current page `cursor` checkpoint, releases the run lease (`runState: "idle"`, `runLeaseExpiresAt: null`), and allows the next worker startup to resume idempotently from the checkpoint.
+- **Admin source health & alert thresholds (`INGESTION_ALERT_THRESHOLDS`)**:
+  - `sourceBudgets()` surfaces `healthStatus` (`"healthy" | "warning" | "critical" | "disabled"`), `alerts`, `lastSuccessAt`, `deadLetterCount`, `recentDeadLetters`, and `alertThresholds`:
+    - `CIRCUIT_OPEN` (`critical`): `circuit.openUntil > now`
+    - `CONSECUTIVE_FAILURES` (`warning` at 3, `critical` at 5)
+    - `QUOTA_NEAR_EXHAUSTION` (`warning` at >= 90% of daily request budget)
+    - `DEAD_LETTER_SPIKE` (`warning` at >= 10 dead-lettered records)
+    - `STALE_LAST_SUCCESS` (`warning` when `now - lastSuccessAt > max(48h, 2 * intervalMs)`)

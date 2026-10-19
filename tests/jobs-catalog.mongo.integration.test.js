@@ -881,3 +881,110 @@ test("catalog search supports typo tolerance, relevance cursor pagination, and c
     await bumpCatalogVersion();
   }
 });
+
+test("ingestion isolates dead-letter records, finishes current batch on graceful shutdown, resumes idempotently, and reports source health", async () => {
+  const key = "resilience-test-source";
+  await JobSource.create(makeSource(key));
+
+  const unregister = registerJobAdapterFactory(key, () => {
+    const adapter = new BaseJobAdapter({
+      key,
+      capabilities: { paging: true, conditionalRequests: false, statusCheck: false },
+    });
+    adapter.fetchPage = async function fetchPage({ cursor }) {
+      await this.consumeQuota();
+      if (!cursor) {
+        return {
+          jobs: [
+            {
+              sourceJobId: "valid-1",
+              title: "Backend Engineer",
+              company: "Resilient Co",
+              location: "Remote",
+              remoteType: "remote",
+              rawDescription: "Node.js and MongoDB",
+              requirements: ["Node.js"],
+              tags: ["nodejs"],
+              canonicalUrl: "https://example.test/jobs/valid-1",
+              sourceUrl: "https://example.test/jobs/valid-1",
+              postedAt: new Date(),
+              postedDateKnown: true,
+            },
+            {
+              sourceJobId: "bad-missing-title",
+              title: "",
+              company: "Resilient Co",
+            },
+            {
+              sourceJobId: "bad-missing-company",
+              title: "Orphan Role",
+              company: "",
+            },
+          ],
+          cursor: "page-2",
+          done: false,
+        };
+      }
+      return {
+        jobs: [
+          {
+            sourceJobId: "valid-2",
+            title: "Platform Engineer",
+            company: "Resilient Co",
+            location: "Remote",
+            remoteType: "remote",
+            rawDescription: "Kubernetes and Go",
+            requirements: ["Kubernetes"],
+            tags: ["kubernetes"],
+            canonicalUrl: "https://example.test/jobs/valid-2",
+            sourceUrl: "https://example.test/jobs/valid-2",
+            postedAt: new Date(),
+            postedDateKnown: true,
+          },
+        ],
+        cursor: null,
+        done: true,
+      };
+    };
+    return adapter;
+  });
+
+  try {
+    jobIngestionService.resetShutdown();
+    const firstRun = await jobIngestionService.ingestSource(key, {
+      onBatchComplete: async () => {
+        jobIngestionService.requestShutdown();
+      },
+    });
+    assert.equal(firstRun.created, 1);
+    assert.equal(firstRun.deadLettered, 2);
+    assert.equal(firstRun.stoppedForShutdown, true);
+    assert.equal(firstRun.partial, true);
+
+    const checkpointed = await JobSource.findOne({ key }).lean();
+    assert.equal(checkpointed.cursor, "page-2");
+    assert.equal(checkpointed.runState, "idle");
+    assert.equal(checkpointed.deadLetters.length, 2);
+    assert.equal(checkpointed.metrics.deadLettered, 2);
+
+    jobIngestionService.resetShutdown();
+    await JobSource.updateOne({ key }, { $set: { lastRunAt: new Date(0) } });
+    const secondRun = await jobIngestionService.ingestSource(key);
+    assert.equal(secondRun.created, 1);
+    assert.equal(secondRun.stoppedForShutdown, undefined);
+
+    const budgets = await jobIngestionService.sourceBudgets();
+    const entry = budgets.find((item) => item.key === key);
+    assert.ok(entry);
+    assert.equal(entry.healthStatus, "healthy");
+    assert.equal(entry.deadLetterCount, 2);
+    assert.equal(entry.recentDeadLetters.length, 2);
+    assert.ok(entry.lastSuccessAt);
+    assert.equal(entry.alertThresholds.circuitFailureThreshold, 5);
+  } finally {
+    unregister();
+    jobIngestionService.resetShutdown();
+    await Job.deleteMany({ sourceBoard: key });
+    await JobSource.deleteOne({ key });
+  }
+});
