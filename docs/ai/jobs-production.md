@@ -190,3 +190,17 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
 - **GDPR / India DPDP Compliance (`src/controllers/privacyController.js`)**:
   - `GET /api/v1/privacy/export` includes `savedSearches` (excluding internal `unsubscribeToken`).
   - `DELETE /api/v1/privacy/delete-account` purges all user `SavedSearch` documents.
+
+## 9. Reference Data Subsets & Occupation Classification (`src/services/jobs/referenceData/`, `occupationClassification.js`)
+
+- **Additive Reference Data Subsets & Attribution (CC BY 4.0)**:
+  - **O\*NET 29.0 Subset (`src/services/jobs/referenceData/onetSubset.json`)**: Includes data from the O*NET 29.0 Database by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA), used under the Creative Commons Attribution 4.0 International License (CC BY 4.0). O*NET is a trademark of USDOL/ETA (`https://www.onetcenter.org/database.html`).
+  - **GeoNames Gazetteer Subset (`src/services/jobs/referenceData/geonamesSubset.json`)**: Geographical names and administrative subdivisions derived from GeoNames (`https://www.geonames.org/`), licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0). Covers priority Kerala districts/cities (Kochi, Thiruvananthapuram, Kozhikode, Thrissur, Kottayam, Kannur, Kollam), Indian metro hubs, Gulf cities (Dubai, Abu Dhabi, Sharjah, Riyadh, Jeddah, Doha, Kuwait City, Muscat, Manama), and UK/Ireland/EU hubs.
+  - **ESCO**: Explicitly deferred (not imported).
+- **Before / After Occupation Classification Metrics (`OCCUPATION_FEATURES_VERSION = 8`)**:
+  - **100-Row Hand-Labeled Gold Fixture (`scripts/fixtures/occupation-gold-100.json`)**:
+    - **Before**: `accuracy: 0.4100` (`41.0%`), `unclassifiedShare: 0.6000` (`60/100`), `macroPrecision: 1.0000`, `macroRecall: 0.4040`
+    - **After**: `accuracy: 1.0000` (`100.0%`), `unclassifiedShare: 0.0100` (`1/100`, matching the single gold `"unclassified"` legal row), `macroPrecision: 1.0000`, `macroRecall: 1.0000`
+  - **Local 570-Job Active Catalog (`scripts/backfill-job-occupations.js --apply`)**:
+    - **Before**: `evalBefore: 83 / 570` (`14.56%` unclassified; `storedUnclassified: 70 / 570` `12.28%`)
+    - **After**: `65 / 570` (`11.40%` unclassified across all sources; `jobicy` unclassified share reduced to `8.41%` / `39 / 464`)

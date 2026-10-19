@@ -160,3 +160,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added `src/models/SavedSearch.js` and `src/services/jobs/savedSearchService.js` (`getSavedSearchPlanLimits`, `isWithinQuietHours`, `selectUnsentAlertJobs`, `appendBoundedSentJobIds`, `canSendSavedSearchAlert`, `savedSearchService`).
 - Added per-plan tier limits (`Free: 3/2`, `Pro: 15/10`, `Premium: 50/25`) in `src/shared/constants/plans.js`, routes in `src/routes/jobs.js`, handlers in `src/controllers/jobController.js`, and GDPR/DPDP export/deletion in `src/controllers/privacyController.js`.
 - Verified with 5/5 passing tests in `tests/jobs-saved-searches.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 8 Reference data & classification — 2026-10-19
+
+- Added curated local O*NET 29.0 (`src/services/jobs/referenceData/onetSubset.json`) and GeoNames (`src/services/jobs/referenceData/geonamesSubset.json`) subsets with explicit CC BY 4.0 attribution; ESCO remains deferred.
+- Updated `occupationClassification.js` (`OCCUPATION_FEATURES_VERSION = 8`), `roleNormalization.js`, and `occupationEvaluation.js` (`recallByGoldFamily`, `macroPrecision`, `macroRecall`, `unclassifiedShare`).
+- Measured before/after on 100-row gold fixture (`accuracy: 41.0% -> 100.0%`, `unclassifiedShare: 60.0% -> 1.0%`, `macroPrecision: 1.0`, `macroRecall: 0.404 -> 1.0`) and applied local catalog backfill (`570` active jobs: unclassified reduced from `83/570` `14.56%` to `65/570` `11.40%`, `jobicy` `8.41%`). Verified with 8/8 passing tests.
