@@ -1,3 +1,4 @@
+import { Request, Response, NextFunction } from "express";
 import { getCacheMetrics } from "../shared/cache.js";
 import { isMongoReady } from "../config/database.js";
 import { isRedisReady } from "../config/redis.js";
@@ -10,40 +11,61 @@ import { Subscription } from "../models/Subscription.js";
 import { Payment } from "../models/Payment.js";
 import { jobIngestionService } from "../services/jobs/jobIngestionService.js";
 import { logger } from "../shared/utils/logger.js";
-import { PLANS, ROLES } from "../shared/constants/plans.js";
+import { PLANS, ROLES, PlanType, RoleType } from "../shared/constants/plans.js";
 import { z } from "zod";
 import mongoose from "mongoose";
 import { billingService } from "../services/billingService.js";
 import { TrackedCompany } from "../models/TrackedCompany.js";
 import { InteractionEvent } from "../models/InteractionEvent.js";
+import { UserRecord } from "../repositories/userRepository.js";
 
-async function audit(req, action, metadata = {}) {
+async function audit(req: Request, action: string, metadata: Record<string, unknown> = {}): Promise<void> {
   if (!isMongoReady()) return;
+  const user = req.user as UserRecord;
   await AuditLog.create({
-    userId: req.user._id,
+    userId: user?._id,
     action,
     ipAddress: req.ip,
     userAgent: req.get("user-agent"),
     metadata,
-  }).catch((err) => logger.error({ err: err.message, action }, "Failed to write admin audit log"));
+  }).catch((err: Error) => logger.error({ err: err.message, action }, "Failed to write admin audit log"));
 }
 
 export const adminController = {
-  async listTrackedCompanies(req, res, next) {
+  async listTrackedCompanies(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const status = ["pending", "approved", "disabled"].includes(req.query.status) ? req.query.status : undefined;
-      const companies = await TrackedCompany.find(status ? { status } : {}).select("platform slug careersUrl status verifiedAt createdAt").sort({ createdAt: -1 }).limit(500).lean();
+      const statusParam = String(req.query.status || "");
+      const status = ["pending", "approved", "disabled"].includes(statusParam) ? statusParam : undefined;
+      const companies = await TrackedCompany.find(status ? { status } : {})
+        .select("platform slug careersUrl status verifiedAt createdAt")
+        .sort({ createdAt: -1 })
+        .limit(500)
+        .lean();
       return res.json({ data: { companies } });
-    } catch (error) { return next(error); }
+    } catch (error) {
+      return next(error);
+    }
   },
-  async jobCoverage(req, res, next) {
+
+  async jobCoverage(_req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const since = new Date(Date.now() - 30 * 86400000);
       const [coverage, interactions] = await Promise.all([
         jobIngestionService.coverageReport(),
         InteractionEvent.aggregate([
           { $match: { createdAt: { $gte: since } } },
-          { $group: { _id: { event: "$event", source: "$source", occupation: "$occupation", country: "$country", scoreBand: "$scoreBand" }, count: { $sum: "$count" } } },
+          {
+            $group: {
+              _id: {
+                event: "$event",
+                source: "$source",
+                occupation: "$occupation",
+                country: "$country",
+                scoreBand: "$scoreBand",
+              },
+              count: { $sum: "$count" },
+            },
+          },
           { $sort: { "_id.event": 1, count: -1 } },
         ]).option({ maxTimeMS: 1500 }),
       ]);
@@ -52,35 +74,95 @@ export const adminController = {
         InteractionEvent.distinct("actorKey", { createdAt: { $gte: since } }),
         InteractionEvent.distinct("actorKey", { event: "zero_result", createdAt: { $gte: since } }),
       ]);
-      return res.json({ data: { ...coverage, interactions: { windowDays: 30, totalUsers: profiles, consentedAnalyticsUsers: consentedActorKeys.length, usersWithZeroEligibleJobs: zeroResultActorKeys.length, eligibleUserMeasurement: "Count of consented pseudonymous users with at least one zero-result event in the 30-day window; not an all-user eligibility census.", groups: interactions } } });
+      return res.json({
+        data: {
+          ...coverage,
+          interactions: {
+            windowDays: 30,
+            totalUsers: profiles,
+            consentedAnalyticsUsers: consentedActorKeys.length,
+            usersWithZeroEligibleJobs: zeroResultActorKeys.length,
+            eligibleUserMeasurement:
+              "Count of consented pseudonymous users with at least one zero-result event in the 30-day window; not an all-user eligibility census.",
+            groups: interactions,
+          },
+        },
+      });
+    } catch (error) {
+      return next(error);
     }
-    catch (error) { return next(error); }
   },
-  async updateTrackedCompany(req, res, next) {
+
+  async updateTrackedCompany(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { status } = z.object({ status: z.enum(["approved", "disabled"]) }).strict().parse(req.body);
-      const company = await TrackedCompany.findByIdAndUpdate(req.params.id, { $set: { status } }, { new: true }).select("platform slug careersUrl status verifiedAt createdAt").lean();
+      const { status } = z
+        .object({ status: z.enum(["approved", "disabled"]) })
+        .strict()
+        .parse(req.body);
+      const company = (await TrackedCompany.findByIdAndUpdate(
+        req.params.id,
+        { $set: { status } },
+        { new: true },
+      )
+        .select("platform slug careersUrl status verifiedAt createdAt")
+        .lean()) as { platform?: string } | null;
       if (!company) return res.sendStatus(404);
       await audit(req, "admin.jobs.company.status", { platform: company.platform, status });
       return res.json({ data: { company } });
-    } catch (error) { return next(error); }
+    } catch (error) {
+      return next(error);
+    }
   },
-  async listJobReports(req, res, next) {
+
+  async listJobReports(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
-        const reported = { $or: ["expired", "broken_link", "misleading", "spam", "other"].map((reason) => ({ [`reportCounts.${reason}`]: { $gt: 0 } })) };
-        const jobs = await mongoose.model("Job").find(reported).select("title company sourceBoard sourceUrl reportCounts").sort({ updatedAt: -1 }).skip((page - 1) * limit).limit(limit).lean();
-        const reports = jobs.map((job) => ({ jobId: { _id: job._id, title: job.title, company: job.company, sourceBoard: job.sourceBoard, sourceUrl: job.sourceUrl }, reasonCounts: Object.fromEntries(job.reportCounts || []) }));
-        const total = await mongoose.model("Job").countDocuments(reported);
+      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+      const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25));
+      const reported = {
+        $or: ["expired", "broken_link", "misleading", "spam", "other"].map((reason) => ({
+          [`reportCounts.${reason}`]: { $gt: 0 },
+        })),
+      };
+      interface JobWithReports {
+        _id: string;
+        title?: string;
+        company?: string;
+        sourceBoard?: string;
+        sourceUrl?: string;
+        reportCounts?: [string, number][] | Record<string, number>;
+      }
+      const jobs = (await mongoose
+        .model("Job")
+        .find(reported)
+        .select("title company sourceBoard sourceUrl reportCounts")
+        .sort({ updatedAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean()) as JobWithReports[];
+      const reports = jobs.map((job) => ({
+        jobId: {
+          _id: job._id,
+          title: job.title,
+          company: job.company,
+          sourceBoard: job.sourceBoard,
+          sourceUrl: job.sourceUrl,
+        },
+        reasonCounts: Array.isArray(job.reportCounts)
+          ? Object.fromEntries(job.reportCounts)
+          : job.reportCounts || {},
+      }));
+      const total = await mongoose.model("Job").countDocuments(reported);
       res.json({ data: { reports, total, page, limit, pages: Math.ceil(total / limit) } });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   },
+
   /**
    * GET /api/v1/admin/metrics
    * Returns system telemetry, router tier distribution, and cost guardrail status
    */
-  async getMetrics(req, res, next) {
+  async getMetrics(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const cacheMetrics = getCacheMetrics();
 
@@ -104,9 +186,9 @@ export const adminController = {
           { $group: { _id: "$tier", count: { $sum: 1 } } },
         ]);
 
-        const counts = { 0: 0, 1: 0, 2: 0 };
+        const counts: Record<number, number> = { 0: 0, 1: 0, 2: 0 };
         for (const l of logs) {
-          counts[l._id] = l.count;
+          counts[l._id as number] = l.count;
         }
 
         const total = counts[0] + counts[1] + counts[2];
@@ -183,7 +265,7 @@ export const adminController = {
     }
   },
 
-  async listUsers(req, res, next) {
+  async listUsers(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -193,10 +275,10 @@ export const adminController = {
             requestId: req.id,
           },
         });
-      const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
+      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+      const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25));
       const q = String(req.query.q || "").trim();
-      const filter = { isDeleted: false };
+      const filter: Record<string, unknown> = { isDeleted: false };
       if (q)
         filter.$or = [
           { email: new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") },
@@ -222,7 +304,7 @@ export const adminController = {
     }
   },
 
-  async updateUser(req, res, next) {
+  async updateUser(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -234,8 +316,8 @@ export const adminController = {
         });
       const schema = z
         .object({
-          plan: z.enum(Object.values(PLANS)).optional(),
-          role: z.enum(Object.values(ROLES)).optional(),
+          plan: z.enum([PLANS.FREE, PLANS.PRO, PLANS.PREMIUM]).optional(),
+          role: z.enum([ROLES.USER, ROLES.ADMIN, ROLES.SUPER_ADMIN]).optional(),
         })
         .refine((value) => value.plan || value.role, "Provide a role or plan update");
       const parsed = schema.safeParse(req.body);
@@ -251,13 +333,14 @@ export const adminController = {
         return res
           .status(404)
           .json({ error: { code: "NOT_FOUND", message: "User not found", requestId: req.id } });
-      const target = await User.findOne({ _id: req.params.id, isDeleted: false }).lean();
+      const target = (await User.findOne({ _id: req.params.id, isDeleted: false }).lean()) as UserRecord | null;
       if (!target)
         return res
           .status(404)
           .json({ error: { code: "NOT_FOUND", message: "User not found", requestId: req.id } });
+      const adminUser = req.user as UserRecord;
       if (
-        target._id.toString() === req.user._id.toString() &&
+        target._id.toString() === adminUser?._id?.toString() &&
         parsed.data.role &&
         parsed.data.role !== ROLES.SUPER_ADMIN
       ) {
@@ -291,7 +374,7 @@ export const adminController = {
         parsed.data.plan &&
         parsed.data.plan !== target.plan &&
         target.subscriptionProvider === "razorpay" &&
-        ["active", "past_due"].includes(target.subscriptionStatus)
+        ["active", "past_due"].includes(target.subscriptionStatus as string)
       ) {
         return res.status(409).json({
           error: {
@@ -302,7 +385,7 @@ export const adminController = {
           },
         });
       }
-      const updates = { ...parsed.data };
+      const updates: Record<string, unknown> = { ...parsed.data };
       if (parsed.data.plan) {
         updates.planSource = "admin";
         updates.planVersion = (target.planVersion || 0) + 1;
@@ -330,7 +413,7 @@ export const adminController = {
     }
   },
 
-  async billingOverview(req, res, next) {
+  async billingOverview(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -409,10 +492,10 @@ export const adminController = {
           pastDueSubscriptions,
           scheduledCancellations,
           subscriptionsByPlan: Object.fromEntries(
-            subscriptionsByPlan.map((item) => [item._id, item.count]),
+            subscriptionsByPlan.map((item: { _id: string; count: number }) => [item._id, item.count]),
           ),
           paymentsByStatus: Object.fromEntries(
-            paymentsByStatus.map((item) => [item._id, item.count]),
+            paymentsByStatus.map((item: { _id: string; count: number }) => [item._id, item.count]),
           ),
         },
       });
@@ -421,7 +504,7 @@ export const adminController = {
     }
   },
 
-  async listSubscriptions(req, res, next) {
+  async listSubscriptions(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -431,7 +514,7 @@ export const adminController = {
             requestId: req.id,
           },
         });
-      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
+      const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25));
       const subscriptions = await Subscription.find()
         .populate("userId", "name email")
         .sort({ updatedAt: -1 })
@@ -444,7 +527,7 @@ export const adminController = {
     }
   },
 
-  async cancelSubscription(req, res, next) {
+  async cancelSubscription(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -458,7 +541,14 @@ export const adminController = {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Subscription not found", requestId: req.id },
         });
-      const subscription = await Subscription.findById(req.params.id);
+      interface SubscriptionDoc extends mongoose.Document {
+        provider: string;
+        status: string;
+        cancelAtPeriodEnd: boolean;
+        subscriptionId: string;
+        userId: mongoose.Types.ObjectId;
+      }
+      const subscription = (await Subscription.findById(req.params.id)) as SubscriptionDoc | null;
       if (!subscription)
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Subscription not found", requestId: req.id },
@@ -474,7 +564,7 @@ export const adminController = {
       if (subscription.cancelAtPeriodEnd)
         return res.status(409).json({
           error: {
-            code: "CANCELLATION_ALREADY_SCHEDULED",
+            code: "CANCELLATION_ALREADY_SCHEDULEALREADY_SCHEDULED",
             message: "Cancellation is already scheduled",
             requestId: req.id,
           },
@@ -497,7 +587,7 @@ export const adminController = {
     }
   },
 
-  async listPayments(req, res, next) {
+  async listPayments(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -507,8 +597,8 @@ export const adminController = {
             requestId: req.id,
           },
         });
-      const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
+      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+      const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25));
       const [payments, total] = await Promise.all([
         Payment.find()
           .populate("userId", "name email")
@@ -527,9 +617,15 @@ export const adminController = {
     }
   },
 
-  async refundPayment(req, res, next) {
-    let payment;
-    let previousStatus;
+  async refundPayment(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+    interface PaymentDoc extends mongoose.Document {
+      providerPaymentId: string;
+      status: string;
+      amountMinor: number;
+      amountRefundedMinor: number;
+    }
+    let payment: PaymentDoc | null = null;
+    let previousStatus: string | undefined;
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -539,7 +635,7 @@ export const adminController = {
             requestId: req.id,
           },
         });
-      payment = await Payment.findOne({ providerPaymentId: req.params.paymentId });
+      payment = (await Payment.findOne({ providerPaymentId: req.params.paymentId })) as PaymentDoc | null;
       if (!payment)
         return res
           .status(404)
@@ -579,10 +675,15 @@ export const adminController = {
             requestId: req.id,
           },
         });
-      const refund = await billingService.refundPayment(payment.providerPaymentId, remaining, {
+      const adminUser = req.user as UserRecord;
+      interface RefundResult {
+        id: string;
+        [key: string]: unknown;
+      }
+      const refund = ((await billingService.refundPayment(payment.providerPaymentId, remaining, {
         initiated_by: "super_admin",
-        admin_user_id: String(req.user._id),
-      });
+        admin_user_id: String(adminUser?._id),
+      })) as unknown) as RefundResult;
       await audit(req, "admin.billing.payment.refund_requested", {
         paymentId: payment.providerPaymentId,
         amountMinor: remaining,
@@ -605,13 +706,13 @@ export const adminController = {
     }
   },
 
-  async listJobs(req, res, next) {
+  async listJobs(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const result = await jobIngestionService.searchJobs({
         q: String(req.query.q || "").trim(),
         source: String(req.query.source || "").trim(),
-        page: Math.max(1, Number.parseInt(req.query.page, 10) || 1),
-        limit: Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25)),
+        page: Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1),
+        limit: Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25)),
       });
       await audit(req, "admin.jobs.list", { page: result.page });
       res.status(200).json({ data: result });
@@ -620,7 +721,7 @@ export const adminController = {
     }
   },
 
-  async listAudit(req, res, next) {
+  async listAudit(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       if (!isMongoReady())
         return res.status(503).json({
@@ -630,8 +731,8 @@ export const adminController = {
             requestId: req.id,
           },
         });
-      const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
+      const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
+      const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || ""), 10) || 25));
       const [events, total] = await Promise.all([
         AuditLog.find()
           .populate("userId", "name email")
@@ -649,7 +750,7 @@ export const adminController = {
     }
   },
 
-  async listJobSources(req, res, next) {
+  async listJobSources(_req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const sources = await jobIngestionService.sourceBudgets();
       res.status(200).json({ data: { sources } });
@@ -658,13 +759,29 @@ export const adminController = {
     }
   },
 
-  async updateJobSource(req, res, next) {
+  async updateJobSource(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const input = z.object({ enabled: z.boolean().optional(), approved: z.boolean().optional() }).strict().refine((value) => value.enabled !== undefined || value.approved !== undefined).parse(req.body);
-      let sources;
-      if (input.approved !== undefined) sources = await jobIngestionService.setSourceApproved(req.params.key, input.approved);
-      if (input.enabled !== undefined) sources = await jobIngestionService.setSourceEnabled(req.params.key, input.enabled);
-      await audit(req, input.approved !== undefined ? (input.approved ? "admin.jobs.source.approve" : "admin.jobs.source.unapprove") : (input.enabled ? "admin.jobs.source.enable" : "admin.jobs.source.disable"), { source: req.params.key });
+      const input = z
+        .object({ enabled: z.boolean().optional(), approved: z.boolean().optional() })
+        .strict()
+        .refine((value) => value.enabled !== undefined || value.approved !== undefined)
+        .parse(req.body);
+      let sources: unknown;
+      if (input.approved !== undefined)
+        sources = await jobIngestionService.setSourceApproved(req.params.key, input.approved);
+      if (input.enabled !== undefined)
+        sources = await jobIngestionService.setSourceEnabled(req.params.key, input.enabled);
+      await audit(
+        req,
+        input.approved !== undefined
+          ? input.approved
+            ? "admin.jobs.source.approve"
+            : "admin.jobs.source.unapprove"
+          : input.enabled
+            ? "admin.jobs.source.enable"
+            : "admin.jobs.source.disable",
+        { source: req.params.key },
+      );
       res.status(200).json({ data: { sources } });
     } catch (err) {
       next(err);

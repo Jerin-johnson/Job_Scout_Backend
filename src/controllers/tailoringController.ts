@@ -1,15 +1,4 @@
-/**
- * @fileoverview Tailoring Controller — handles resume tailoring lifecycle.
- *
- * Routes:
- *   POST   /api/v1/tailor/start        - Begin tailoring for a job
- *   POST   /api/v1/tailor/:id/approve  - Approve draft and trigger export
- *   POST   /api/v1/tailor/:id/reject   - Reject draft (optionally with feedback)
- *   GET    /api/v1/tailor/:id          - Get document status
- *   GET    /api/v1/tailor/:id/export   - Download exported file (?format=pdf|docx)
- *   GET    /api/v1/tailor              - List all tailored documents for user
- */
-
+import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { logger } from "../shared/utils/logger.js";
 import { tailoringGraph } from "../ai/graphs/tailoringGraph.js";
@@ -18,18 +7,38 @@ import { Document } from "../models/Document.js";
 import { profileRepository } from "../repositories/profileRepository.js";
 import mongoose from "mongoose";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
+import { UserRecord } from "../repositories/userRepository.js";
+
+interface StoredDoc {
+  _id: string;
+  userId?: string;
+  jobId?: string;
+  jobTitle?: string;
+  company?: string;
+  type?: string;
+  status?: string;
+  tailoredBullets?: unknown[];
+  atsMatchScore?: number;
+  atsKeywordsCovered?: string[];
+  pdfStorageUrl?: string;
+  docxStorageUrl?: string;
+  approvedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+  [key: string]: unknown;
+}
 
 // ── In-memory document store for offline/test mode ──────────────────────────
-const inMemoryDocs = new Map();
+const inMemoryDocs = new Map<string, StoredDoc>();
 let docCounter = 1;
 
-function isMongoReady() {
+function isMongoReady(): boolean {
   return mongoose.connection.readyState === 1;
 }
 
-function getUserId(u) {
+function getUserId(u?: UserRecord): string {
   if (!u) return "";
-  return u._id ? u._id.toString() : u.id ? u.id.toString() : "";
+  return u._id ? u._id.toString() : (u as unknown as { id?: string }).id ? (u as unknown as { id?: string }).id!.toString() : "";
 }
 
 // ── Zod Schemas ──────────────────────────────────────────────────────────────
@@ -57,43 +66,43 @@ const RejectSchema = z.object({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-async function saveDoc(docData) {
+async function saveDoc(docData: Record<string, unknown>): Promise<StoredDoc> {
   if (isMongoReady()) {
     const doc = new Document(docData);
-    return (await doc.save()).toObject();
+    return (await doc.save()).toObject() as StoredDoc;
   }
   const id = `doc_${docCounter++}_${Date.now()}`;
-  const stored = { _id: id, ...docData, createdAt: new Date(), updatedAt: new Date() };
+  const stored: StoredDoc = { _id: id, ...docData, createdAt: new Date(), updatedAt: new Date() };
   inMemoryDocs.set(id, stored);
   return stored;
 }
 
-async function findDoc(id) {
+async function findDoc(id: string): Promise<StoredDoc | null> {
   if (isMongoReady()) {
-    return Document.findById(id).lean();
+    return (await Document.findById(id).lean()) as StoredDoc | null;
   }
   return inMemoryDocs.get(id) || null;
 }
 
-async function updateDoc(id, updates) {
+async function updateDoc(id: string, updates: Partial<StoredDoc>): Promise<StoredDoc | null> {
   if (isMongoReady()) {
-    return Document.findByIdAndUpdate(id, { $set: updates }, { new: true }).lean();
+    return (await Document.findByIdAndUpdate(id, { $set: updates }, { new: true }).lean()) as StoredDoc | null;
   }
   const existing = inMemoryDocs.get(id);
   if (!existing) return null;
-  const updated = { ...existing, ...updates, updatedAt: new Date() };
+  const updated: StoredDoc = { ...existing, ...updates, updatedAt: new Date() };
   inMemoryDocs.set(id, updated);
   return updated;
 }
 
-async function listDocs(userId) {
+async function listDocs(userId?: string): Promise<StoredDoc[]> {
   if (isMongoReady()) {
-    return Document.find({ userId }).sort({ createdAt: -1 }).lean();
+    return (await Document.find({ userId }).sort({ createdAt: -1 }).lean()) as StoredDoc[];
   }
   const uid = userId?.toString();
   return [...inMemoryDocs.values()]
     .filter((d) => d.userId?.toString() === uid)
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
 }
 
 // ── Controllers ──────────────────────────────────────────────────────────────
@@ -102,7 +111,7 @@ async function listDocs(userId) {
  * POST /api/v1/tailor/start
  * Kick off the resume tailoring pipeline for a job.
  */
-export async function startTailor(req, res, next) {
+export async function startTailor(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   try {
     const parsed = StartTailoringSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -116,7 +125,7 @@ export async function startTailor(req, res, next) {
     }
 
     const { jobId, jobTitle, company, jdText } = parsed.data;
-    const user = req.user;
+    const user = req.user as UserRecord;
     const userId = getUserId(user);
 
     // Load profile for facts
@@ -134,14 +143,20 @@ export async function startTailor(req, res, next) {
     await acceptRequestQuota(req, "tailor_resume");
 
     // Run tailoring graph
-    const result = await tailoringGraph.runTailoring({
+    interface TailoringResult {
+      bullets: unknown[];
+      summary: unknown;
+      atsMatch?: { score?: number; covered?: string[] };
+      requirements: unknown;
+    }
+    const result = (await tailoringGraph.runTailoring({
       user,
       profile,
       jobId,
       jobTitle,
       company,
       jdText,
-    });
+    })) as TailoringResult;
 
     // Persist draft document
     const doc = await saveDoc({
@@ -180,15 +195,16 @@ export async function startTailor(req, res, next) {
  * POST /api/v1/tailor/:id/approve
  * Approve the draft (optionally with edits) and generate export files.
  */
-export async function approveTailor(req, res, next) {
+export async function approveTailor(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   try {
-    const doc = await findDoc(req.params.id);
+    const doc = await findDoc(String(req.params.id));
     if (!doc) {
       return res.status(404).json({
         error: { code: "NOT_FOUND", message: "Document not found", requestId: req.id },
       });
     }
-    const userId = getUserId(req.user);
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
     if (doc.userId?.toString() !== userId) {
       return res.status(403).json({
         error: { code: "FORBIDDEN", message: "Not your document", requestId: req.id },
@@ -207,34 +223,39 @@ export async function approveTailor(req, res, next) {
     }
 
     const parsed = ApproveSchema.safeParse(req.body);
-    const editedBullets = parsed.success && parsed.data.editedBullets;
+    const editedBullets = parsed.success ? parsed.data.editedBullets : undefined;
+
+    interface BulletItem {
+      factId?: string;
+      tailoredBullet?: string;
+      [key: string]: unknown;
+    }
 
     // Use edited bullets if provided, otherwise use draft bullets
-    const finalBullets = editedBullets?.length
-      ? editedBullets.map((eb) => ({
-          ...doc.tailoredBullets.find((b) => b.factId === eb.factId),
+    const finalBullets = editedBullets && editedBullets.length
+      ? editedBullets.map((eb: { factId: string; tailoredBullet: string }) => ({
+          ...((doc.tailoredBullets as BulletItem[]) || []).find((b) => b.factId === eb.factId),
           tailoredBullet: eb.tailoredBullet,
         }))
       : doc.tailoredBullets;
 
     // Export PDF + DOCX
-    const user = req.user;
-    const exportResult = await exportService.exportAndUpload({
+    const exportResult = (await exportService.exportAndUpload({
       documentId: doc._id,
       candidateName: user.name || "Candidate",
       email: user.email,
       jobTitle: doc.jobTitle,
       company: doc.company,
       bullets: finalBullets,
-    });
+    })) as { pdfUrl: string; docxUrl: string };
 
-    const updated = await updateDoc(doc._id, {
+    const updated = (await updateDoc(doc._id, {
       status: "approved",
-      tailoredBullets: finalBullets,
+      tailoredBullets: finalBullets as unknown[],
       pdfStorageUrl: exportResult.pdfUrl,
       docxStorageUrl: exportResult.docxUrl,
       approvedAt: new Date(),
-    });
+    })) as StoredDoc;
 
     logger.info({ userId, docId: doc._id }, "tailoring: approved and exported");
 
@@ -257,15 +278,16 @@ export async function approveTailor(req, res, next) {
  * POST /api/v1/tailor/:id/reject
  * Reject the draft.
  */
-export async function rejectTailor(req, res, next) {
+export async function rejectTailor(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   try {
-    const doc = await findDoc(req.params.id);
+    const doc = await findDoc(String(req.params.id));
     if (!doc) {
       return res.status(404).json({
         error: { code: "NOT_FOUND", message: "Document not found", requestId: req.id },
       });
     }
-    const userId = getUserId(req.user);
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
     if (doc.userId?.toString() !== userId) {
       return res.status(403).json({
         error: { code: "FORBIDDEN", message: "Not your document", requestId: req.id },
@@ -273,7 +295,7 @@ export async function rejectTailor(req, res, next) {
     }
 
     const { reason } = RejectSchema.parse(req.body || {});
-    const updated = await updateDoc(doc._id, { status: "rejected" });
+    const updated = (await updateDoc(doc._id, { status: "rejected" })) as StoredDoc;
 
     logger.info({ userId, docId: doc._id, reason }, "tailoring: rejected");
 
@@ -289,15 +311,16 @@ export async function rejectTailor(req, res, next) {
  * GET /api/v1/tailor/:id
  * Get document status and draft.
  */
-export async function getTailoringDoc(req, res, next) {
+export async function getTailoringDoc(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   try {
-    const doc = await findDoc(req.params.id);
+    const doc = await findDoc(String(req.params.id));
     if (!doc) {
       return res.status(404).json({
         error: { code: "NOT_FOUND", message: "Document not found", requestId: req.id },
       });
     }
-    const userId = getUserId(req.user);
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
     if (doc.userId?.toString() !== userId) {
       return res.status(403).json({
         error: { code: "FORBIDDEN", message: "Not your document", requestId: req.id },
@@ -313,15 +336,16 @@ export async function getTailoringDoc(req, res, next) {
  * GET /api/v1/tailor/:id/export?format=pdf|docx
  * Download exported file directly as binary.
  */
-export async function exportDocument(req, res, next) {
+export async function exportDocument(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   try {
-    const doc = await findDoc(req.params.id);
+    const doc = await findDoc(String(req.params.id));
     if (!doc) {
       return res.status(404).json({
         error: { code: "NOT_FOUND", message: "Document not found", requestId: req.id },
       });
     }
-    const userId = getUserId(req.user);
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
     if (doc.userId?.toString() !== userId) {
       return res.status(403).json({
         error: { code: "FORBIDDEN", message: "Not your document", requestId: req.id },
@@ -332,24 +356,25 @@ export async function exportDocument(req, res, next) {
     const bullets = doc.tailoredBullets || [];
 
     if (format === "pdf") {
-      const pdfBuffer = await exportService.generatePdf({
-        candidateName: req.user.name || "Candidate",
-        email: req.user.email,
+      const pdfBuffer = (await exportService.generatePdf({
+        candidateName: user.name || "Candidate",
+        email: user.email,
         jobTitle: doc.jobTitle,
         company: doc.company,
         bullets,
-      });
+        summary: "",
+      })) as Buffer;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="tailored_resume_${doc._id}.pdf"`);
       return res.send(pdfBuffer);
     } else {
-      const docxBuffer = await exportService.generateDocx({
-        candidateName: req.user.name || "Candidate",
-        email: req.user.email,
+      const docxBuffer = (await exportService.generateDocx({
+        candidateName: user.name || "Candidate",
+        email: user.email,
         jobTitle: doc.jobTitle,
         company: doc.company,
         bullets,
-      });
+      })) as Buffer;
       res.setHeader(
         "Content-Type",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -369,9 +394,10 @@ export async function exportDocument(req, res, next) {
  * GET /api/v1/tailor
  * List all tailored documents for the authenticated user.
  */
-export async function listTailoringDocs(req, res, next) {
+export async function listTailoringDocs(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   try {
-    const userId = getUserId(req.user);
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
     const docs = await listDocs(userId);
     return res.status(200).json({
       data: { documents: docs, count: docs.length },

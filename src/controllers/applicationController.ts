@@ -1,7 +1,8 @@
+import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import mongoose from "mongoose";
 import { randomUUID } from "node:crypto";
-import { applicationRepository } from "../repositories/applicationRepository.js";
+import { applicationRepository, ApplicationRecord, ApplicationFilters } from "../repositories/applicationRepository.js";
 import { applicationGraph } from "../ai/graphs/applicationGraph.js";
 import { get, set, del, CacheKeys, TTL } from "../shared/cache.js";
 import { logger } from "../shared/utils/logger.js";
@@ -13,8 +14,9 @@ import { applicationReminderTransition } from "../services/applicationLifecycle.
 import { invalidateCandidateContext } from "../ai/candidateContext.js";
 import { Job } from "../models/Job.js";
 import { recordInteraction } from "../services/jobs/interactionEvents.js";
+import { UserRecord } from "../repositories/userRepository.js";
 
-const VALID_STATUSES = ["saved", "applied", "screening", "interviewing", "offer", "rejected"];
+const VALID_STATUSES = ["saved", "applied", "screening", "interviewing", "offer", "rejected"] as const;
 const optionalDate = z.preprocess(
   (value) => (value === null || value === "" ? null : value),
   z.union([z.null(), z.coerce.date()]),
@@ -67,9 +69,9 @@ const UpdateStatusSchema = z.object({
   note: z.string().optional().default(""),
 });
 
-function getUserId(user) {
+function getUserId(user?: UserRecord): string {
   if (!user) return "";
-  return user._id ? user._id.toString() : user.id ? user.id.toString() : "";
+  return user._id ? user._id.toString() : (user as unknown as { id?: string }).id ? (user as unknown as { id?: string }).id!.toString() : "";
 }
 
 export const applicationController = {
@@ -77,26 +79,28 @@ export const applicationController = {
    * GET /api/v1/applications
    * Retrieves candidate's Kanban board applications, grouped by status
    */
-  async getApplications(req, res, next) {
+  async getApplications(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = getUserId(req.user);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
       const allowedSort = new Set(["recommended", "recent", "follow-up", "priority"]);
-      const sort = allowedSort.has(req.query.sort) ? req.query.sort : "recommended";
+      const querySort = typeof req.query.sort === "string" ? req.query.sort : "recommended";
+      const sort = allowedSort.has(querySort) ? querySort : "recommended";
       const stages = String(req.query.stage || "")
         .split(",")
-        .filter((stage) => VALID_STATUSES.includes(stage));
-      const filters = {
+        .filter((stage): stage is (typeof VALID_STATUSES)[number] => VALID_STATUSES.includes(stage as (typeof VALID_STATUSES)[number]));
+      const filters: ApplicationFilters = {
         search: String(req.query.q || "")
           .trim()
           .slice(0, 100),
         stages,
-        priority: ["high", "medium", "low"].includes(req.query.priority)
-          ? req.query.priority
+        priority: ["high", "medium", "low"].includes(String(req.query.priority))
+          ? String(req.query.priority)
           : undefined,
         pinned:
           req.query.pinned === "true" ? true : req.query.pinned === "false" ? false : undefined,
-        followUp: ["overdue", "due-soon"].includes(req.query.followUp)
-          ? req.query.followUp
+        followUp: ["overdue", "due-soon"].includes(String(req.query.followUp))
+          ? (String(req.query.followUp) as "overdue" | "due-soon")
           : undefined,
         stale: req.query.stale === "true",
         appliedSinceDays: req.query.appliedSinceDays === "7" ? 7 : undefined,
@@ -117,7 +121,7 @@ export const applicationController = {
         sort === "recommended";
       const cached = isDefaultQuery ? await get(cacheKey) : null;
       if (cached) {
-        return res.status(200).json({ data: { ...cached, fromCache: true } });
+        return res.status(200).json({ data: { ...(cached as Record<string, unknown>), fromCache: true } });
       }
 
       const [applications, stats] = await Promise.all([
@@ -126,7 +130,7 @@ export const applicationController = {
       ]);
 
       // Group into Kanban columns
-      const columns = {
+      const columns: Record<string, ApplicationRecord[]> = {
         saved: [],
         applied: [],
         screening: [],
@@ -136,7 +140,7 @@ export const applicationController = {
       };
 
       for (const app of applications) {
-        const col = columns[app.status] ? app.status : "saved";
+        const col = (app.status && columns[app.status]) ? app.status : "saved";
         columns[col].push(app);
       }
 
@@ -160,7 +164,7 @@ export const applicationController = {
    * POST /api/v1/applications
    * Track a new application
    */
-  async createApplication(req, res, next) {
+  async createApplication(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = CreateApplicationSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -189,7 +193,8 @@ export const applicationController = {
         });
       }
 
-      const userId = getUserId(req.user);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
       if (parsed.data.reminderEnabled && !parsed.data.nextFollowUpAt) {
         return res.status(400).json({
           error: {
@@ -207,14 +212,25 @@ export const applicationController = {
       });
       const trackedJobId = parsed.data.jobId && mongoose.isValidObjectId(parsed.data.jobId) ? parsed.data.jobId : null;
       const trackedJob = trackedJobId ? await Job.findById(trackedJobId).select("sourceBoard occupation structuredLocation.countryCode").lean() : null;
-      await recordInteraction({ userId, consented: req.user.jobAnalyticsConsent?.version === "job-analytics-v1", event: "save", source: trackedJob?.sourceBoard, occupation: trackedJob?.occupation, country: trackedJob?.structuredLocation?.countryCode });
+      const analyticsConsent = user?.jobAnalyticsConsent as { version?: string } | undefined;
+      await (
+        recordInteraction as (opts: unknown) => Promise<unknown>
+      )({
+        userId,
+        consented: analyticsConsent?.version === "job-analytics-v1",
+        event: "save",
+        source: (trackedJob as unknown as { sourceBoard?: string })?.sourceBoard,
+        occupation: (trackedJob as unknown as { occupation?: string })?.occupation,
+        country: (trackedJob as unknown as { structuredLocation?: { countryCode?: string } })?.structuredLocation?.countryCode,
+      });
       if (app.reminderEnabled) {
         try {
           await scheduleApplicationReminder(app);
-        } catch (error) {
+        } catch (error: unknown) {
+          const err = error as Error;
           app = (await applicationRepository.update(app._id, { reminderStatus: "failed" })) || app;
           logger.warn(
-            { appId: app._id, error: error.message },
+            { appId: app._id, error: err.message },
             "Application created, but its reminder could not be scheduled",
           );
         }
@@ -238,10 +254,12 @@ export const applicationController = {
   /**
    * GET /api/v1/applications/:id
    */
-  async getApplicationById(req, res, next) {
+  async getApplicationById(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = getUserId(req.user);
-      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
+      const appId = String(req.params.id);
+      const app = await applicationRepository.findOwnedById(appId, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
@@ -253,7 +271,7 @@ export const applicationController = {
     }
   },
 
-  async updateApplication(req, res, next) {
+  async updateApplication(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = UpdateApplicationSchema.safeParse(req.body);
       if (!parsed.success)
@@ -264,13 +282,15 @@ export const applicationController = {
             requestId: req.id,
           },
         });
-      const userId = getUserId(req.user);
-      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
+      const appId = String(req.params.id);
+      const app = await applicationRepository.findOwnedById(appId, userId);
       if (!app)
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
-      const updates = { ...parsed.data };
+      const updates = { ...parsed.data } as Partial<ApplicationRecord>;
       const salaryMin = Object.hasOwn(updates, "salaryMin") ? updates.salaryMin : app.salaryMin;
       const salaryMax = Object.hasOwn(updates, "salaryMax") ? updates.salaryMax : app.salaryMax;
       if (
@@ -299,7 +319,13 @@ export const applicationController = {
             requestId: req.id,
           },
         });
-      const reminderTransition = applicationReminderTransition({
+      const reminderTransition = (
+        applicationReminderTransition as (opts: unknown) => {
+          cancel?: boolean;
+          schedule?: boolean;
+          enabled?: boolean;
+        }
+      )({
         application: app,
         nextFollowUpAt: dueAt,
         reminderEnabled: enabled,
@@ -308,19 +334,20 @@ export const applicationController = {
         updates.reminderStatus = reminderTransition.enabled ? "scheduled" : "none";
         updates.reminderSentAt = null;
       }
-      const updated = await applicationRepository.update(req.params.id, updates, {
+      const updated = (await applicationRepository.update(appId, updates, {
         activity: true,
-      });
+      })) as ApplicationRecord;
       if (reminderTransition.cancel) await cancelApplicationReminder(app);
       if (reminderTransition.schedule) {
         try {
           await scheduleApplicationReminder(updated);
-        } catch (error) {
+        } catch (error: unknown) {
+          const err = error as Error;
           updated.reminderStatus = "failed";
           updated.reminderSentAt = null;
-          await applicationRepository.update(req.params.id, { reminderStatus: "failed" });
+          await applicationRepository.update(appId, { reminderStatus: "failed" });
           logger.warn(
-            { appId: req.params.id, error: error.message },
+            { appId, error: err.message },
             "Application saved, but its reminder could not be scheduled",
           );
         }
@@ -337,7 +364,7 @@ export const applicationController = {
    * PATCH /api/v1/applications/:id/status
    * Update application pipeline stage and trigger Graph D
    */
-  async updateStatus(req, res, next) {
+  async updateStatus(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = UpdateStatusSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -350,41 +377,50 @@ export const applicationController = {
         });
       }
 
-      const userId = getUserId(req.user);
-      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
+      const appId = String(req.params.id);
+      const app = await applicationRepository.findOwnedById(appId, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
       }
-      let updated = await applicationGraph.handleStageChange({
+      let updated = (await applicationGraph.handleStageChange({
         application: app,
         user: req.user,
         newStatus: parsed.data.status,
         note: parsed.data.note,
-      });
-      const reminderTransition = applicationReminderTransition({
+      })) as ApplicationRecord;
+      const reminderTransition = (
+        applicationReminderTransition as (opts: unknown) => {
+          cancel?: boolean;
+          schedule?: boolean;
+          terminal?: boolean;
+        }
+      )({
         application: app,
         status: parsed.data.status,
         nextFollowUpAt: updated?.nextFollowUpAt,
       });
       if (reminderTransition.terminal) {
-        updated = await applicationRepository.update(app._id, {
+        updated = (await applicationRepository.update(app._id, {
           reminderEnabled: false,
           reminderStatus: "none",
-        });
+        })) as ApplicationRecord;
         if (reminderTransition.cancel) await cancelApplicationReminder(app);
       } else {
         if (reminderTransition.cancel) await cancelApplicationReminder(app);
         if (reminderTransition.schedule) {
           try {
             await scheduleApplicationReminder(updated);
-          } catch (error) {
+          } catch (error: unknown) {
+            const err = error as Error;
             updated =
               (await applicationRepository.update(app._id, { reminderStatus: "failed" })) ||
               updated;
             logger.warn(
-              { appId: app._id, error: error.message },
+              { appId: app._id, error: err.message },
               "Updated follow-up reminder could not be scheduled",
             );
           }
@@ -408,10 +444,12 @@ export const applicationController = {
    * POST /api/v1/applications/:id/follow-up/approve
    * Human approval to send drafted follow-up email
    */
-  async approveFollowUp(req, res, next) {
+  async approveFollowUp(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = getUserId(req.user);
-      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
+      const appId = String(req.params.id);
+      const app = await applicationRepository.findOwnedById(appId, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
@@ -435,7 +473,7 @@ export const applicationController = {
     }
   },
 
-  async archiveApplication(req, res, next) {
+  async archiveApplication(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = ArchiveApplicationSchema.safeParse(req.body);
       if (!parsed.success)
@@ -446,13 +484,21 @@ export const applicationController = {
             requestId: req.id,
           },
         });
-      const userId = getUserId(req.user);
-      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
+      const appId = String(req.params.id);
+      const app = await applicationRepository.findOwnedById(appId, userId);
       if (!app)
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
-      const reminderTransition = applicationReminderTransition({
+      const reminderTransition = (
+        applicationReminderTransition as (opts: unknown) => {
+          cancel?: boolean;
+          schedule?: boolean;
+          terminal?: boolean;
+        }
+      )({
         application: app,
         archived: parsed.data.archived,
       });
@@ -480,21 +526,23 @@ export const applicationController = {
   /**
    * DELETE /api/v1/applications/:id
    */
-  async deleteApplication(req, res, next) {
+  async deleteApplication(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = getUserId(req.user);
-      const app = await applicationRepository.findOwnedById(req.params.id, userId);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
+      const appId = String(req.params.id);
+      const app = await applicationRepository.findOwnedById(appId, userId);
       if (!app) {
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Application not found", requestId: req.id },
         });
       }
-      await applicationRepository.delete(req.params.id);
+      await applicationRepository.delete(appId);
       await cancelApplicationReminder(app);
       await del(CacheKeys.response(userId, "kanban", 1));
       await invalidateCandidateContext(userId);
       return res.status(200).json({
-        data: { message: "Application deleted successfully", id: req.params.id },
+        data: { message: "Application deleted successfully", id: appId },
       });
     } catch (err) {
       next(err);

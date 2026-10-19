@@ -1,7 +1,8 @@
+import { Request, Response, NextFunction } from "express";
 import { profileRepository } from "../repositories/profileRepository.js";
 import { applicationRepository } from "../repositories/applicationRepository.js";
 import { longTermMemory } from "../ai/memory/longTerm.js";
-import { userRepository } from "../repositories/userRepository.js";
+import { userRepository, UserRecord } from "../repositories/userRepository.js";
 import { Document } from "../models/Document.js";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
@@ -21,9 +22,9 @@ import { savedSearchService } from "../services/jobs/savedSearchService.js";
 import { ChatSession } from "../models/ChatSession.js";
 import { purgeUserCheckpoints } from "../ai/checkpointer.js";
 
-function getUserId(user) {
+function getUserId(user?: UserRecord): string {
   if (!user) return "";
-  return user._id ? user._id.toString() : user.id ? user.id.toString() : "";
+  return user._id ? user._id.toString() : (user as unknown as { id?: string }).id ? (user as unknown as { id?: string }).id!.toString() : "";
 }
 
 export const privacyController = {
@@ -31,9 +32,9 @@ export const privacyController = {
    * GET /api/v1/privacy/export
    * Exports full candidate data portfolio as JSON (GDPR / India DPDP Article 12)
    */
-  async exportData(req, res, next) {
+  async exportData(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const user = req.user;
+      const user = req.user as UserRecord;
       const userId = getUserId(user);
 
       const profile = await profileRepository.findByUserId(userId);
@@ -41,35 +42,35 @@ export const privacyController = {
       const memories = await longTermMemory.listUserMemories(userId);
       const savedSearches = await savedSearchService.exportForUser(userId);
 
-      let documents = [];
-      let interviews = [];
-      let resumes = [];
-      let jobMatchReports = [];
-      let interactionEvents = [];
-      let feedback = [];
-      let chatSessions = [];
+      let documents: unknown[] = [];
+      let interviews: unknown[] = [];
+      let resumes: unknown[] = [];
+      let jobMatchReports: unknown[] = [];
+      let interactionEvents: unknown[] = [];
+      let feedback: unknown[] = [];
+      let chatSessions: unknown[] = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
         [resumes, jobMatchReports] = await Promise.all([
           Resume.find({ userId }).select("-encryptedRawText").lean(),
           JobMatchReport.find({ userId }).lean(),
         ]);
-        interviews = await InterviewSession.find({ userId }).select("-questionPlan").lean();
-        const interviewIds = interviews.map((session) => session._id);
+        const interviewDocs = (await InterviewSession.find({ userId }).select("-questionPlan").lean()) as Record<string, unknown>[];
+        const interviewIds = interviewDocs.map((session) => session._id);
         const [messages, reports] = await Promise.all([
           InterviewMessage.find({ userId, interviewId: { $in: interviewIds } })
             .select("-userId -idempotencyKey")
             .lean(),
           InterviewReport.find({ userId, interviewId: { $in: interviewIds } }).lean(),
         ]);
-        interviews = interviews.map((session) => ({
+        interviews = interviewDocs.map((session) => ({
           ...session,
-          transcript: messages.filter(
-            (message) => message.interviewId.toString() === session._id.toString(),
+          transcript: (messages as Record<string, unknown>[]).filter(
+            (message) => String(message.interviewId) === String(session._id),
           ),
           report:
-            reports.find((report) => report.interviewId.toString() === session._id.toString())
-              ?.report || null,
+            ((reports as Record<string, unknown>[]).find((report) => String(report.interviewId) === String(session._id))
+              ?.report as unknown) || null,
         }));
         interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) })
           .select("-actorKey")
@@ -87,11 +88,11 @@ export const privacyController = {
         complianceFrameworks: ["GDPR (EU 2016/679)", "India DPDP Act 2023"],
         user: {
           id: userId,
-          email: user.email,
-          name: user.name,
-          plan: user.plan,
-          createdAt: user.createdAt,
-          jobAnalyticsConsent: user.jobAnalyticsConsent || { acceptedAt: null, version: null },
+          email: user?.email,
+          name: user?.name,
+          plan: user?.plan,
+          createdAt: user?.createdAt,
+          jobAnalyticsConsent: user?.jobAnalyticsConsent || { acceptedAt: null, version: null },
         },
         profile: profile || {},
         applications: applications || [],
@@ -124,9 +125,9 @@ export const privacyController = {
    * DELETE /api/v1/privacy/delete-account
    * Right-to-be-forgotten endpoint: soft deletes user, purges memories, revokes tokens
    */
-  async deleteAccount(req, res, next) {
+  async deleteAccount(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const user = req.user;
+      const user = req.user as UserRecord;
       const userId = getUserId(user);
 
       // 1. Purge agent memories & chat checkpoints

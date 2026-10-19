@@ -1,3 +1,4 @@
+import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { interviewGraph } from "../ai/graphs/interviewGraph.js";
 import { profileRepository } from "../repositories/profileRepository.js";
@@ -5,6 +6,7 @@ import { logger } from "../shared/utils/logger.js";
 import { isMongoReady } from "../config/database.js";
 import { interviewSessionService } from "../services/interview/sessionService.js";
 import { acceptRequestQuota, requestQuotaIdempotencyKey } from "../middleware/quotaGate.js";
+import { UserRecord } from "../repositories/userRepository.js";
 
 const PrepSchema = z
   .object({
@@ -49,6 +51,7 @@ const AnswerSchema = z
     startedAtMs: z.number().int().nonnegative().nullable().optional(),
   })
   .strict();
+
 const CompleteSchema = z
   .object({ retryFallback: z.boolean().default(false) })
   .strict()
@@ -66,9 +69,9 @@ const StartSchema = z
   .strict()
   .default({});
 
-function getUserId(user) {
+function getUserId(user?: UserRecord): string {
   if (!user) return "";
-  return user._id ? user._id.toString() : user.id ? user.id.toString() : "";
+  return user._id ? user._id.toString() : (user as unknown as { id?: string }).id ? (user as unknown as { id?: string }).id!.toString() : "";
 }
 
 export const interviewController = {
@@ -76,7 +79,7 @@ export const interviewController = {
    * POST /api/v1/interview/prep
    * Generates question bank, company overview, and STAR story templates
    */
-  async prep(req, res, next) {
+  async prep(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = PrepSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -90,7 +93,8 @@ export const interviewController = {
       }
 
       const { jobTitle, company, jdText } = parsed.data;
-      const userId = getUserId(req.user);
+      const user = req.user as UserRecord;
+      const userId = getUserId(user);
       const profile = await profileRepository.findByUserId(userId);
 
       await acceptRequestQuota(req, "interview_prep");
@@ -117,7 +121,7 @@ export const interviewController = {
    * POST /api/v1/interview/mock/turn
    * Evaluates candidate turn using STAR scoring, capped at 5 turns
    */
-  async mockTurn(req, res, next) {
+  async mockTurn(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = MockTurnSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -154,10 +158,11 @@ export const interviewController = {
    * GET /api/v1/interview/:id/report
    * Returns comprehensive scorecard and feedback across mock interview turns
    */
-  async getReport(req, res, next) {
+  async getReport(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { id } = req.params;
-      const report = await interviewGraph.getMockSessionReport(id, getUserId(req.user));
+      const user = req.user as UserRecord;
+      const report = await interviewGraph.getMockSessionReport(id, getUserId(user));
 
       if (!report) {
         return res.status(404).json({
@@ -177,7 +182,7 @@ export const interviewController = {
     }
   },
 
-  modes(req, res) {
+  modes(_req: Request, res: Response): Response {
     return res.status(200).json({
       data: {
         modes: interviewSessionService.modes,
@@ -189,7 +194,7 @@ export const interviewController = {
     });
   },
 
-  async createSession(req, res, next) {
+  async createSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = CreateSessionSchema.safeParse(req.body);
       if (!parsed.success)
@@ -225,7 +230,7 @@ export const interviewController = {
     }
   },
 
-  async startSession(req, res, next) {
+  async startSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = StartSchema.safeParse(req.body);
       if (!parsed.success)
@@ -244,7 +249,7 @@ export const interviewController = {
     }
   },
 
-  async answer(req, res, next) {
+  async answer(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = AnswerSchema.safeParse(req.body);
       if (!parsed.success)
@@ -265,7 +270,9 @@ export const interviewController = {
           },
         });
       return res.status(200).json({
-        data: await interviewSessionService.answer(req.user, req.params.id, {
+        data: await (
+          interviewSessionService.answer as (user: unknown, id: string, data: unknown) => Promise<unknown>
+        )(req.user, String(req.params.id), {
           ...parsed.data,
           idempotencyKey,
         }),
@@ -275,7 +282,7 @@ export const interviewController = {
     }
   },
 
-  async answerStream(req, res, next) {
+  async answerStream(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = AnswerSchema.safeParse(req.body);
       if (!parsed.success)
@@ -295,10 +302,16 @@ export const interviewController = {
             requestId: req.id,
           },
         });
-      const result = await interviewSessionService.answer(req.user, req.params.id, {
+      interface AnswerResult {
+        nextQuestion?: string;
+        [key: string]: unknown;
+      }
+      const result = (await (
+        interviewSessionService.answer as (user: unknown, id: string, data: unknown) => Promise<unknown>
+      )(req.user, String(req.params.id), {
         ...parsed.data,
         idempotencyKey,
-      });
+      })) as AnswerResult;
       res.status(200).set({
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
@@ -320,7 +333,7 @@ export const interviewController = {
     }
   },
 
-  async completeSession(req, res, next) {
+  async completeSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = CompleteSchema.safeParse(req.body);
       if (!parsed.success)
@@ -341,7 +354,7 @@ export const interviewController = {
     }
   },
 
-  async listSessions(req, res, next) {
+  async listSessions(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = SessionQuerySchema.safeParse(req.query);
       if (!parsed.success)
@@ -365,7 +378,7 @@ export const interviewController = {
     }
   },
 
-  async sessionDetail(req, res, next) {
+  async sessionDetail(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       return res
         .status(200)
@@ -375,9 +388,12 @@ export const interviewController = {
     }
   },
 
-  async sessionReport(req, res, next) {
+  async sessionReport(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const report = await interviewSessionService.report(req.user, req.params.id);
+      const report = (await interviewSessionService.report(req.user, req.params.id)) as Record<
+        string,
+        unknown
+      > | null;
       if (!report)
         return res.status(404).json({
           error: { code: "NOT_FOUND", message: "Interview report not found", requestId: req.id },
@@ -388,7 +404,7 @@ export const interviewController = {
     }
   },
 
-  async deleteSession(req, res, next) {
+  async deleteSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = EmptySchema.safeParse(req.body);
       if (!parsed.success)
@@ -406,7 +422,8 @@ export const interviewController = {
       next(err);
     }
   },
-  async pinSession(req, res, next) {
+
+  async pinSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = PinSchema.safeParse(req.body);
       if (!parsed.success)

@@ -1,3 +1,4 @@
+import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { billingService } from "../services/billingService.js";
 import { PLANS } from "../shared/constants/plans.js";
@@ -10,7 +11,7 @@ export const billingController = {
   /**
    * POST /api/v1/billing/checkout
    */
-  async checkout(req, res, next) {
+  async checkout(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = CheckoutSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -39,14 +40,14 @@ export const billingController = {
   /**
    * POST /api/v1/billing/razorpay-webhook
    */
-  async razorpayWebhook(req, res, next) {
+  async razorpayWebhook(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const signature = req.headers["x-razorpay-signature"];
+      const signature = req.headers["x-razorpay-signature"] as string | undefined;
       const result = await billingService.handleRazorpayWebhook(req.body, signature);
 
       return res.status(200).json({
         received: true,
-        ...result,
+        ...(result as Record<string, unknown>),
       });
     } catch (err) {
       next(err);

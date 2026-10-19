@@ -1,15 +1,24 @@
+import { Request, Response, NextFunction, CookieOptions } from "express";
 import { authService } from "../services/authService.js";
 import { registerSchema, loginSchema, googleAuthSchema } from "../shared/schemas/authSchemas.js";
 import { env } from "../config/env.js";
+import { UserRecord } from "../repositories/userRepository.js";
 
-const COOKIE_OPTIONS = {
+const COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
   sameSite: "lax",
   domain: env.COOKIE_DOMAIN === "localhost" ? undefined : `.${env.COOKIE_DOMAIN}`,
 };
 
-function setAuthCookies(res, { accessToken, refreshToken }) {
+interface SessionResult {
+  accessToken: string;
+  refreshToken: string;
+  user: unknown;
+  [key: string]: unknown;
+}
+
+function setAuthCookies(res: Response, { accessToken, refreshToken }: SessionResult): void {
   res.cookie("accessToken", accessToken, {
     ...COOKIE_OPTIONS,
     maxAge: 15 * 60 * 1000, // 15 mins
@@ -22,7 +31,7 @@ function setAuthCookies(res, { accessToken, refreshToken }) {
   });
 }
 
-function clearAuthCookies(res) {
+function clearAuthCookies(res: Response): void {
   res.clearCookie("accessToken", COOKIE_OPTIONS);
   res.clearCookie("refreshToken", {
     ...COOKIE_OPTIONS,
@@ -31,10 +40,10 @@ function clearAuthCookies(res) {
 }
 
 export const authController = {
-  async register(req, res, next) {
+  async register(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const data = registerSchema.parse(req.body);
-      const session = await authService.register(data);
+      const session = (await authService.register(data)) as SessionResult;
 
       setAuthCookies(res, session);
       res.status(201).json({
@@ -48,10 +57,10 @@ export const authController = {
     }
   },
 
-  async login(req, res, next) {
+  async login(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const data = loginSchema.parse(req.body);
-      const session = await authService.login(data);
+      const session = (await authService.login(data)) as SessionResult;
 
       setAuthCookies(res, session);
       res.status(200).json({
@@ -65,10 +74,10 @@ export const authController = {
     }
   },
 
-  async googleAuth(req, res, next) {
+  async googleAuth(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const data = googleAuthSchema.parse(req.body);
-      const session = await authService.googleLogin(data.idToken);
+      const session = (await authService.googleLogin(data.idToken)) as SessionResult;
 
       setAuthCookies(res, session);
       res.status(200).json({
@@ -82,20 +91,20 @@ export const authController = {
     }
   },
 
-  async refresh(req, res, next) {
+  async refresh(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+      const rawRefreshToken = (req.cookies?.refreshToken as string | undefined) || (req.body?.refreshToken as string | undefined);
       if (!rawRefreshToken) {
         return res.status(401).json({
           error: {
             code: "REFRESH_TOKEN_REQUIRED",
             message: "Refresh token is missing",
-            requestId: req.id || req.headers["x-request-id"] || "req_unknown",
+            requestId: req.id || (req.headers["x-request-id"] as string) || "req_unknown",
           },
         });
       }
 
-      const session = await authService.rotateRefreshToken(rawRefreshToken);
+      const session = (await authService.rotateRefreshToken(rawRefreshToken)) as SessionResult;
       setAuthCookies(res, session);
 
       res.status(200).json({
@@ -110,7 +119,7 @@ export const authController = {
     }
   },
 
-  async logout(req, res) {
+  async logout(_req: Request, res: Response): Promise<Response | void> {
     clearAuthCookies(res);
     res.status(200).json({
       data: {
@@ -119,17 +128,18 @@ export const authController = {
     });
   },
 
-  async me(req, res) {
+  async me(req: Request, res: Response): Promise<Response | void> {
+    const user = req.user as UserRecord;
     res.status(200).json({
       data: {
         user: {
-          id: req.user._id ? req.user._id.toString() : req.user.id,
-          email: req.user.email,
-          name: req.user.name,
-          role: req.user.role,
-          plan: req.user.plan,
-          planVersion: req.user.planVersion,
-          profileVersion: req.user.profileVersion,
+          id: user?._id ? user._id.toString() : (user as unknown as { id?: string })?.id,
+          email: user?.email,
+          name: user?.name,
+          role: user?.role,
+          plan: user?.plan,
+          planVersion: user?.planVersion,
+          profileVersion: user?.profileVersion,
         },
       },
     });

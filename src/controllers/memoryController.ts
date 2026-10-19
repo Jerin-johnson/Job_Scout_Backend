@@ -1,6 +1,7 @@
+import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { longTermMemory, MEMORY_CONSENT_VERSION, hasMemoryConsent } from "../ai/memory/longTerm.js";
-import { userRepository } from "../repositories/userRepository.js";
+import { userRepository, UserRecord } from "../repositories/userRepository.js";
 
 const updateMemorySchema = z
   .object({
@@ -25,12 +26,32 @@ const consentSchema = z.discriminatedUnion("accepted", [
   z.object({ accepted: z.literal(false) }).strict(),
 ]);
 
+interface MemoryRecord {
+  _id: { toString(): string };
+  type: string;
+  key: string;
+  content: string;
+  importance: number;
+  confidence: number;
+  source: string;
+  createdAt: Date;
+  [key: string]: unknown;
+}
+
+interface UserWithConsent extends UserRecord {
+  memoryConsent?: {
+    acceptedAt?: Date | null;
+    version?: string | null;
+  };
+}
+
 export const memoryController = {
-  async list(req, res, next) {
+  async list(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      const user = await userRepository.findById(userId).catch(() => req.user);
-      const memories = await longTermMemory.listUserMemories(userId);
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
+      const user = ((await userRepository.findById(userId).catch(() => userReq)) || userReq) as UserWithConsent;
+      const memories = (await longTermMemory.listUserMemories(userId)) as MemoryRecord[];
 
       res.status(200).json({
         data: {
@@ -44,11 +65,11 @@ export const memoryController = {
             source: m.source,
             createdAt: m.createdAt,
           })),
-          memoryPaused: Boolean((user || req.user)?.memoryPaused),
+          memoryPaused: Boolean((user || userReq)?.memoryPaused),
           consent: {
-            accepted: hasMemoryConsent(user || req.user),
+            accepted: hasMemoryConsent(user || userReq),
             version: MEMORY_CONSENT_VERSION,
-            acceptedAt: (user || req.user)?.memoryConsent?.acceptedAt || null,
+            acceptedAt: (user || userReq)?.memoryConsent?.acceptedAt || null,
           },
         },
       });
@@ -57,16 +78,17 @@ export const memoryController = {
     }
   },
 
-  async getConsent(req, res, next) {
+  async getConsent(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      const user = await userRepository.findById(userId).catch(() => req.user);
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
+      const user = ((await userRepository.findById(userId).catch(() => userReq)) || userReq) as UserWithConsent;
       res.status(200).json({
         data: {
-          accepted: hasMemoryConsent(user || req.user),
+          accepted: hasMemoryConsent(user || userReq),
           version: MEMORY_CONSENT_VERSION,
-          acceptedAt: (user || req.user)?.memoryConsent?.acceptedAt || null,
-          memoryPaused: Boolean((user || req.user)?.memoryPaused),
+          acceptedAt: (user || userReq)?.memoryConsent?.acceptedAt || null,
+          memoryPaused: Boolean((user || userReq)?.memoryPaused),
         },
       });
     } catch (err) {
@@ -74,7 +96,7 @@ export const memoryController = {
     }
   },
 
-  async updateConsent(req, res, next) {
+  async updateConsent(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = consentSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -86,7 +108,8 @@ export const memoryController = {
           },
         });
       }
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
       if (parsed.data.accepted) {
         const acceptedAt = new Date();
         await userRepository.update(userId, {
@@ -116,7 +139,7 @@ export const memoryController = {
     }
   },
 
-  async create(req, res, next) {
+  async create(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = createMemorySchema.safeParse(req.body);
       if (!parsed.success) {
@@ -128,12 +151,15 @@ export const memoryController = {
           },
         });
       }
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      const user = await userRepository.findById(userId).catch(() => req.user);
-      const saved = await longTermMemory.writeMemory({
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
+      const user = (await userRepository.findById(userId).catch(() => userReq)) || userReq;
+      const saved = (await (
+        longTermMemory.writeMemory as (opts: unknown) => Promise<unknown>
+      )({
         userId,
-        user: user || req.user,
-        userPlan: (user || req.user)?.plan,
+        user: user || userReq,
+        userPlan: (user || userReq)?.plan,
         type: parsed.data.type,
         key: parsed.data.key,
         content: parsed.data.content,
@@ -141,7 +167,7 @@ export const memoryController = {
         confidence: 1.0,
         source: "user_edit",
         requireConsent: true,
-      });
+      })) as MemoryRecord | null;
       if (!saved) {
         return res.status(409).json({
           error: {
@@ -170,7 +196,7 @@ export const memoryController = {
     }
   },
 
-  async update(req, res, next) {
+  async update(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const parsed = updateMemorySchema.safeParse(req.body);
       if (!parsed.success) {
@@ -182,9 +208,10 @@ export const memoryController = {
           },
         });
       }
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
       const { id } = req.params;
-      const updated = await longTermMemory.updateMemory(userId, id, parsed.data);
+      const updated = (await longTermMemory.updateMemory(userId, id, parsed.data)) as MemoryRecord | null;
       if (!updated) {
         return res.status(404).json({
           error: {
@@ -213,9 +240,10 @@ export const memoryController = {
     }
   },
 
-  async delete(req, res, next) {
+  async delete(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
       const { id } = req.params;
 
       await longTermMemory.deleteMemory(userId, id);
@@ -225,9 +253,10 @@ export const memoryController = {
     }
   },
 
-  async forgetAll(req, res, next) {
+  async forgetAll(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
 
       await longTermMemory.forgetAll(userId);
       res.status(200).json({ data: { message: "All candidate memories purged" } });
@@ -236,18 +265,19 @@ export const memoryController = {
     }
   },
 
-  async togglePause(req, res, next) {
+  async togglePause(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const userId = req.user._id ? req.user._id.toString() : req.user.id;
-      const currentUser = await userRepository.findById(userId).catch(() => req.user);
-      const updated = await userRepository.update(userId, {
-        memoryPaused: !(currentUser || req.user).memoryPaused,
-      });
+      const userReq = req.user as UserWithConsent;
+      const userId = userReq?._id ? userReq._id.toString() : (userReq as unknown as { id?: string })?.id || "";
+      const currentUser = ((await userRepository.findById(userId).catch(() => userReq)) || userReq) as UserWithConsent;
+      const updated = (await userRepository.update(userId, {
+        memoryPaused: !(currentUser || userReq).memoryPaused,
+      })) as UserWithConsent;
 
       res.status(200).json({
         data: {
-          memoryPaused: updated.memoryPaused,
-          message: updated.memoryPaused ? "Memory capture paused" : "Memory capture resumed",
+          memoryPaused: updated?.memoryPaused,
+          message: updated?.memoryPaused ? "Memory capture paused" : "Memory capture resumed",
         },
       });
     } catch (err) {

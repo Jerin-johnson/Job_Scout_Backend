@@ -1,11 +1,11 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { isMongoReady } from "../config/database.js";
 import { isRedisReady } from "../config/redis.js";
 
 export const healthRouter = Router();
 
 // Liveness check: indicates process is responsive
-healthRouter.get("/live", (req, res) => {
+healthRouter.get("/live", (_req: Request, res: Response) => {
   res.status(200).json({
     status: "ok",
     uptime: process.uptime(),
@@ -14,7 +14,7 @@ healthRouter.get("/live", (req, res) => {
 });
 
 // Readiness check: verifies Mongo and Redis connectivity
-healthRouter.get("/ready", (req, res) => {
+healthRouter.get("/ready", (_req: Request, res: Response) => {
   const mongo = isMongoReady();
   const redis = isRedisReady();
 
