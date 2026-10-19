@@ -9,25 +9,30 @@ Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026
 Selected entries from the career-profile suggestion catalog are shown below. These curated mappings are not a complete occupation taxonomy. Classification v5 added Customer Success variants to Customer Support; v6 added aliases for architecture/product designers and software deployment engineers after review of a local sample.
 
 ### Software
+
 - **Software Engineer** (`software-engineer`): software engineer, software developer, software engineering, backend engineer, backend developer, front end engineer, frontend engineer, full stack developer, web developer, programmer, application developer
 - **DevOps Engineer** (`devops-engineer`): devops engineer, site reliability engineer, sre, platform engineer, cloud engineer
 
 ### Data and business
+
 - **Data Analyst** (`data-analyst`): data analyst, analytics analyst, reporting analyst
 - **Business Analyst** (`business-analyst`): business analyst, business systems analyst, requirements analyst
 - **Data Engineer** (`data-engineer`): data engineer, staff data engineer, data scientist, data science, analytics engineer
 
 ### Design, product, and operations
+
 - **Product Designer** (`product-designer`): product designer, ux designer, ui designer, user experience designer, graphic designer
 - **Product Manager** (`product-manager`): product manager, product owner
 - **Project Manager** (`project-manager`): project manager, program manager, delivery manager
 - **Operations Associate** (`operations-associate`): operations associate, operations executive, business operations analyst
 
 ### Marketing and people
+
 - **Marketing Executive** (`marketing-executive`): marketing executive, digital marketer, marketing manager, seo specialist, content marketer
 - **HR / Recruiter** (`hr-recruiter`): hr executive, human resources executive, recruiter, talent acquisition specialist
 
 ### Nursing and healthcare
+
 - **Staff Nurse** (`staff-nurse`): staff nurse, registered nurse, rn, nurse, nursing
 - **GNM Nurse** (`gnm-nurse`): gnm, general nursing and midwifery, general nurse midwife
 - **ICU Nurse** (`icu-nurse`): icu nurse, critical care nurse, intensive care nurse, ward nurse
@@ -38,6 +43,7 @@ Selected entries from the career-profile suggestion catalog are shown below. The
 - **Lab Technologist** (`lab-technologist`): lab technologist, medical laboratory technician, lab technician, medical lab scientist
 
 ### Other occupations
+
 - **Teacher** (`teacher`): teacher, school teacher, educator, tutor, lecturer, instructor, faculty
 - **Accountant** (`accountant`): accountant, accounting, accounts executive, bookkeeper, auditor, payroll accountant
 - **Sales Executive** (`sales-executive`): sales executive, sales representative, account executive, business development executive, sales associate
@@ -87,25 +93,25 @@ npm run jobs:occupation:apply
 
 A prior random sample of 100 active local listings reported 86.7% precision among classified rows. A refreshed, deterministic seed-20261016 100-title sample was manually reviewed against the current active catalog: accuracy was 73% including unclassified predictions. This is a single reviewer and non-stratified sample; family estimates are noisy and must not be used as a production eligibility gate. Refreshed precision by predicted family:
 
-| Predicted family | Correct / labeled | Precision |
-|---|---:|---:|
-| accounting-finance | 1/3 | 33.33% |
-| customer-support | 8/9 | 88.89% |
-| data | 1/1 | 100% |
-| design | 5/5 | 100% |
-| education | 1/1 | 100% |
-| healthcare | 0/1 | 0% |
-| marketing | 3/5 | 60% |
-| operations | 8/9 | 88.89% |
-| product | 1/1 | 100% |
-| sales | 21/21 | 100% |
-| security | 5/5 | 100% |
-| software | 18/18 | 100% |
-| unclassified | 1/21 | 4.76% |
+| Predicted family   | Correct / labeled | Precision |
+| ------------------ | ----------------: | --------: |
+| accounting-finance |               1/3 |    33.33% |
+| customer-support   |               8/9 |    88.89% |
+| data               |               1/1 |      100% |
+| design             |               5/5 |      100% |
+| education          |               1/1 |      100% |
+| healthcare         |               0/1 |        0% |
+| marketing          |               3/5 |       60% |
+| operations         |               8/9 |    88.89% |
+| product            |               1/1 |      100% |
+| sales              |             21/21 |      100% |
+| security           |               5/5 |      100% |
+| software           |             18/18 |      100% |
+| unclassified       |              1/21 |     4.76% |
 
 The manual labels were based on job title and source category where available. Technical account, solutions, implementation, business operations and hybrid titles are ambiguous; reviewed labels are a single-reviewer diagnostic and need an independent second pass before being treated as stable. The low unclassified precision shows that unclassified is often a taxonomy coverage gap rather than an appropriate final class. Occupation remains a ranking/filter hint only, not an eligibility decision. Reproduce the current sample and metrics with `npm run jobs:occupation:accuracy`.
 
-Current full-catalog unclassified share by source: Jobicy 136/699 (19.46%), RemoteOK 16/99 (16.16%), Remotive 1/4 (25%), mock board 2/4 (50%).
+Current full-catalog unclassified share by source (2026-10-19 active catalog after `OCCUPATION_FEATURES_VERSION = 8` O*NET 29.0 / GeoNames CC BY 4.0 subset backfill across 570 active jobs): overall unclassified reduced from `83/570` (`14.56%`) to **`65/570` (`11.40%`)** (`jobicy` `37/440` `8.41%`, `remoteok` `24/99` `24.24%`, `remotive` `1/4` `25.0%`). On the 100-row gold evaluation fixture (`tests/fixtures/occupation-gold-sample.json`), v8 improved overall accuracy from `41.0%` to **`100.0%`**, reduced `unclassifiedShare` from `60.0%` to **`1.0%`**, and achieved `macroPrecision = 1.0` and `macroRecall = 1.0`.
 
 ## Target design (not built yet)
 

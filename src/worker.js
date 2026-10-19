@@ -17,7 +17,10 @@ import { Profile } from "./models/Profile.js";
 import { enqueueMatchRefreshForUser } from "./services/matchRefreshService.js";
 import { markMatchRefresh } from "./services/matchRefreshService.js";
 import { MATCH_SCORE_VERSION } from "./services/jobs/matching.js";
-import { reconcileJobIngestionSchedules, writeWorkerHeartbeat } from "./services/jobs/repeatSchedule.js";
+import {
+  reconcileJobIngestionSchedules,
+  writeWorkerHeartbeat,
+} from "./services/jobs/repeatSchedule.js";
 import { refreshReferenceRates } from "./services/jobs/fxRates.js";
 
 const activeWorkers = [];
@@ -54,14 +57,33 @@ async function initializeQueues() {
   await jobIngestionService.ensureSources();
   await writeWorkerHeartbeat(redis);
   heartbeatTimer = setInterval(() => {
-    writeWorkerHeartbeat(redis).catch((error) => logger.warn({ err: error.message }, "Worker heartbeat write failed"));
+    writeWorkerHeartbeat(redis).catch((error) =>
+      logger.warn({ err: error.message }, "Worker heartbeat write failed"),
+    );
   }, 15_000);
   heartbeatTimer.unref?.();
   process.once("SIGINT", () => clearInterval(heartbeatTimer));
   process.once("SIGTERM", () => clearInterval(heartbeatTimer));
   ingestionQueue = new Queue("job-ingestion", { connection: redis });
-  await ingestionQueue.add("refresh-fx-rates", {}, { jobId: "fx-rates-daily", repeat: { every: 86400000 }, removeOnComplete: 10, removeOnFail: 20 });
-  await ingestionQueue.add("refresh-fx-rates", {}, { jobId: `fx-rates-startup-${new Date().toISOString().slice(0, 10)}`, removeOnComplete: 10, removeOnFail: 20 });
+  await ingestionQueue.add(
+    "refresh-fx-rates",
+    {},
+    {
+      jobId: "fx-rates-daily",
+      repeat: { every: 86400000 },
+      removeOnComplete: 10,
+      removeOnFail: 20,
+    },
+  );
+  await ingestionQueue.add(
+    "refresh-fx-rates",
+    {},
+    {
+      jobId: `fx-rates-startup-${new Date().toISOString().slice(0, 10)}`,
+      removeOnComplete: 10,
+      removeOnFail: 20,
+    },
+  );
   const sourceSchedules = await scheduleJobIngestion(
     ingestionQueue,
     await jobIngestionService.sourceBudgets(),
@@ -222,8 +244,12 @@ async function startWorker() {
   logger.info(`JobScout background worker service initialized [${env.NODE_ENV}]`);
 
   registerShutdownHandler(async () => {
+    jobIngestionService.requestShutdown();
     clearInterval(heartbeatTimer);
-    if (isRedisReady()) await getRedisClient().del("jobscout:worker:heartbeat").catch(() => {});
+    if (isRedisReady())
+      await getRedisClient()
+        .del("jobscout:worker:heartbeat")
+        .catch(() => {});
     for (const w of activeWorkers) {
       await w.close();
     }

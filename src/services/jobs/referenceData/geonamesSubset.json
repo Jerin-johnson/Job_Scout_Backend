@@ -1,0 +1,292 @@
+{
+  "metadata": {
+    "dataset": "GeoNames Gazetteer Place & Administrative Subdivision Subset",
+    "version": "2026.10-subset-1",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceUrl": "https://www.geonames.org/",
+    "attribution": "Geographical names and administrative subdivisions derived from GeoNames (https://www.geonames.org/), licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0)."
+  },
+  "places": [
+    {
+      "geonameId": 1273874,
+      "name": "Kochi",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["cochin", "ernakulam", "kakkanad", "infopark kochi"]
+    },
+    {
+      "geonameId": 1254163,
+      "name": "Thiruvananthapuram",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["trivandrum", "technopark trivandrum", "kazhakkoottam"]
+    },
+    {
+      "geonameId": 1265873,
+      "name": "Kozhikode",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["calicut", "cyberpark kozhikode"]
+    },
+    {
+      "geonameId": 1254187,
+      "name": "Thrissur",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["trichur"]
+    },
+    {
+      "geonameId": 1265995,
+      "name": "Kottayam",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["kottayam kerala"]
+    },
+    {
+      "geonameId": 1267254,
+      "name": "Kannur",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["cannanore"]
+    },
+    {
+      "geonameId": 1266285,
+      "name": "Kollam",
+      "region": "Kerala",
+      "subdivisionCode": "IN-KL",
+      "countryCode": "IN",
+      "aliases": ["quilon"]
+    },
+    {
+      "geonameId": 1277333,
+      "name": "Bengaluru",
+      "region": "Karnataka",
+      "subdivisionCode": "IN-KA",
+      "countryCode": "IN",
+      "aliases": ["bangalore", "bengaluru urban", "whitefield", "electronic city"]
+    },
+    {
+      "geonameId": 1269843,
+      "name": "Hyderabad",
+      "region": "Telangana",
+      "subdivisionCode": "IN-TG",
+      "countryCode": "IN",
+      "aliases": ["hitec city", "gachibowli", "secunderabad"]
+    },
+    {
+      "geonameId": 1264527,
+      "name": "Chennai",
+      "region": "Tamil Nadu",
+      "subdivisionCode": "IN-TN",
+      "countryCode": "IN",
+      "aliases": ["madras", "guindy", "sholinganallur"]
+    },
+    {
+      "geonameId": 1275339,
+      "name": "Mumbai",
+      "region": "Maharashtra",
+      "subdivisionCode": "IN-MH",
+      "countryCode": "IN",
+      "aliases": ["bombay", "navi mumbai", "thane"]
+    },
+    {
+      "geonameId": 1259229,
+      "name": "Pune",
+      "region": "Maharashtra",
+      "subdivisionCode": "IN-MH",
+      "countryCode": "IN",
+      "aliases": ["hinjawadi", "kharadi", "magarpatta"]
+    },
+    {
+      "geonameId": 1273294,
+      "name": "New Delhi",
+      "region": "Delhi",
+      "subdivisionCode": "IN-DL",
+      "countryCode": "IN",
+      "aliases": ["delhi", "delhi ncr", "ncr"]
+    },
+    {
+      "geonameId": 1270642,
+      "name": "Gurugram",
+      "region": "Haryana",
+      "subdivisionCode": "IN-HR",
+      "countryCode": "IN",
+      "aliases": ["gurgaon"]
+    },
+    {
+      "geonameId": 7279746,
+      "name": "Noida",
+      "region": "Uttar Pradesh",
+      "subdivisionCode": "IN-UP",
+      "countryCode": "IN",
+      "aliases": ["greater noida"]
+    },
+    {
+      "geonameId": 292223,
+      "name": "Dubai",
+      "region": "Dubai",
+      "subdivisionCode": "AE-DU",
+      "countryCode": "AE",
+      "aliases": ["dubai healthcare city", "jlt", "difc"]
+    },
+    {
+      "geonameId": 292968,
+      "name": "Abu Dhabi",
+      "region": "Abu Dhabi",
+      "subdivisionCode": "AE-AZ",
+      "countryCode": "AE",
+      "aliases": ["abudhabi", "al ain"]
+    },
+    {
+      "geonameId": 292672,
+      "name": "Sharjah",
+      "region": "Sharjah",
+      "subdivisionCode": "AE-SH",
+      "countryCode": "AE",
+      "aliases": ["sharjah uae"]
+    },
+    {
+      "geonameId": 108410,
+      "name": "Riyadh",
+      "region": "Riyadh",
+      "subdivisionCode": "SA-01",
+      "countryCode": "SA",
+      "aliases": ["ar riyad"]
+    },
+    {
+      "geonameId": 105343,
+      "name": "Jeddah",
+      "region": "Makkah",
+      "subdivisionCode": "SA-02",
+      "countryCode": "SA",
+      "aliases": ["jiddah"]
+    },
+    {
+      "geonameId": 290030,
+      "name": "Doha",
+      "region": "Ad Dawhah",
+      "subdivisionCode": "QA-DA",
+      "countryCode": "QA",
+      "aliases": ["doha qatar"]
+    },
+    {
+      "geonameId": 285787,
+      "name": "Kuwait City",
+      "region": "Al Asimah",
+      "subdivisionCode": "KW-KU",
+      "countryCode": "KW",
+      "aliases": ["kuwait"]
+    },
+    {
+      "geonameId": 287286,
+      "name": "Muscat",
+      "region": "Muscat",
+      "subdivisionCode": "OM-MA",
+      "countryCode": "OM",
+      "aliases": ["masqat"]
+    },
+    {
+      "geonameId": 290340,
+      "name": "Manama",
+      "region": "Capital",
+      "subdivisionCode": "BH-13",
+      "countryCode": "BH",
+      "aliases": ["bahrain"]
+    },
+    {
+      "geonameId": 2643743,
+      "name": "London",
+      "region": "England",
+      "subdivisionCode": "GB-ENG",
+      "countryCode": "GB",
+      "aliases": ["greater london", "city of london"]
+    },
+    {
+      "geonameId": 2643123,
+      "name": "Manchester",
+      "region": "England",
+      "subdivisionCode": "GB-ENG",
+      "countryCode": "GB",
+      "aliases": ["greater manchester"]
+    },
+    {
+      "geonameId": 2655603,
+      "name": "Birmingham",
+      "region": "England",
+      "subdivisionCode": "GB-ENG",
+      "countryCode": "GB",
+      "aliases": ["west midlands"]
+    },
+    {
+      "geonameId": 2650225,
+      "name": "Edinburgh",
+      "region": "Scotland",
+      "subdivisionCode": "GB-SCT",
+      "countryCode": "GB",
+      "aliases": ["edinburgh scotland"]
+    },
+    {
+      "geonameId": 2964574,
+      "name": "Dublin",
+      "region": "Leinster",
+      "subdivisionCode": "IE-L",
+      "countryCode": "IE",
+      "aliases": ["county dublin", "dublin ireland"]
+    },
+    {
+      "geonameId": 2965140,
+      "name": "Cork",
+      "region": "Munster",
+      "subdivisionCode": "IE-M",
+      "countryCode": "IE",
+      "aliases": ["county cork"]
+    },
+    {
+      "geonameId": 2950159,
+      "name": "Berlin",
+      "region": "Berlin",
+      "subdivisionCode": "DE-BE",
+      "countryCode": "DE",
+      "aliases": ["berlin germany"]
+    },
+    {
+      "geonameId": 2867714,
+      "name": "Munich",
+      "region": "Bavaria",
+      "subdivisionCode": "DE-BY",
+      "countryCode": "DE",
+      "aliases": ["muenchen", "münchen"]
+    },
+    {
+      "geonameId": 2988507,
+      "name": "Paris",
+      "region": "Île-de-France",
+      "subdivisionCode": "FR-IDF",
+      "countryCode": "FR",
+      "aliases": ["ile de france", "paris france"]
+    },
+    {
+      "geonameId": 727011,
+      "name": "Sofia",
+      "region": "Sofia-Capital",
+      "subdivisionCode": "BG-22",
+      "countryCode": "BG",
+      "aliases": ["sofia bulgaria"]
+    },
+    {
+      "geonameId": 1880252,
+      "name": "Singapore",
+      "region": "Singapore",
+      "subdivisionCode": "SG-01",
+      "countryCode": "SG",
+      "aliases": ["singapore city"]
+    }
+  ]
+}

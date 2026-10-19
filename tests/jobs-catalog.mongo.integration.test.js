@@ -35,7 +35,12 @@ before(async () => {
       : undefined,
   });
   await mongoose.connect(mongo.getUri(), { dbName: "job-catalog-integration" });
-  await Promise.all([Job.syncIndexes(), JobSource.syncIndexes(), JobCatalogVersion.syncIndexes(), Profile.syncIndexes()]);
+  await Promise.all([
+    Job.syncIndexes(),
+    JobSource.syncIndexes(),
+    JobCatalogVersion.syncIndexes(),
+    Profile.syncIndexes(),
+  ]);
 });
 
 after(async () => {
@@ -56,12 +61,30 @@ test("admin coverage reports deduplicated freshness and target gaps; older listi
   const id = new mongoose.Types.ObjectId();
   const postedAt = new Date(Date.now() - 45 * 86400000);
   const firstSeenAt = new Date(Date.now() - 2 * 86400000);
-  const job = await Job.create({ _id: id, contentHash: `coverage-${id}`, identityKey: `coverage-${id}`, title: "Nurse listing", company: "Test Hospital", rawDescription: "Staff nurse position", sourceBoard: "coverage-fixture", status: "active", expiresAt: new Date(Date.now() + 86400000), postedAt, postedDateKnown: true, firstSeenAt, lastSeenAt: new Date(), occupation: "nursing", structuredLocation: { countryCode: "IN", region: "Kerala" } });
+  const job = await Job.create({
+    _id: id,
+    contentHash: `coverage-${id}`,
+    identityKey: `coverage-${id}`,
+    title: "Nurse listing",
+    company: "Test Hospital",
+    rawDescription: "Staff nurse position",
+    sourceBoard: "coverage-fixture",
+    status: "active",
+    expiresAt: new Date(Date.now() + 86400000),
+    postedAt,
+    postedDateKnown: true,
+    firstSeenAt,
+    lastSeenAt: new Date(),
+    occupation: "nursing",
+    structuredLocation: { countryCode: "IN", region: "Kerala" },
+  });
   try {
     const report = await jobIngestionService.coverageReport();
     assert.ok(report.totalActive >= 1);
     assert.ok(report.freshness.some((bucket) => bucket._id === "under_24h"));
-    assert.ok(report.targetGaps.some((item) => item.key === "kerala-nursing" && item.target === 100));
+    assert.ok(
+      report.targetGaps.some((item) => item.key === "kerala-nursing" && item.target === 100),
+    );
     const codes = getJobRiskFlags(job).map((flag) => flag.code);
     assert.ok(codes.includes("older_listing"));
     assert.ok(codes.includes("possible_repost"));
@@ -71,13 +94,15 @@ test("admin coverage reports deduplicated freshness and target gaps; older listi
 });
 
 test("source registry refresh updates verified policy metadata without overriding operator enablement or metrics", async () => {
-  await JobSource.create(makeSource("jobicy", {
-    enabled: true,
-    approved: true,
-    termsUrl: "https://jobicy.com/terms-and-conditions",
-    termsReference: "stale-reference",
-    metrics: { fetched: 17 },
-  }));
+  await JobSource.create(
+    makeSource("jobicy", {
+      enabled: true,
+      approved: true,
+      termsUrl: "https://jobicy.com/terms-and-conditions",
+      termsReference: "stale-reference",
+      metrics: { fetched: 17 },
+    }),
+  );
   try {
     await jobIngestionService.ensureSources();
     const source = await JobSource.findOne({ key: "jobicy" }).lean();
@@ -152,8 +177,11 @@ test("cross-source variant grouping prefers an ATS original and bounds alternati
     assert.ok(canonical);
     assert.equal(canonical.canonicalJobId, null);
     assert.equal(canonical.variants.length, 10);
-    assert.ok(grouped.filter((job) => job._id.toString() !== canonical._id.toString())
-      .every((job) => job.canonicalJobId?.toString() === canonical._id.toString()));
+    assert.ok(
+      grouped
+        .filter((job) => job._id.toString() !== canonical._id.toString())
+        .every((job) => job.canonicalJobId?.toString() === canonical._id.toString()),
+    );
   } finally {
     await Job.deleteMany({ groupKey });
   }
@@ -161,7 +189,17 @@ test("cross-source variant grouping prefers an ATS original and bounds alternati
 
 test("Mongo source budget atomically enforces minute, day, week and month limits", async () => {
   const key = `adzuna-quota-${new mongoose.Types.ObjectId()}`;
-  await JobSource.create(makeSource(key, { quota: { requestsPerDay: 2, intervalMs: 60000, timeoutMs: 10000, maxRetries: 0, limits: { perMinute: 1, perDay: 2, perWeek: 2, perMonth: 2 } } }));
+  await JobSource.create(
+    makeSource(key, {
+      quota: {
+        requestsPerDay: 2,
+        intervalMs: 60000,
+        timeoutMs: 10000,
+        maxRetries: 0,
+        limits: { perMinute: 1, perDay: 2, perWeek: 2, perMonth: 2 },
+      },
+    }),
+  );
   try {
     const quota = (await JobSource.findOne({ key }).lean()).quota;
     assert.equal(await reserveSourceRequest(key, quota), true);
@@ -171,7 +209,9 @@ test("Mongo source budget atomically enforces minute, day, week and month limits
     assert.equal(row.quotaMinuteUsed, 1);
     assert.equal(row.quotaWeekUsed, 1);
     assert.equal(row.quotaMonthUsed, 1);
-  } finally { await JobSource.deleteOne({ key }); }
+  } finally {
+    await JobSource.deleteOne({ key });
+  }
 });
 
 test("same content fingerprint from different sources is retained under source-specific identities", async () => {
@@ -213,7 +253,11 @@ test("demand terms are aggregated from role and location preferences without exp
     users.map((userId) => ({
       userId,
       preferences: { targetRoles: ["Software Engineer"], preferredLocations: ["India"] },
-      careerProfile: { targetRoles: [{ customRoleLabel: "Staff Nurse", custom: true }], homeLocation: { countryCode: "IN", scope: "country" }, targetLocations: [{ countryCode: "IN", cityCode: "in-kerala-kochi", scope: "city" }] },
+      careerProfile: {
+        targetRoles: [{ customRoleLabel: "Staff Nurse", custom: true }],
+        homeLocation: { countryCode: "IN", scope: "country" },
+        targetLocations: [{ countryCode: "IN", cityCode: "in-kerala-kochi", scope: "city" }],
+      },
     })),
   );
   const terms = await jobIngestionService.getDemandTerms();
@@ -347,14 +391,73 @@ test("catalog hides explicitly ineligible jobs by default and showAnyway reveals
   const ids = ["us-only", "worldwide", "unknown"].map(() => new mongoose.Types.ObjectId());
   const expiresAt = new Date(Date.now() + 86400000);
   await Job.collection.insertMany([
-    { _id: ids[0], identityKey: "elig-us", contentHash: "elig-us", title: "US Nurse", company: "A", location: "Remote", rawDescription: "US only", features: { titleTokens: ["us", "nurse"], companyTokens: ["a"] }, sourceBoard: key, sourceUrl: "https://example.test/us", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: ["US"], remoteScope: "country" } },
-    { _id: ids[1], identityKey: "elig-world", contentHash: "elig-world", title: "Global Nurse", company: "B", location: "Remote", rawDescription: "Worldwide", features: { titleTokens: ["global", "nurse"], companyTokens: ["b"] }, sourceBoard: key, sourceUrl: "https://example.test/world", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "worldwide" } },
-    { _id: ids[2], identityKey: "elig-unknown", contentHash: "elig-unknown", title: "Unclear Nurse", company: "C", location: "Remote", rawDescription: "Remote", features: { titleTokens: ["unclear", "nurse"], companyTokens: ["c"] }, sourceBoard: key, sourceUrl: "https://example.test/unknown", remoteType: "remote", status: "active", expiresAt, eligibility: { countries: [], remoteScope: "unknown" } },
+    {
+      _id: ids[0],
+      identityKey: "elig-us",
+      contentHash: "elig-us",
+      title: "US Nurse",
+      company: "A",
+      location: "Remote",
+      rawDescription: "US only",
+      features: { titleTokens: ["us", "nurse"], companyTokens: ["a"] },
+      sourceBoard: key,
+      sourceUrl: "https://example.test/us",
+      remoteType: "remote",
+      status: "active",
+      expiresAt,
+      eligibility: { countries: ["US"], remoteScope: "country" },
+    },
+    {
+      _id: ids[1],
+      identityKey: "elig-world",
+      contentHash: "elig-world",
+      title: "Global Nurse",
+      company: "B",
+      location: "Remote",
+      rawDescription: "Worldwide",
+      features: { titleTokens: ["global", "nurse"], companyTokens: ["b"] },
+      sourceBoard: key,
+      sourceUrl: "https://example.test/world",
+      remoteType: "remote",
+      status: "active",
+      expiresAt,
+      eligibility: { countries: [], remoteScope: "worldwide" },
+    },
+    {
+      _id: ids[2],
+      identityKey: "elig-unknown",
+      contentHash: "elig-unknown",
+      title: "Unclear Nurse",
+      company: "C",
+      location: "Remote",
+      rawDescription: "Remote",
+      features: { titleTokens: ["unclear", "nurse"], companyTokens: ["c"] },
+      sourceBoard: key,
+      sourceUrl: "https://example.test/unknown",
+      remoteType: "remote",
+      status: "active",
+      expiresAt,
+      eligibility: { countries: [], remoteScope: "unknown" },
+    },
   ]);
   try {
-    const defaultResults = await jobIngestionService.searchJobs({ q: "Nurse", eligibilityCountryCodes: ["IN"], page: 1, limit: 10 });
-    assert.deepEqual(defaultResults.jobs.map((job) => job.title).sort(), ["Global Nurse", "Unclear Nurse"]);
-    const expanded = await jobIngestionService.searchJobs({ q: "Nurse", eligibilityCountryCodes: ["IN"], showAnyway: true, page: 1, limit: 10 });
+    const defaultResults = await jobIngestionService.searchJobs({
+      q: "Nurse",
+      eligibilityCountryCodes: ["IN"],
+      page: 1,
+      limit: 10,
+    });
+    assert.deepEqual(defaultResults.jobs.map((job) => job.title).sort(), [
+      "Global Nurse",
+      "Unclear Nurse",
+    ]);
+    const expanded = await jobIngestionService.searchJobs({
+      q: "Nurse",
+      eligibilityCountryCodes: ["IN"],
+      showAnyway: true,
+      page: 1,
+      limit: 10,
+    });
     assert.equal(expanded.jobs.length, 3);
   } finally {
     await Job.deleteMany({ _id: { $in: ids } });
@@ -442,16 +545,32 @@ test("ingestion persists async iterable pages in bounded batches and applies ina
   await JobSource.create(makeSource(key, { lastRunAt: new Date(0), lastFullSyncAt: new Date() }));
   const expiresAt = new Date(Date.now() + 86400000);
   await Job.create({
-    contentHash: "stream-closed-hash", identityKey: "stream-closed", sourceJobId: "closed-id",
-    title: "Old role", company: "Example", location: "Remote", rawDescription: "Old",
-    sourceBoard: key, sourceUrl: "https://example.test/closed", status: "active", expiresAt,
+    contentHash: "stream-closed-hash",
+    identityKey: "stream-closed",
+    sourceJobId: "closed-id",
+    title: "Old role",
+    company: "Example",
+    location: "Remote",
+    rawDescription: "Old",
+    sourceBoard: key,
+    sourceUrl: "https://example.test/closed",
+    status: "active",
+    expiresAt,
   });
   const unregister = registerJobAdapterFactory(key, () => {
     const adapter = new BaseJobAdapter({ key, capabilities: { paging: true } });
     adapter.fetchPage = async function fetchPage() {
       async function* jobs() {
         for (let index = 0; index < 501; index += 1) {
-          yield { title: `Role ${index}`, company: "Example", sourceJobId: `job-${index}`, canonicalUrl: `https://example.test/jobs/${index}`, location: "Remote", rawDescription: "Description", requirements: [] };
+          yield {
+            title: `Role ${index}`,
+            company: "Example",
+            sourceJobId: `job-${index}`,
+            canonicalUrl: `https://example.test/jobs/${index}`,
+            location: "Remote",
+            rawDescription: "Description",
+            requirements: [],
+          };
         }
       }
       return { jobs: jobs(), inactiveIds: ["closed-id"], cursor: null, done: true };
@@ -462,7 +581,10 @@ test("ingestion persists async iterable pages in bounded batches and applies ina
     const result = await jobIngestionService.ingestSource(key);
     assert.equal(result.created, 501);
     assert.equal(await Job.countDocuments({ sourceBoard: key, status: "active" }), 501);
-    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "closed-id" })).status, "closed");
+    assert.equal(
+      (await Job.findOne({ sourceBoard: key, sourceJobId: "closed-id" })).status,
+      "closed",
+    );
   } finally {
     unregister();
     await Job.deleteMany({ sourceBoard: key });
@@ -475,15 +597,35 @@ test("ingestion consumes mixed JobStream-style events and closes deleted ads", a
   await JobSource.create(makeSource(key, { lastRunAt: new Date(0), lastFullSyncAt: new Date() }));
   const expiresAt = new Date(Date.now() + 86400000);
   await Job.create({
-    contentHash: "stream-delete-hash", identityKey: "stream-delete", sourceJobId: "deleted-id",
-    title: "Old role", company: "Example", location: "Remote", rawDescription: "Old",
-    sourceBoard: key, sourceUrl: "https://example.test/deleted", status: "active", expiresAt,
+    contentHash: "stream-delete-hash",
+    identityKey: "stream-delete",
+    sourceJobId: "deleted-id",
+    title: "Old role",
+    company: "Example",
+    location: "Remote",
+    rawDescription: "Old",
+    sourceBoard: key,
+    sourceUrl: "https://example.test/deleted",
+    status: "active",
+    expiresAt,
   });
   const unregister = registerJobAdapterFactory(key, () => {
     const adapter = new BaseJobAdapter({ key, capabilities: { streaming: true, deletions: true } });
     adapter.fetchPage = async function fetchPage() {
       async function* events() {
-        yield { type: "upsert", sourceJobId: "new-id", job: { title: "New role", company: "Example", sourceJobId: "new-id", canonicalUrl: "https://example.test/new", location: "Remote", rawDescription: "Description", requirements: [] } };
+        yield {
+          type: "upsert",
+          sourceJobId: "new-id",
+          job: {
+            title: "New role",
+            company: "Example",
+            sourceJobId: "new-id",
+            canonicalUrl: "https://example.test/new",
+            location: "Remote",
+            rawDescription: "Description",
+            requirements: [],
+          },
+        };
         yield { type: "delete", sourceJobId: "deleted-id", cursor: "2026-10-17T12:00:00.000Z" };
       }
       return { events: events(), cursor: "2026-10-17T12:00:00.000Z", done: true };
@@ -494,8 +636,15 @@ test("ingestion consumes mixed JobStream-style events and closes deleted ads", a
     const result = await jobIngestionService.ingestSource(key);
     assert.equal(result.created, 1);
     assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "new-id" })).status, "active");
-    assert.equal((await Job.findOne({ sourceBoard: key, sourceJobId: "deleted-id" })).status, "closed");
-    assert.equal((await JobSource.findOne({ key })).cursor, "2026-10-17T12:00:00.000Z", "the completed event window persists its resume cursor");
+    assert.equal(
+      (await Job.findOne({ sourceBoard: key, sourceJobId: "deleted-id" })).status,
+      "closed",
+    );
+    assert.equal(
+      (await JobSource.findOne({ key })).cursor,
+      "2026-10-17T12:00:00.000Z",
+      "the completed event window persists its resume cursor",
+    );
   } finally {
     unregister();
     await Job.deleteMany({ sourceBoard: key });
@@ -538,9 +687,24 @@ test("recent-first approved-source candidate retrieval can use its compound inde
 
 test("catalog counts bypass stale global cache entries after source policy changes", async () => {
   const priorSource = await JobSource.findOne({ key: "remoteok" }).lean();
-  await JobSource.updateOne({ key: "remoteok" }, { $set: makeSource("remoteok") }, { upsert: true });
+  await JobSource.updateOne(
+    { key: "remoteok" },
+    { $set: makeSource("remoteok") },
+    { upsert: true },
+  );
   const id = new mongoose.Types.ObjectId();
-  await Job.create({ _id: id, contentHash: `visible-${id}`, identityKey: `visible-${id}`, title: "Visible catalog fixture", company: "Example", rawDescription: "A test job for the catalog count", sourceBoard: "remoteok", status: "active", expiresAt: new Date(Date.now() + 86400000), postedAt: new Date() });
+  await Job.create({
+    _id: id,
+    contentHash: `visible-${id}`,
+    identityKey: `visible-${id}`,
+    title: "Visible catalog fixture",
+    company: "Example",
+    rawDescription: "A test job for the catalog count",
+    sourceBoard: "remoteok",
+    status: "active",
+    expiresAt: new Date(Date.now() + 86400000),
+    postedAt: new Date(),
+  });
   await set("jobs:catalog:active-count:v2:remoteok", 0, 300);
   try {
     const result = await jobIngestionService.searchJobs({ limit: 10, showAnyway: true });
@@ -560,15 +724,41 @@ test("discovery graph reads the indexed catalog and contains no ingestion call",
     new URL("../src/ai/graphs/discoveryGraph.js", import.meta.url),
     "utf8",
   );
-  assert.match(graph, /getCandidateJobs\(\{ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds \}\)/);
+  assert.match(
+    graph,
+    /getCandidateJobs\(\{ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds \}\)/,
+  );
   assert.doesNotMatch(graph, /\.ingestAll\(|\.ingestSource\(/);
 });
 
 test("job reports persist aggregate reason counts without storing reporter identity or text", async () => {
   const id = new mongoose.Types.ObjectId();
-  await Job.create({ _id: id, contentHash: `report-${id}`, identityKey: `report-${id}`, title: "Public job", company: "Example", rawDescription: "A public fixture", sourceBoard: "remoteok", status: "active" });
-  const response = { statusCode: null, ended: false, status(code) { this.statusCode = code; return this; }, end() { this.ended = true; } };
-  await jobController.reportJob({ params: { id: String(id) }, body: { reason: "broken_link" }, id: "req-test" }, response, assert.fail);
+  await Job.create({
+    _id: id,
+    contentHash: `report-${id}`,
+    identityKey: `report-${id}`,
+    title: "Public job",
+    company: "Example",
+    rawDescription: "A public fixture",
+    sourceBoard: "remoteok",
+    status: "active",
+  });
+  const response = {
+    statusCode: null,
+    ended: false,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    end() {
+      this.ended = true;
+    },
+  };
+  await jobController.reportJob(
+    { params: { id: String(id) }, body: { reason: "broken_link" }, id: "req-test" },
+    response,
+    assert.fail,
+  );
   const stored = await Job.findById(id).lean();
   assert.equal(response.statusCode, 204);
   assert.equal(response.ended, true);
@@ -576,4 +766,225 @@ test("job reports persist aggregate reason counts without storing reporter ident
   assert.equal(stored.reporterId, undefined);
   assert.equal(stored.reportText, undefined);
   await Job.deleteOne({ _id: id });
+});
+
+test("catalog search supports typo tolerance, relevance cursor pagination, and catalogVersion-keyed facets", async () => {
+  const key = "relevance-search-source";
+  await JobSource.create(makeSource(key));
+  const now = Date.now();
+  const expiresAt = new Date(now + 86400000);
+  const ids = [
+    new mongoose.Types.ObjectId(),
+    new mongoose.Types.ObjectId(),
+    new mongoose.Types.ObjectId(),
+  ];
+  await Job.insertMany([
+    {
+      _id: ids[0],
+      identityKey: "rel-1",
+      contentHash: "rel-1",
+      title: "Senior Software Engineer",
+      company: "Alpha",
+      rawDescription: "TypeScript and Node.js",
+      sourceBoard: key,
+      remoteType: "remote",
+      occupation: "software",
+      structuredLocation: { countryCode: "IN", remoteScope: "country" },
+      features: {
+        titleTokens: ["senior", "software", "engineer"],
+        companyTokens: ["alpha"],
+        skills: ["typescript", "nodejs"],
+      },
+      searchTokens: ["senior", "software", "engineer", "alpha", "typescript", "nodejs", "in"],
+      status: "active",
+      postedAt: new Date(now - 1 * 86400000),
+      postedDateKnown: true,
+      expiresAt,
+    },
+    {
+      _id: ids[1],
+      identityKey: "rel-2",
+      contentHash: "rel-2",
+      title: "Software Engineer",
+      company: "Beta",
+      rawDescription: "Backend role",
+      sourceBoard: key,
+      remoteType: "hybrid",
+      occupation: "software",
+      structuredLocation: { countryCode: "IN", remoteScope: "country" },
+      features: {
+        titleTokens: ["software", "engineer"],
+        companyTokens: ["beta"],
+        skills: ["javascript"],
+      },
+      searchTokens: ["software", "engineer", "beta", "javascript", "in"],
+      status: "active",
+      postedAt: new Date(now - 15 * 86400000),
+      postedDateKnown: true,
+      expiresAt,
+    },
+    {
+      _id: ids[2],
+      identityKey: "rel-3",
+      contentHash: "rel-3",
+      title: "Platform Coordinator",
+      company: "Software Solutions",
+      rawDescription: "Operations",
+      sourceBoard: key,
+      remoteType: "onsite",
+      occupation: "operations",
+      structuredLocation: { countryCode: "US", remoteScope: "country" },
+      features: {
+        titleTokens: ["platform", "coordinator"],
+        companyTokens: ["software", "solutions"],
+        skills: ["engineer"],
+      },
+      searchTokens: ["platform", "coordinator", "software", "solutions", "engineer", "us"],
+      status: "active",
+      postedAt: new Date(now - 25 * 86400000),
+      postedDateKnown: true,
+      expiresAt,
+    },
+  ]);
+  await bumpCatalogVersion();
+  try {
+    const page1 = await jobIngestionService.searchJobs({
+      q: "softwre enginer",
+      source: key,
+      showAnyway: true,
+      limit: 2,
+      sort: "relevance",
+    });
+    assert.equal(page1.typoCorrections.softwre, "software");
+    assert.equal(page1.typoCorrections.enginer, "engineer");
+    assert.equal(page1.jobs.length, 2);
+    assert.equal(page1.jobs[0].title, "Senior Software Engineer");
+    assert.equal(page1.jobs[1].title, "Software Engineer");
+    assert.equal(page1.hasMore, true);
+    assert.ok(page1.nextCursor);
+    assert.ok(Array.isArray(page1.facets?.occupations));
+
+    const page2 = await jobIngestionService.searchJobs({
+      q: "softwre enginer",
+      source: key,
+      showAnyway: true,
+      limit: 2,
+      cursor: page1.nextCursor,
+      sort: "relevance",
+    });
+    assert.equal(page2.jobs.length, 1);
+    assert.equal(page2.jobs[0].title, "Platform Coordinator");
+    assert.equal(page2.hasMore, false);
+  } finally {
+    await Job.deleteMany({ _id: { $in: ids } });
+    await JobSource.deleteOne({ key });
+    await bumpCatalogVersion();
+  }
+});
+
+test("ingestion isolates dead-letter records, finishes current batch on graceful shutdown, resumes idempotently, and reports source health", async () => {
+  const key = "resilience-test-source";
+  await JobSource.create(makeSource(key));
+
+  const unregister = registerJobAdapterFactory(key, () => {
+    const adapter = new BaseJobAdapter({
+      key,
+      capabilities: { paging: true, conditionalRequests: false, statusCheck: false },
+    });
+    adapter.fetchPage = async function fetchPage({ cursor }) {
+      await this.consumeQuota();
+      if (!cursor) {
+        return {
+          jobs: [
+            {
+              sourceJobId: "valid-1",
+              title: "Backend Engineer",
+              company: "Resilient Co",
+              location: "Remote",
+              remoteType: "remote",
+              rawDescription: "Node.js and MongoDB",
+              requirements: ["Node.js"],
+              tags: ["nodejs"],
+              canonicalUrl: "https://example.test/jobs/valid-1",
+              sourceUrl: "https://example.test/jobs/valid-1",
+              postedAt: new Date(),
+              postedDateKnown: true,
+            },
+            {
+              sourceJobId: "bad-missing-title",
+              title: "",
+              company: "Resilient Co",
+            },
+            {
+              sourceJobId: "bad-missing-company",
+              title: "Orphan Role",
+              company: "",
+            },
+          ],
+          cursor: "page-2",
+          done: false,
+        };
+      }
+      return {
+        jobs: [
+          {
+            sourceJobId: "valid-2",
+            title: "Platform Engineer",
+            company: "Resilient Co",
+            location: "Remote",
+            remoteType: "remote",
+            rawDescription: "Kubernetes and Go",
+            requirements: ["Kubernetes"],
+            tags: ["kubernetes"],
+            canonicalUrl: "https://example.test/jobs/valid-2",
+            sourceUrl: "https://example.test/jobs/valid-2",
+            postedAt: new Date(),
+            postedDateKnown: true,
+          },
+        ],
+        cursor: null,
+        done: true,
+      };
+    };
+    return adapter;
+  });
+
+  try {
+    jobIngestionService.resetShutdown();
+    const firstRun = await jobIngestionService.ingestSource(key, {
+      onBatchComplete: async () => {
+        jobIngestionService.requestShutdown();
+      },
+    });
+    assert.equal(firstRun.created, 1);
+    assert.equal(firstRun.deadLettered, 2);
+    assert.equal(firstRun.stoppedForShutdown, true);
+    assert.equal(firstRun.partial, true);
+
+    const checkpointed = await JobSource.findOne({ key }).lean();
+    assert.equal(checkpointed.cursor, "page-2");
+    assert.equal(checkpointed.runState, "idle");
+    assert.equal(checkpointed.deadLetters.length, 2);
+    assert.equal(checkpointed.metrics.deadLettered, 2);
+
+    jobIngestionService.resetShutdown();
+    await JobSource.updateOne({ key }, { $set: { lastRunAt: new Date(0) } });
+    const secondRun = await jobIngestionService.ingestSource(key);
+    assert.equal(secondRun.created, 1);
+    assert.equal(secondRun.stoppedForShutdown, undefined);
+
+    const budgets = await jobIngestionService.sourceBudgets();
+    const entry = budgets.find((item) => item.key === key);
+    assert.ok(entry);
+    assert.equal(entry.healthStatus, "healthy");
+    assert.equal(entry.deadLetterCount, 2);
+    assert.equal(entry.recentDeadLetters.length, 2);
+    assert.ok(entry.lastSuccessAt);
+    assert.equal(entry.alertThresholds.circuitFailureThreshold, 5);
+  } finally {
+    unregister();
+    jobIngestionService.resetShutdown();
+    await Job.deleteMany({ sourceBoard: key });
+    await JobSource.deleteOne({ key });
+  }
 });

@@ -1,0 +1,323 @@
+{
+  "metadata": {
+    "dataset": "O*NET-SOC Alternate Titles & Occupation Crosswalk Subset",
+    "version": "29.0-subset-1",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceUrl": "https://www.onetcenter.org/database.html",
+    "attribution": "Includes data from the O*NET 29.0 Database by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA), used under the Creative Commons Attribution 4.0 International License (CC BY 4.0). O*NET is a trademark of USDOL/ETA.",
+    "escoStatus": "deferred"
+  },
+  "occupations": [
+    {
+      "onetSocCode": "15-1252.00",
+      "family": "software",
+      "label": "Software Engineer",
+      "aliases": [
+        "applied ai application engineer",
+        "application engineer",
+        "full stack architect",
+        "full stack web engineer",
+        "golang kubernetes engineer",
+        "kubernetes engineer",
+        "golang engineer",
+        "engineering manager",
+        "network team lead",
+        "si agent engineer",
+        "agent engineer",
+        "ai platform engineer",
+        "platform engineer",
+        "solutions architect",
+        "product engineer",
+        "chief technology officer",
+        "embedded systems engineer",
+        "devops engineer",
+        "site reliability engineer",
+        "cloud engineer",
+        "firmware engineer",
+        "qa automation engineer"
+      ]
+    },
+    {
+      "onetSocCode": "15-2051.00",
+      "family": "data",
+      "label": "Data Analyst",
+      "aliases": [
+        "decision scientist",
+        "senior decision scientist",
+        "game mathematician",
+        "mathematician",
+        "data scientist",
+        "machine learning scientist",
+        "quantitative analyst",
+        "bi analyst",
+        "business intelligence analyst",
+        "analytics engineer",
+        "statistician"
+      ]
+    },
+    {
+      "onetSocCode": "15-1299.09",
+      "family": "product",
+      "label": "Product Manager",
+      "aliases": [
+        "product manager",
+        "principal product manager",
+        "technical product lead",
+        "product lead",
+        "group product manager",
+        "product owner",
+        "head of product",
+        "director of product"
+      ]
+    },
+    {
+      "onetSocCode": "27-1021.00",
+      "family": "design",
+      "label": "Product Designer",
+      "aliases": [
+        "product designer",
+        "content designer",
+        "senior level designer",
+        "ux designer",
+        "ui designer",
+        "ui ux designer",
+        "interaction designer",
+        "visual designer",
+        "graphic designer",
+        "brand designer",
+        "design director"
+      ]
+    },
+    {
+      "onetSocCode": "29-1141.00",
+      "family": "nursing",
+      "label": "Staff Nurse",
+      "aliases": [
+        "registered nurse",
+        "staff nurse",
+        "icu nurse",
+        "critical care nurse",
+        "theatre nurse",
+        "scrub nurse",
+        "emergency room nurse",
+        "neonatal nurse",
+        "pediatric nurse",
+        "operating room nurse",
+        "clinical nurse specialist",
+        "nurse practitioner",
+        "nursing officer",
+        "charge nurse",
+        "ward sister",
+        "home care nurse"
+      ]
+    },
+    {
+      "onetSocCode": "29-9099.00",
+      "family": "healthcare",
+      "label": "Healthcare Professional",
+      "aliases": [
+        "clinical pharmacist",
+        "pharmacist",
+        "physiotherapist",
+        "physical therapist",
+        "radiographer",
+        "medical laboratory technologist",
+        "lab technician",
+        "phlebotomist",
+        "occupational therapist",
+        "respiratory therapist",
+        "paramedic",
+        "dental hygienist",
+        "dietitian"
+      ]
+    },
+    {
+      "onetSocCode": "25-2031.00",
+      "family": "education",
+      "label": "Teacher",
+      "aliases": [
+        "math content teacher",
+        "content teacher",
+        "school teacher",
+        "primary teacher",
+        "secondary teacher",
+        "special education teacher",
+        "esl teacher",
+        "curriculum developer",
+        "instructional designer",
+        "academic lecturer",
+        "assistant professor"
+      ]
+    },
+    {
+      "onetSocCode": "13-2011.00",
+      "family": "accounting-finance",
+      "label": "Accountant",
+      "aliases": [
+        "analyst ii credit",
+        "credit analyst",
+        "financial analyst",
+        "chartered accountant",
+        "accounts payable specialist",
+        "accounts receivable specialist",
+        "tax consultant",
+        "internal auditor",
+        "payroll specialist",
+        "treasury analyst",
+        "finance controller",
+        "bookkeeper"
+      ]
+    },
+    {
+      "onetSocCode": "41-3091.00",
+      "family": "sales",
+      "label": "Sales Executive",
+      "aliases": [
+        "sales development representative",
+        "sales development lead",
+        "strategic alliance director",
+        "corporate sales",
+        "enterprise sales leader",
+        "enterprise sales vp",
+        "advertising account manager",
+        "partner sales director",
+        "sales engineer",
+        "director platform and ai sales",
+        "affiliate bd",
+        "global affiliate bd",
+        "account executive",
+        "commercial account executive",
+        "enterprise account executive",
+        "corporate account executive",
+        "director global solutions engineering",
+        "solutions engineering",
+        "inventory partnerships manager",
+        "partnerships manager",
+        "territory manager",
+        "business development manager",
+        "regional sales manager",
+        "area sales manager",
+        "inside sales representative",
+        "channel sales manager"
+      ]
+    },
+    {
+      "onetSocCode": "11-2021.00",
+      "family": "marketing",
+      "label": "Marketing Executive",
+      "aliases": [
+        "field marketing manager",
+        "content manager",
+        "product marketing lead",
+        "product marketing manager",
+        "growth manager",
+        "senior growth manager",
+        "demand generation manager",
+        "digital marketing specialist",
+        "performance marketing manager",
+        "seo specialist",
+        "social media manager",
+        "brand manager"
+      ]
+    },
+    {
+      "onetSocCode": "43-4051.00",
+      "family": "customer-support",
+      "label": "Customer Support",
+      "aliases": [
+        "customer success manager",
+        "manager customer success",
+        "customer success renewals representative",
+        "customer service manager",
+        "manager account management",
+        "support engineer",
+        "devices support engineer",
+        "tech support specialist",
+        "technical support specialist",
+        "software implementation consultant",
+        "implementation specialist",
+        "solutions consultant",
+        "client support specialist",
+        "help desk analyst"
+      ]
+    },
+    {
+      "onetSocCode": "11-1021.00",
+      "family": "operations",
+      "label": "Operations Associate",
+      "aliases": [
+        "revops analyst",
+        "revenue operations analyst",
+        "ad operations",
+        "manager ad operations",
+        "gtm engineer",
+        "gtm engineering analyst",
+        "gtm systems administrator",
+        "critical facility engineer",
+        "clinical field scheduling",
+        "scheduling and logistics specialist",
+        "project manager",
+        "project planners",
+        "resource director",
+        "marketplace operations manager",
+        "commercial operations",
+        "lab testing and quality leader",
+        "lab testing quality leader",
+        "dispatch specialist",
+        "operations manager",
+        "program manager",
+        "business operations analyst"
+      ]
+    },
+    {
+      "onetSocCode": "13-1071.00",
+      "family": "human-resources",
+      "label": "HR / Recruiter",
+      "aliases": [
+        "talent acquisition strategist",
+        "talent acquisition partner",
+        "technical recruiter",
+        "hr business partner",
+        "people operations specialist",
+        "human resources manager",
+        "compensation and benefits analyst"
+      ]
+    },
+    {
+      "onetSocCode": "15-1212.00",
+      "family": "security",
+      "label": "Security Specialist",
+      "aliases": [
+        "blockchain intelligence analyst",
+        "security researcher",
+        "macos security researcher",
+        "detection and response lead",
+        "detection response lead",
+        "compliance engineer",
+        "compliance engineer intern",
+        "tabletop exercise ttx specialist",
+        "cybersecurity focus",
+        "blockchain security expert",
+        "information security analyst",
+        "soc analyst",
+        "penetration tester",
+        "application security engineer"
+      ]
+    },
+    {
+      "onetSocCode": "13-1081.00",
+      "family": "delivery-logistics",
+      "label": "Logistics Coordinator",
+      "aliases": [
+        "logistics coordinator",
+        "supply chain planner",
+        "warehouse supervisor",
+        "fleet coordinator",
+        "freight forwarding specialist",
+        "inventory control specialist",
+        "delivery executive"
+      ]
+    }
+  ]
+}

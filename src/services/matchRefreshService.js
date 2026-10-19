@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import { getRedisClient, isRedisReady } from "../config/redis.js";
 import { isMongoReady } from "../config/database.js";
 import { MatchRefresh } from "../models/MatchRefresh.js";
+import {
+  findAffectedUsersForNewJobs,
+  INCREMENTAL_MATCH_BUDGET,
+} from "./jobs/incrementalMatching.js";
 
 let queue;
 let queueOverride = null;
@@ -115,6 +119,26 @@ export async function enqueueMatchRefreshForUser(userId, profileVersion) {
     }
     return null;
   }
+}
+
+export async function enqueueIncrementalMatchesForNewJobs(
+  newJobs = [],
+  { maxUsers = INCREMENTAL_MATCH_BUDGET.maxUsersPerRun } = {},
+) {
+  const { affectedUsers, candidateCount, budgetMaxUsers, batchTokens } =
+    await findAffectedUsersForNewJobs(newJobs, { maxUsers });
+  let enqueued = 0;
+  for (const user of affectedUsers) {
+    const result = await enqueueMatchRefreshForUser(user.userId, user.profileVersion);
+    if (result) enqueued += 1;
+  }
+  return {
+    enqueued,
+    affectedCount: affectedUsers.length,
+    candidateCount,
+    budgetMaxUsers,
+    batchTokens,
+  };
 }
 
 export async function closeMatchRefreshQueue() {

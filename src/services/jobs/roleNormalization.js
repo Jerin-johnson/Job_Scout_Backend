@@ -1,15 +1,35 @@
 import { ROLE_SUGGESTIONS } from "../profileSuggestionCatalog.js";
+import { ONET_SUBSET } from "./referenceData/index.js";
 
 const ROLE_CATALOG = [
-  { canonical: "Software Engineer", aliases: ["software engineer", "software developer", "software engineering"] },
-  { canonical: "Backend Engineer", aliases: ["backend engineer", "back end engineer", "api engineer", "server side engineer"] },
-  { canonical: "Frontend Engineer", aliases: ["frontend engineer", "front end engineer", "web developer", "ui engineer"] },
-  { canonical: "Full Stack Engineer", aliases: ["full stack engineer", "fullstack engineer", "full stack developer"] },
-  { canonical: "Staff Nurse", aliases: ["staff nurse", "registered nurse", "nurse", "nursing", "gnm", "icu nurse"] },
+  {
+    canonical: "Software Engineer",
+    aliases: ["software engineer", "software developer", "software engineering"],
+  },
+  {
+    canonical: "Backend Engineer",
+    aliases: ["backend engineer", "back end engineer", "api engineer", "server side engineer"],
+  },
+  {
+    canonical: "Frontend Engineer",
+    aliases: ["frontend engineer", "front end engineer", "web developer", "ui engineer"],
+  },
+  {
+    canonical: "Full Stack Engineer",
+    aliases: ["full stack engineer", "fullstack engineer", "full stack developer"],
+  },
+  {
+    canonical: "Staff Nurse",
+    aliases: ["staff nurse", "registered nurse", "nurse", "nursing", "gnm", "icu nurse"],
+  },
   { canonical: "Accountant", aliases: ["accountant", "accounting", "bookkeeper"] },
   { canonical: "Teacher", aliases: ["teacher", "teaching", "educator", "tutor"] },
-  { canonical: "Data Analyst", aliases: ["data analyst", "analytics analyst", "reporting analyst"] },
+  {
+    canonical: "Data Analyst",
+    aliases: ["data analyst", "analytics analyst", "reporting analyst"],
+  },
   ...ROLE_SUGGESTIONS.map(({ label, aliases }) => ({ canonical: label, aliases })),
+  ...ONET_SUBSET.occupations.map(({ label, aliases }) => ({ canonical: label, aliases })),
 ];
 
 function normalize(value = "") {
@@ -76,8 +96,12 @@ export function normalizeRoleForMatching(value = "") {
 /** Suggestions are returned separately so callers can ask the user before saving any correction. */
 export function suggestTargetRoleCorrections(profile = {}) {
   const preferences = profile.preferences || {};
-  const targetRoles = (preferences.targetRoles || []).map((role) => String(role).trim()).filter(Boolean);
-  const profileRoles = (profile.roles || []).map((role) => String(role.title || "").trim()).filter(Boolean);
+  const targetRoles = (preferences.targetRoles || [])
+    .map((role) => String(role).trim())
+    .filter(Boolean);
+  const profileRoles = (profile.roles || [])
+    .map((role) => String(role.title || "").trim())
+    .filter(Boolean);
 
   if (!targetRoles.length) {
     const uniqueProfileRoles = [...new Set(profileRoles)];
@@ -96,13 +120,15 @@ export function suggestTargetRoleCorrections(profile = {}) {
     if (!match || match.exact || normalize(role) === normalize(match.canonical)) return [];
     const proposedTargetRoles = [...targetRoles];
     proposedTargetRoles[index] = match.canonical;
-    return [{
-      source: "preference",
-      index,
-      originalRole: role,
-      suggestedRole: match.canonical,
-      confidence: Number(match.confidence.toFixed(2)),
-      proposedTargetRoles,
-    }];
+    return [
+      {
+        source: "preference",
+        index,
+        originalRole: role,
+        suggestedRole: match.canonical,
+        confidence: Number(match.confidence.toFixed(2)),
+        proposedTargetRoles,
+      },
+    ];
   });
 }

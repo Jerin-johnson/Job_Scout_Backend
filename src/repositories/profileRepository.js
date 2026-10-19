@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { Profile } from "../models/Profile.js";
 import { Resume } from "../models/Resume.js";
 import { isMongoReady } from "../config/database.js";
+import { buildProfileMatchIndex } from "../services/jobs/incrementalMatching.js";
 
 const inMemoryProfiles = new Map();
 const inMemoryResumes = [];
@@ -22,11 +23,18 @@ export const profileRepository = {
     // source-grounded role history. Explicit profile editing can still clear it.
     if (Array.isArray(updateData.roles) && updateData.roles.length === 0) delete updateData.roles;
     if (isMongoReady()) {
+      const existingDoc = await Profile.findOne({ userId })
+        .select("skills roles preferences careerProfile")
+        .lean();
+      const mergedForIndex = { ...(existingDoc || {}), ...updateData };
+      const { matchTokens, matchCountryCodes } = buildProfileMatchIndex(mergedForIndex);
       return Profile.findOneAndUpdate(
         { userId },
         {
           $set: {
             ...updateData,
+            matchTokens,
+            matchCountryCodes,
             userId,
           },
           $inc: { version: 1 },
@@ -36,11 +44,14 @@ export const profileRepository = {
     }
 
     const existing = inMemoryProfiles.get(uid);
+    const merged = { ...(existing || {}), ...updateData };
+    const { matchTokens, matchCountryCodes } = buildProfileMatchIndex(merged);
     const updated = {
       _id: existing?._id || new mongoose.Types.ObjectId().toString(),
       userId: uid,
-      ...(existing || {}),
-      ...updateData,
+      ...merged,
+      matchTokens,
+      matchCountryCodes,
       version: (existing?.version || 0) + 1,
       updatedAt: new Date(),
     };
