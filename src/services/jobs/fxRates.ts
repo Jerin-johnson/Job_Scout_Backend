@@ -1,4 +1,4 @@
-import { FxRate } from "../../models/FxRate.js";
+import { FxRate } from "../../infrastructure/database/mongoose/models/FxRateModel.js";
 import { env } from "../../config/env.js";
 
 const ECB_SERIES =
@@ -32,7 +32,8 @@ export async function refreshEcbReferenceRates({
         signal: AbortSignal.timeout(8000),
         headers: { accept: "text/csv" },
       });
-      if (!response.ok) throw new Error(`ECB rate request failed for ${currency}: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`ECB rate request failed for ${currency}: ${response.status}`);
       const text = (await response.text()).slice(0, 100_000);
       const lines = text.trim().split(/\r?\n/);
       const headers = (lines.shift() || "").split(",");
@@ -78,7 +79,9 @@ export async function refreshReferenceRates({
   ...options
 }: RefreshReferenceRatesOptions = {}): Promise<unknown> {
   if (source === "ecb") return refreshEcbReferenceRates(options);
-  const error = new Error(UNSUPPORTED_FX_SOURCE[source] || "Unsupported FX reference source.") as Error & {
+  const error = new Error(
+    UNSUPPORTED_FX_SOURCE[source] || "Unsupported FX reference source.",
+  ) as Error & {
     code?: string;
   };
   error.code = "FX_SOURCE_NOT_AVAILABLE";
@@ -94,7 +97,8 @@ export async function latestReferenceRates(
     .lean() as Promise<FxRateRecord | null>;
 }
 
-export const latestEcbReferenceRates = (): Promise<FxRateRecord | null> => latestReferenceRates("ecb");
+export const latestEcbReferenceRates = (): Promise<FxRateRecord | null> =>
+  latestReferenceRates("ecb");
 
 export function isFxRateStale(
   rate: { date?: Date | string } | null | undefined,

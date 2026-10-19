@@ -2,11 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { closeHttpServer } from "../src/config/shutdown.js";
 import { redactSentryEvent } from "../src/config/sentry.js";
-import { UserFeedback } from "../src/models/UserFeedback.js";
+import { UserFeedback } from "../src/infrastructure/database/mongoose/models/UserFeedbackModel.js";
 
 test("Sentry event redaction drops request payloads and sensitive fields", () => {
   const event = {
-    request: { url: "https://api.example.test/path?token=secret", data: { resume: "private resume" }, cookies: { session: "cookie" }, query_string: "q=private" },
+    request: {
+      url: "https://api.example.test/path?token=secret",
+      data: { resume: "private resume" },
+      cookies: { session: "cookie" },
+      query_string: "q=private",
+    },
     extra: { prompt: "private prompt", message: "private feedback", safeCount: 3 },
   };
   const redacted = redactSentryEvent(event);
@@ -25,7 +30,15 @@ test("Sentry redaction tolerates malformed request URLs", () => {
 
 test("HTTP shutdown waits for active requests to drain", async () => {
   let drained = false;
-  const server = { close(callback) { setTimeout(() => { drained = true; callback(); }, 5); }, closeIdleConnections() {} };
+  const server = {
+    close(callback) {
+      setTimeout(() => {
+        drained = true;
+        callback();
+      }, 5);
+    },
+    closeIdleConnections() {},
+  };
   await closeHttpServer(server);
   assert.equal(drained, true);
   await closeHttpServer(null);

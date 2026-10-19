@@ -1,10 +1,9 @@
 import { Router, RequestHandler } from "express";
 import { appContainer } from "../../../main/container.js";
-import { AuthController } from "../controllers/AuthController.js";
-import { authController } from "../../../controllers/authController.js";
+import { AuthController, authController } from "../controllers/AuthController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
-import { authLimiter } from "../../../middleware/rateLimiter.js";
+import { csrfProtection } from "../middleware/csrf.js";
+import { authLimiter } from "../middleware/rateLimiter.js";
 
 export function createAuthRouter(): Router {
   const router = Router();

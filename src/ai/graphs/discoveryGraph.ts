@@ -1,12 +1,16 @@
 import { jobIngestionService } from "../../services/jobs/jobIngestionService.js";
-import { profileRepository } from "../../repositories/profileRepository.js";
+import { profileRepository } from "../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import { embeddingService } from "../../services/embeddingService.js";
-import { Match } from "../../models/Match.js";
+import { Match } from "../../infrastructure/database/mongoose/models/MatchModel.js";
 import { isMongoReady } from "../../config/database.js";
-import { acceptQuota } from "../../middleware/quotaGate.js";
+import { acceptQuota } from "../../presentation/http/middleware/quotaGate.js";
 import { logger } from "../../shared/utils/logger.js";
-import { scoreJobMatch, MATCH_SCORE_VERSION, extractJobFeatures } from "../../services/jobs/matching.js";
-import { HiddenJob } from "../../models/HiddenJob.js";
+import {
+  scoreJobMatch,
+  MATCH_SCORE_VERSION,
+  extractJobFeatures,
+} from "../../services/jobs/matching.js";
+import { HiddenJob } from "../../infrastructure/database/mongoose/models/HiddenJobModel.js";
 import { PLACE_SUGGESTIONS } from "../../services/profileSuggestionCatalog.js";
 import { profileApplicantCountries } from "../../services/jobs/eligibility.js";
 import { latestReferenceRates } from "../../services/jobs/fxRates.js";
@@ -150,7 +154,11 @@ function normalizeLocation(value: unknown = ""): string {
   return locationAliases.get(normalized) || normalized;
 }
 
-export function locationTierForJob(job: CandidateJob | Record<string, unknown>, locations: string[] = [], countryCodes: string[] = []): number {
+export function locationTierForJob(
+  job: CandidateJob | Record<string, unknown>,
+  locations: string[] = [],
+  countryCodes: string[] = [],
+): number {
   if (!locations.length) return 1;
   const location = normalizeLocation(job.location);
   const structured = (job.structuredLocation || {}) as {
@@ -188,10 +196,13 @@ export function locationTierForJob(job: CandidateJob | Record<string, unknown>, 
   )
     return 2;
   if (job.remoteType === "remote") {
-    const eligible = [...(structured.eligibleCountryCodes || []), ...(((job.eligibility as { countries?: string[] } | undefined)?.countries) || [])].map((code) =>
-      String(code).toUpperCase(),
-    );
-    const remoteScope = (job.eligibility as { remoteScope?: string } | undefined)?.remoteScope || structured.remoteScope;
+    const eligible = [
+      ...(structured.eligibleCountryCodes || []),
+      ...((job.eligibility as { countries?: string[] } | undefined)?.countries || []),
+    ].map((code) => String(code).toUpperCase());
+    const remoteScope =
+      (job.eligibility as { remoteScope?: string } | undefined)?.remoteScope ||
+      structured.remoteScope;
     if (countryCodes.length && countryCodes.some((code) => eligible.includes(code))) return 3;
     if (
       !eligible.length &&
@@ -212,8 +223,15 @@ interface CareerLocationEntry {
   countryCode?: string;
 }
 
-function careerProfileLocationLabels(profile: { careerProfile?: { homeLocation?: CareerLocationEntry; targetLocations?: CareerLocationEntry[] } } = {}): string[] {
-  const locationEntries = [profile.careerProfile?.homeLocation, ...(profile.careerProfile?.targetLocations || [])];
+function careerProfileLocationLabels(
+  profile: {
+    careerProfile?: { homeLocation?: CareerLocationEntry; targetLocations?: CareerLocationEntry[] };
+  } = {},
+): string[] {
+  const locationEntries = [
+    profile.careerProfile?.homeLocation,
+    ...(profile.careerProfile?.targetLocations || []),
+  ];
   const items: string[] = [];
   for (const entry of locationEntries) {
     if (!entry) continue;
@@ -232,7 +250,9 @@ function careerProfileLocationLabels(profile: { careerProfile?: { homeLocation?:
     } else if (entry.scope === "anywhere_in_india") {
       items.push("India");
     } else if (entry.countryCode) {
-      const country = PLACE_SUGGESTIONS.find((item) => item.countryCode === entry.countryCode)?.country;
+      const country = PLACE_SUGGESTIONS.find(
+        (item) => item.countryCode === entry.countryCode,
+      )?.country;
       if (country) {
         if (Array.isArray(country)) items.push(...country.map(String));
         else items.push(String(country));
@@ -242,7 +262,9 @@ function careerProfileLocationLabels(profile: { careerProfile?: { homeLocation?:
   return [...new Set(items)];
 }
 
-export async function persistMatchesBulk(matches: FinalizedMatch[]): Promise<{ roundTrips: number }> {
+export async function persistMatchesBulk(
+  matches: FinalizedMatch[],
+): Promise<{ roundTrips: number }> {
   if (!isMongoReady() || !matches.length) return { roundTrips: 0 };
   await Match.bulkWrite(
     matches.map((match) => ({
@@ -278,7 +300,11 @@ export const discoveryGraph = {
     }
 
     if (!quotaAccepted)
-      await acceptQuota(user as unknown as Parameters<typeof acceptQuota>[0], "match_jobs", idempotencyKey || `discovery:${userId}:${Date.now()}`);
+      await acceptQuota(
+        user as unknown as Parameters<typeof acceptQuota>[0],
+        "match_jobs",
+        idempotencyKey || `discovery:${userId}:${Date.now()}`,
+      );
 
     const pObj = profile as unknown as {
       preferences?: {
@@ -311,16 +337,36 @@ export const discoveryGraph = {
             occupationCodes: [],
             minimumSalaryUsd: 0,
           },
-          careerProfile: pObj.careerProfile ? { ...pObj.careerProfile, targetLocations: [] } : undefined,
+          careerProfile: pObj.careerProfile
+            ? { ...pObj.careerProfile, targetLocations: [] }
+            : undefined,
         }
       : pObj;
 
     const hiddenJobIds = isMongoReady() ? await HiddenJob.distinct("jobId", { userId }) : [];
     const ingestion = jobIngestionService as unknown as {
-      getCandidateJobs: (opts: Record<string, unknown>) => Promise<CandidateJob[] & { retrievalStats?: { activeCatalogCount: number; eligibleCount: number; candidateCap: number; lexicalCandidateCount: number } }>;
+      getCandidateJobs: (opts: Record<string, unknown>) => Promise<
+        CandidateJob[] & {
+          retrievalStats?: {
+            activeCatalogCount: number;
+            eligibleCount: number;
+            candidateCap: number;
+            lexicalCandidateCount: number;
+          };
+        }
+      >;
     };
-    const jobs = await ingestion.getCandidateJobs({ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds });
-    const retrieval = jobs.retrievalStats || { activeCatalogCount: jobs.length, eligibleCount: jobs.length, candidateCap: 400, lexicalCandidateCount: 0 };
+    const jobs = await ingestion.getCandidateJobs({
+      profile: matchProfile,
+      limit: 400,
+      excludeJobIds: hiddenJobIds,
+    });
+    const retrieval = jobs.retrievalStats || {
+      activeCatalogCount: jobs.length,
+      eligibleCount: jobs.length,
+      candidateCap: 400,
+      lexicalCandidateCount: 0,
+    };
 
     if (jobs.length === 0) {
       const allCandidates = await ingestion.getCandidateJobs({
@@ -331,7 +377,8 @@ export const discoveryGraph = {
       const broadenActions: string[] = [];
       if (preferences.preferredCountryCodes?.length) broadenActions.push("broaden_country");
       if (preferences.occupationCodes?.length) broadenActions.push("broaden_role");
-      if ((preferences.minimumSalaryUsd || 0) > 0) broadenActions.push("include_salary_unknown_or_lower");
+      if ((preferences.minimumSalaryUsd || 0) > 0)
+        broadenActions.push("include_salary_unknown_or_lower");
       if (preferences.remotePreference && preferences.remotePreference !== "any")
         broadenActions.push("broaden_work_mode");
       return {
@@ -342,7 +389,14 @@ export const discoveryGraph = {
     }
 
     const cp = pObj.careerProfile;
-    const usableProfile = Boolean(pObj.skills?.length || pObj.roles?.length || pObj.preferences?.targetRoles?.length || cp?.targetRoles?.length || cp?.experience?.isFresher || Number.isFinite(cp?.experience?.confirmedYears));
+    const usableProfile = Boolean(
+      pObj.skills?.length ||
+      pObj.roles?.length ||
+      pObj.preferences?.targetRoles?.length ||
+      cp?.targetRoles?.length ||
+      cp?.experience?.isFresher ||
+      Number.isFinite(cp?.experience?.confirmedYears),
+    );
     if (!usableProfile) return { matches: [], emptyReason: "profile_missing", broadenActions: [] };
 
     // 5. Rule Filter: salary and work arrangement. Location uses ranked
@@ -375,14 +429,22 @@ export const discoveryGraph = {
       return true;
     });
 
-    const locations = [...new Set([...(preferences.preferredLocations || []), ...careerProfileLocationLabels(matchProfile)].filter(Boolean))].slice(0, 10);
+    const locations = [
+      ...new Set(
+        [
+          ...(preferences.preferredLocations || []),
+          ...careerProfileLocationLabels(matchProfile),
+        ].filter(Boolean),
+      ),
+    ].slice(0, 10);
     const countryCodes = profileApplicantCountries(matchProfile as unknown as IProfileDocument);
     for (const candidate of filtered)
       candidate.locationTier = locationTierForJob(candidate, locations, countryCodes);
     const bestTier = filtered.length
       ? Math.min(...filtered.map((item) => item.locationTier || 2))
       : null;
-    const tiered = bestTier === null ? [] : filtered.filter((item) => item.locationTier === bestTier);
+    const tiered =
+      bestTier === null ? [] : filtered.filter((item) => item.locationTier === bestTier);
     const preferredLocation = locations[0] || "your preferred location";
     const locationLabel =
       bestTier === 1
@@ -392,50 +454,74 @@ export const discoveryGraph = {
           : bestTier === 3
             ? `No jobs in ${preferredLocation} yet. Showing remote roles; confirm location eligibility before applying.`
             : `No jobs in ${preferredLocation} yet. Showing global remote roles.`;
-    const fxRates = (MATCH_SCORE_VERSION as string) === "lexical-v4" ? await latestReferenceRates().catch(() => null) : null;
+    const fxRates =
+      (MATCH_SCORE_VERSION as string) === "lexical-v4"
+        ? await latestReferenceRates().catch(() => null)
+        : null;
     const scoredCandidates = tiered.map((job) => {
       const result = scoreJobMatch(
         profile as unknown as IProfileDocument,
         { ...job, locationTier: job.locationTier },
-        { ratesPerEur: (fxRates as { ratesPerEur?: Record<string, number> } | null)?.ratesPerEur || null } as unknown as Parameters<typeof scoreJobMatch>[2],
+        {
+          ratesPerEur:
+            (fxRates as { ratesPerEur?: Record<string, number> } | null)?.ratesPerEur || null,
+        } as unknown as Parameters<typeof scoreJobMatch>[2],
       );
       return { job, ...result };
     });
     const scored = scoredCandidates.filter((candidate) => !candidate.hardBlocked);
-    scored.sort((a, b) => b.score - a.score || Number(Boolean(b.job.postedDateKnown)) - Number(Boolean(a.job.postedDateKnown)) || new Date(b.job.postedAt || 0).getTime() - new Date(a.job.postedAt || 0).getTime());
+    scored.sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(Boolean(b.job.postedDateKnown)) - Number(Boolean(a.job.postedDateKnown)) ||
+        new Date(b.job.postedAt || 0).getTime() - new Date(a.job.postedAt || 0).getTime(),
+    );
     const selected = scored.slice(0, 20);
-    const finalizedMatches: FinalizedMatch[] = selected.map(({ job, score, band, reasons, matchingSkills, missingSkills, breakdown, features, eligibility, eligibilityDetails }) => ({
-      userId,
-      jobId: job._id ? String(job._id) : String(job.contentHash || ""),
-      score,
-      scoreBand: band,
-      scoreVersion: MATCH_SCORE_VERSION,
-      scoreBreakdown: breakdown,
-      rationale: reasons.join(" · "),
-      reasons,
-      matchingSkills,
-      missingSkills,
-      features: job.features || features || extractJobFeatures(job),
-      locationTier: job.locationTier,
-      locationLabel,
-      eligibility,
-      eligibilityDetails,
-      title: job.title || "Job Title",
-      company: job.company || "Company",
-      location: job.location,
-      sourceUrl: job.sourceUrl,
-      sourceBoard: job.sourceBoard,
-      salaryRange: job.salaryRange,
-      postedAt: job.postedAt,
-      jobDetails: {
+    const finalizedMatches: FinalizedMatch[] = selected.map(
+      ({
+        job,
+        score,
+        band,
+        reasons,
+        matchingSkills,
+        missingSkills,
+        breakdown,
+        features,
+        eligibility,
+        eligibilityDetails,
+      }) => ({
+        userId,
+        jobId: job._id ? String(job._id) : String(job.contentHash || ""),
+        score,
+        scoreBand: band,
+        scoreVersion: MATCH_SCORE_VERSION,
+        scoreBreakdown: breakdown,
+        rationale: reasons.join(" · "),
+        reasons,
+        matchingSkills,
+        missingSkills,
+        features: job.features || features || extractJobFeatures(job),
+        locationTier: job.locationTier,
+        locationLabel,
+        eligibility,
+        eligibilityDetails,
         title: job.title || "Job Title",
         company: job.company || "Company",
         location: job.location,
-        salaryRange: job.salaryRange,
         sourceUrl: job.sourceUrl,
         sourceBoard: job.sourceBoard,
-      },
-    }));
+        salaryRange: job.salaryRange,
+        postedAt: job.postedAt,
+        jobDetails: {
+          title: job.title || "Job Title",
+          company: job.company || "Company",
+          location: job.location,
+          salaryRange: job.salaryRange,
+          sourceUrl: job.sourceUrl,
+          sourceBoard: job.sourceBoard,
+        },
+      }),
+    );
 
     await persistMatchesBulk(finalizedMatches);
 
@@ -484,7 +570,12 @@ export const discoveryGraph = {
     return inMemoryMatches.filter((m) => m.userId === uid);
   },
 
-  async recordFeedback(userId: string | unknown, jobId: string | unknown, feedback: string, reason = ""): Promise<unknown> {
+  async recordFeedback(
+    userId: string | unknown,
+    jobId: string | unknown,
+    feedback: string,
+    reason = "",
+  ): Promise<unknown> {
     const uid = String(userId);
     const jid = String(jobId);
 

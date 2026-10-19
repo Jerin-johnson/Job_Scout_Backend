@@ -1,3 +1,4 @@
+import "reflect-metadata";
 // Lock tests to local services before dotenv/config is imported by application modules.
 if (!process.env.NODE_OPTIONS?.includes("--import tsx")) {
   process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ""} --import tsx`.trim();

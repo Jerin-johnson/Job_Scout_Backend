@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
-import { Application } from "../models/Application.js";
-import { InterviewReport } from "../models/InterviewReport.js";
-import { InterviewSession } from "../models/InterviewSession.js";
-import { Resume } from "../models/Resume.js";
-import { applicationRepository } from "../repositories/applicationRepository.js";
-import { profileRepository } from "../repositories/profileRepository.js";
+import { Application } from "../infrastructure/database/mongoose/models/ApplicationModel.js";
+import { InterviewReport } from "../infrastructure/database/mongoose/models/InterviewReportModel.js";
+import { InterviewSession } from "../infrastructure/database/mongoose/models/InterviewSessionModel.js";
+import { Resume } from "../infrastructure/database/mongoose/models/ResumeModel.js";
+import { applicationRepository } from "../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
+import { profileRepository } from "../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import { isMongoReady } from "../config/database.js";
 import { getOrSet, CacheKeys, del, get } from "../shared/cache.js";
 
@@ -88,7 +88,9 @@ export function formatCandidateContext(card: Partial<CandidateCard> = {}): strin
   ];
   const text = fields
     .filter(([, value]) => value !== "" && value !== null && value !== undefined)
-    .map(([label, value]) => `${label}: ${safeText(Array.isArray(value) ? value.join(", ") : value)}`)
+    .map(
+      ([label, value]) => `${label}: ${safeText(Array.isArray(value) ? value.join(", ") : value)}`,
+    )
     .join("\n");
   return text.slice(0, MAX_CONTEXT_CHARS);
 }
@@ -108,7 +110,9 @@ async function loadCandidateContext(
   userId: string | mongoose.Types.ObjectId,
   user?: UserLike | null,
 ): Promise<CandidateContextResult> {
-  const id = mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(String(userId)) : userId;
+  const id = mongoose.isValidObjectId(userId)
+    ? new mongoose.Types.ObjectId(String(userId))
+    : userId;
   const profilePromise = profileRepository.findByUserId(id);
   const countsPromise: Promise<[number, number, boolean, { _id: unknown } | null]> = isMongoReady()
     ? Promise.all([
@@ -134,10 +138,8 @@ async function loadCandidateContext(
         ];
       });
 
-  const [profile, [activeApplications, followUpsDue, hasResume, latestInterview]] = await Promise.all([
-    profilePromise,
-    countsPromise,
-  ]);
+  const [profile, [activeApplications, followUpsDue, hasResume, latestInterview]] =
+    await Promise.all([profilePromise, countsPromise]);
   let lastInterviewScore: number | null = null;
   if (latestInterview && isMongoReady()) {
     const report = (await InterviewReport.findOne({ interviewId: latestInterview._id, userId: id })
@@ -149,16 +151,27 @@ async function loadCandidateContext(
 
   const roles = (profile?.roles || []) as RoleLike[];
   const current = roles.find((role) => role.isCurrent) || roles[0];
-  const preferences = (profile?.preferences || {}) as { targetRoles?: string[]; preferredLocations?: string[] };
+  const preferences = (profile?.preferences || {}) as {
+    targetRoles?: string[];
+    preferredLocations?: string[];
+  };
   const rawSkills = (profile?.skills || []) as unknown[];
   const card: CandidateCard = {
     preferredName: safeText(user?.preferredName || user?.name || "", 80),
     currentRole: current
       ? `${safeText(current.title, 80)}${current.company ? ` at ${safeText(current.company, 80)}` : ""}`
       : "",
-    targetRoles: (preferences.targetRoles || []).slice(0, 5).map((item: string) => safeText(item, 60)),
+    targetRoles: (preferences.targetRoles || [])
+      .slice(0, 5)
+      .map((item: string) => safeText(item, 60)),
     yearsExperience: yearsExperience(roles),
-    skills: rawSkills.slice(0, 8).map((skill: unknown) => typeof skill === "string" ? safeText(skill, 40) : safeText((skill as { name?: string })?.name, 40)),
+    skills: rawSkills
+      .slice(0, 8)
+      .map((skill: unknown) =>
+        typeof skill === "string"
+          ? safeText(skill, 40)
+          : safeText((skill as { name?: string })?.name, 40),
+      ),
     location: (preferences.preferredLocations || [])
       .slice(0, 3)
       .map((item: string) => safeText(item, 50))
@@ -226,7 +239,9 @@ export async function getCandidateContext(user?: UserLike | null): Promise<Candi
   return { ...value, cacheHit: false };
 }
 
-export async function invalidateCandidateContext(userId?: string | mongoose.Types.ObjectId | null): Promise<void> {
+export async function invalidateCandidateContext(
+  userId?: string | mongoose.Types.ObjectId | null,
+): Promise<void> {
   if (userId) await del(candidateContextKey(userId.toString()));
 }
 

@@ -6,10 +6,10 @@ import {
   getTailoringDoc,
   exportDocument,
   listTailoringDocs,
-} from "../../../controllers/tailoringController.js";
-import { authenticate } from "../../../middleware/auth.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
-import { requireQuota } from "../../../middleware/quotaGate.js";
+} from "../controllers/tailoringController.js";
+import { authenticate } from "../middleware/auth.js";
+import { csrfProtection } from "../middleware/csrf.js";
+import { requireQuota } from "../middleware/quotaGate.js";
 
 export const tailorRouter = Router();
 

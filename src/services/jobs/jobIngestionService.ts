@@ -1,9 +1,9 @@
 import type { FilterQuery } from "mongoose";
-import { Job } from "../../models/Job.js";
-import { JobDetail } from "../../models/JobDetail.js";
-import { JobVector } from "../../models/JobVector.js";
-import { JobSource } from "../../models/JobSource.js";
-import { Profile } from "../../models/Profile.js";
+import { Job } from "../../infrastructure/database/mongoose/models/JobModel.js";
+import { JobDetail } from "../../infrastructure/database/mongoose/models/JobDetailModel.js";
+import { JobVector } from "../../infrastructure/database/mongoose/models/JobVectorModel.js";
+import { JobSource } from "../../infrastructure/database/mongoose/models/JobSourceModel.js";
+import { Profile } from "../../infrastructure/database/mongoose/models/ProfileModel.js";
 import { env } from "../../config/env.js";
 import { isMongoReady } from "../../config/database.js";
 import { getRedisClient, isRedisReady } from "../../config/redis.js";
@@ -194,7 +194,14 @@ export interface RawJobInput {
     model?: string;
     dimension?: number;
   };
-  provenance?: Array<{ source?: string; url?: string; seenAt?: Date; attributionText?: string; attributionUrl?: string; [key: string]: unknown }>;
+  provenance?: Array<{
+    source?: string;
+    url?: string;
+    seenAt?: Date;
+    attributionText?: string;
+    attributionUrl?: string;
+    [key: string]: unknown;
+  }>;
   [key: string]: unknown;
 }
 
@@ -332,9 +339,14 @@ export function registerJobAdapterFactory(key: string, factory: unknown): () => 
 const dayStart = (date = new Date()): Date =>
   new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-const safeRegex = (value: unknown): string => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const safeRegex = (value: unknown): string =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export function buildSourceStatusUpdate(status: string, checkedAt: Date, freshnessDays: number): Record<string, unknown> {
+export function buildSourceStatusUpdate(
+  status: string,
+  checkedAt: Date,
+  freshnessDays: number,
+): Record<string, unknown> {
   if (status === "closed")
     return {
       status: "closed",
@@ -354,10 +366,7 @@ export function buildSourceStatusUpdate(status: string, checkedAt: Date, freshne
   };
 }
 
-function cleanNormalizedJob(
-  job: RawJobInput,
-  source: JobSourceRecord,
-): RawJobInput {
+function cleanNormalizedJob(job: RawJobInput, source: JobSourceRecord): RawJobInput {
   const structuredLocation = {
     countryCode: String(job.structuredLocation?.countryCode || "")
       .toUpperCase()
@@ -395,7 +404,9 @@ function cleanNormalizedJob(
       employmentType: normalized.employmentType,
       postedAt: normalized.postedAt,
     }) || "";
-  const contentHash = (source.adapter || null)?.generateContentHash?.(normalized as Record<string, unknown>);
+  const contentHash = (source.adapter || null)?.generateContentHash?.(
+    normalized as Record<string, unknown>,
+  );
   normalized.contentHash = contentHash || job.contentHash;
   normalized.identityKey = source.adapter
     ? source.adapter.generateIdentity({
@@ -408,15 +419,17 @@ function cleanNormalizedJob(
       })
     : `${source.key}:${normalized.sourceJobId}`;
   const now = new Date();
-  normalized.features = extractJobFeatures(normalized as Record<string, unknown>) as unknown as Record<string, unknown>;
-  normalized.eligibility = parseJobEligibility({ ...normalized, ...job } as unknown as Parameters<typeof parseJobEligibility>[0]) as unknown as RawJobInput["eligibility"];
+  normalized.features = extractJobFeatures(
+    normalized as Record<string, unknown>,
+  ) as unknown as Record<string, unknown>;
+  normalized.eligibility = parseJobEligibility({ ...normalized, ...job } as unknown as Parameters<
+    typeof parseJobEligibility
+  >[0]) as unknown as RawJobInput["eligibility"];
   Object.assign(normalized, classifyJobOccupation(normalized as Record<string, unknown>));
   normalized.searchTokens = buildSearchTokens(normalized as Record<string, unknown>);
   const rawPostedAt = normalized.postedAt;
   const postedAt =
-    rawPostedAt instanceof Date && !Number.isNaN(rawPostedAt.getTime())
-      ? rawPostedAt
-      : null;
+    rawPostedAt instanceof Date && !Number.isNaN(rawPostedAt.getTime()) ? rawPostedAt : null;
   const rawSourceExpiresAt = job.sourceExpiresAt;
   const sourceExpiresAt =
     rawSourceExpiresAt instanceof Date && !Number.isNaN(new Date(rawSourceExpiresAt).getTime())
@@ -438,11 +451,7 @@ function cleanNormalizedJob(
   normalized.sourceExpiresAt = sourceExpiresAt;
   normalized.expiresAt = policyExpiry;
   const compensation = normalized.compensation as Record<string, unknown> | undefined;
-  if (
-    compensation &&
-    compensation.currency === "USD" &&
-    compensation.payPeriod === "year"
-  ) {
+  if (compensation && compensation.currency === "USD" && compensation.payPeriod === "year") {
     compensation.normalizedCurrency = "USD";
     compensation.normalizedAnnualMin = (compensation.min as number | undefined) ?? null;
     compensation.normalizedAnnualMax = (compensation.max as number | undefined) ?? null;
@@ -463,8 +472,10 @@ function cleanNormalizedJob(
 
 function setContentHash(job: RawJobInput, adapter?: SourceAdapter) {
   if (adapter) {
-    if (adapter.generateContentHash) job.contentHash = adapter.generateContentHash(job as Record<string, unknown>);
-    if (adapter.generateRecordHash) job.recordHash = adapter.generateRecordHash(job as Record<string, unknown>);
+    if (adapter.generateContentHash)
+      job.contentHash = adapter.generateContentHash(job as Record<string, unknown>);
+    if (adapter.generateRecordHash)
+      job.recordHash = adapter.generateRecordHash(job as Record<string, unknown>);
   }
 }
 
@@ -520,7 +531,10 @@ export async function updateVariantGroups(groupKeys?: string[]): Promise<number>
       });
     }
   }
-  if (operations.length) await Job.bulkWrite(operations as unknown as Parameters<typeof Job.bulkWrite>[0], { ordered: false });
+  if (operations.length)
+    await Job.bulkWrite(operations as unknown as Parameters<typeof Job.bulkWrite>[0], {
+      ordered: false,
+    });
   return operations.length;
 }
 
@@ -621,7 +635,10 @@ export async function reserveSourceRequest(
       (entry): entry is [string, string, Date, number] =>
         typeof entry[3] === "number" && Number.isFinite(entry[3]) && entry[3] > 0,
     );
-    const nextUsed = ([startField, usedField, start]: [string, string, Date, number?]): Record<string, unknown> => ({
+    const nextUsed = ([startField, usedField, start]: [string, string, Date, number?]): Record<
+      string,
+      unknown
+    > => ({
       $cond: [
         { $lt: [{ $ifNull: [`$${startField}`, new Date(0)] }, start] },
         1,
@@ -670,14 +687,16 @@ export async function reserveSourceRequest(
 }
 
 function quotaExceeded(sourceKey: string) {
-  const error = new Error(`Daily request budget reached for ${sourceKey}`) as Error & { code?: string };
+  const error = new Error(`Daily request budget reached for ${sourceKey}`) as Error & {
+    code?: string;
+  };
   error.code = "SOURCE_QUOTA_EXHAUSTED";
   return error;
 }
 
 async function* iterateJobs(jobs: AsyncIterable<RawJobInput> | RawJobInput[]) {
   if (jobs && typeof (jobs as AsyncIterable<RawJobInput>)[Symbol.asyncIterator] === "function") {
-    yield* (jobs as AsyncIterable<RawJobInput>);
+    yield* jobs as AsyncIterable<RawJobInput>;
     return;
   }
   if (Array.isArray(jobs)) yield* jobs;
@@ -864,7 +883,9 @@ export const jobIngestionService = {
 
   async getAdapters(): Promise<SourceAdapter[]> {
     const sources = await listSourceRecords({ enabledOnly: true });
-    return (await Promise.all(sources.map((source) => this.getAdapter(source)))).filter(Boolean) as SourceAdapter[];
+    return (await Promise.all(sources.map((source) => this.getAdapter(source)))).filter(
+      Boolean,
+    ) as SourceAdapter[];
   },
 
   requestShutdown() {
@@ -919,17 +940,34 @@ export const jobIngestionService = {
 
   async ingestSource(
     sourceKey: string,
-    { user, requestId, onBatchComplete }: { user?: unknown; requestId?: string; onBatchComplete?: (stats: Record<string, unknown>) => Promise<void> | void } = {},
+    {
+      user,
+      requestId,
+      onBatchComplete,
+    }: {
+      user?: unknown;
+      requestId?: string;
+      onBatchComplete?: (stats: Record<string, unknown>) => Promise<void> | void;
+    } = {},
   ) {
     if (!isMongoReady() && env.NODE_ENV === "production") {
-      const error = new Error("The job source registry is unavailable.") as Error & { statusCode?: number; code?: string };
+      const error = new Error("The job source registry is unavailable.") as Error & {
+        statusCode?: number;
+        code?: string;
+      };
       error.statusCode = 503;
       error.code = "SOURCE_REGISTRY_UNAVAILABLE";
       throw error;
     }
     const source: JobSourceRecord | null = isMongoReady()
-      ? ((await JobSource.findOne({ key: sourceKey, enabled: true, approved: true }).lean()) as unknown as JobSourceRecord)
-      : (SOURCE_POLICIES.find((item) => item.key === sourceKey && item.enabled && item.approved) as unknown as JobSourceRecord);
+      ? ((await JobSource.findOne({
+          key: sourceKey,
+          enabled: true,
+          approved: true,
+        }).lean()) as unknown as JobSourceRecord)
+      : (SOURCE_POLICIES.find(
+          (item) => item.key === sourceKey && item.enabled && item.approved,
+        ) as unknown as JobSourceRecord);
     if (
       !source ||
       !isSourcePolicyComplete(source as unknown as Partial<SourcePolicy>) ||
@@ -1035,9 +1073,10 @@ export const jobIngestionService = {
           await JobSource.updateOne({ key: sourceKey }, { $set: { lastLinkCheckAt: new Date() } });
         } else {
           try {
-            const statuses = await adapter.checkStatuses?.(
-              sample.map((job) => String(job.sourceJobId || "")).filter((id) => /^\d+$/.test(id)),
-            ) || [];
+            const statuses =
+              (await adapter.checkStatuses?.(
+                sample.map((job) => String(job.sourceJobId || "")).filter((id) => /^\d+$/.test(id)),
+              )) || [];
             statusCheckRequests = 1;
             const checkedAt = new Date();
             const updates = statuses
@@ -1054,7 +1093,10 @@ export const jobIngestionService = {
                   },
                 },
               }));
-            if (updates.length) await Job.bulkWrite(updates as unknown as Parameters<typeof Job.bulkWrite>[0], { ordered: false });
+            if (updates.length)
+              await Job.bulkWrite(updates as unknown as Parameters<typeof Job.bulkWrite>[0], {
+                ordered: false,
+              });
             await JobSource.updateOne({ key: sourceKey }, { $set: { lastLinkCheckAt: checkedAt } });
           } catch (error: unknown) {
             const err = error as { code?: string; status?: number };
@@ -1145,7 +1187,10 @@ export const jobIngestionService = {
           for (const job of normalized) {
             setContentHash(job, adapter);
             const country = String(job.structuredLocation?.countryCode || "unknown");
-            const occupation = Array.isArray(job.occupationCodes) && job.occupationCodes.length ? String(job.occupationCodes[0]) : "unmapped";
+            const occupation =
+              Array.isArray(job.occupationCodes) && job.occupationCodes.length
+                ? String(job.occupationCodes[0])
+                : "unmapped";
             coverageCountryCounts[country] = (coverageCountryCounts[country] || 0) + 1;
             coverageOccupationCounts[occupation] = (coverageOccupationCounts[occupation] || 0) + 1;
             if (!job.identityKey || seenBatch.has(job.identityKey)) {
@@ -1184,14 +1229,21 @@ export const jobIngestionService = {
               : [];
           const groupHistoryByKey = new Map<string, RawJobInput>();
           for (const doc of groupHistoryDocs) {
-            if (doc.groupKey && !groupHistoryByKey.has(doc.groupKey)) groupHistoryByKey.set(doc.groupKey, doc);
+            if (doc.groupKey && !groupHistoryByKey.has(doc.groupKey))
+              groupHistoryByKey.set(doc.groupKey, doc);
           }
           if (existingDocs.length) {
             const vectors = (await JobVector.find({
               jobId: { $in: existingDocs.map((job) => job._id) },
             })
               .select("+vector jobId provider model dimension")
-              .lean()) as unknown as Array<{ jobId: unknown; vector: number[]; provider?: string; model?: string; dimension?: number }>;
+              .lean()) as unknown as Array<{
+              jobId: unknown;
+              vector: number[];
+              provider?: string;
+              model?: string;
+              dimension?: number;
+            }>;
             const vectorById = new Map(vectors.map((row) => [String(row.jobId), row]));
             for (const job of existingDocs) {
               const vector = vectorById.get(String(job._id));
@@ -1231,10 +1283,15 @@ export const jobIngestionService = {
             if (existing) updated += 1;
             else created += 1;
             if (existing) job.firstSeenAt = existing.firstSeenAt || job.firstSeenAt;
-            const priorDoc = existing || (job.groupKey ? groupHistoryByKey.get(job.groupKey) : null) || null;
+            const priorDoc =
+              existing || (job.groupKey ? groupHistoryByKey.get(job.groupKey) : null) || null;
             const repostSignal = detectRepostSignal(priorDoc, job);
             job.repostCount = repostSignal.repostCount;
-            if (existing && existing.contentHash === job.contentHash && existing.embedding?.length) {
+            if (
+              existing &&
+              existing.contentHash === job.contentHash &&
+              existing.embedding?.length
+            ) {
               job.embedding = existing.embedding;
               job.embeddingMetadata = existing.embeddingMetadata;
             }
@@ -1244,16 +1301,27 @@ export const jobIngestionService = {
 
           if (isMongoReady() && unchangedOps.length) {
             for (let offset = 0; offset < unchangedOps.length; offset += BULK_WRITE_BATCH_SIZE) {
-              await Job.bulkWrite(unchangedOps.slice(offset, offset + BULK_WRITE_BATCH_SIZE) as unknown as Parameters<typeof Job.bulkWrite>[0], {
-                ordered: false,
-              });
+              await Job.bulkWrite(
+                unchangedOps.slice(offset, offset + BULK_WRITE_BATCH_SIZE) as unknown as Parameters<
+                  typeof Job.bulkWrite
+                >[0],
+                {
+                  ordered: false,
+                },
+              );
             }
           }
 
           if (changed.length) {
             if (env.JOB_EMBEDDINGS_ENABLED || process.env.JOB_EMBEDDINGS_ENABLED === "true") {
               const config = embeddingService.getConfig();
-              const vectorsByIndex = new Map<number, { vector: number[]; metadata: { provider?: string; model?: string; dimension?: number } }>();
+              const vectorsByIndex = new Map<
+                number,
+                {
+                  vector: number[];
+                  metadata: { provider?: string; model?: string; dimension?: number };
+                }
+              >();
               const missing: Array<{ index: number; key: string; job: RawJobInput }> = [];
               for (let index = 0; index < changed.length; index += 1) {
                 const job = changed[index];
@@ -1274,8 +1342,12 @@ export const jobIngestionService = {
                   config.model,
                   config.dimension,
                 );
-                const cached = (await get(key)) as { vector?: number[]; metadata?: { provider?: string; model?: string; dimension?: number } } | null;
-                if (cached?.vector && cached?.metadata) vectorsByIndex.set(index, { vector: cached.vector, metadata: cached.metadata });
+                const cached = (await get(key)) as {
+                  vector?: number[];
+                  metadata?: { provider?: string; model?: string; dimension?: number };
+                } | null;
+                if (cached?.vector && cached?.metadata)
+                  vectorsByIndex.set(index, { vector: cached.vector, metadata: cached.metadata });
                 else missing.push({ index, key, job });
               }
               for (let offset = 0; offset < missing.length; offset += BATCH_SIZE) {
@@ -1287,7 +1359,9 @@ export const jobIngestionService = {
                   ),
                   {
                     feature: "match_jobs",
-                    requestId: (requestId as `${string}-${string}-${string}-${string}-${string}`) || undefined,
+                    requestId:
+                      (requestId as `${string}-${string}-${string}-${string}-${string}`) ||
+                      undefined,
                   },
                 );
                 embedded += vectors.length;
@@ -1297,7 +1371,12 @@ export const jobIngestionService = {
                   ),
                 );
                 batch.forEach((entry, batchIndex) => {
-                  const vec = vectors[batchIndex] as { vector: number[]; metadata: { provider?: string; model?: string; dimension?: number } } | undefined;
+                  const vec = vectors[batchIndex] as
+                    | {
+                        vector: number[];
+                        metadata: { provider?: string; model?: string; dimension?: number };
+                      }
+                    | undefined;
                   if (vec?.vector) vectorsByIndex.set(entry.index, vec);
                 });
               }
@@ -1310,7 +1389,10 @@ export const jobIngestionService = {
               });
             }
             if (isMongoReady()) {
-              const storageRows = changed.map((job) => ({ job, ...splitJobForStorage(job as Record<string, unknown>) }));
+              const storageRows = changed.map((job) => ({
+                job,
+                ...splitJobForStorage(job as Record<string, unknown>),
+              }));
               for (let offset = 0; offset < storageRows.length; offset += BULK_WRITE_BATCH_SIZE) {
                 const batch = storageRows.slice(offset, offset + BULK_WRITE_BATCH_SIZE);
                 await Job.bulkWrite(
@@ -1337,7 +1419,11 @@ export const jobIngestionService = {
                     },
                   }))
                   .filter((operation) => operation.updateOne.filter.jobId);
-                if (detailOps.length) await JobDetail.bulkWrite(detailOps as unknown as Parameters<typeof JobDetail.bulkWrite>[0], { ordered: false });
+                if (detailOps.length)
+                  await JobDetail.bulkWrite(
+                    detailOps as unknown as Parameters<typeof JobDetail.bulkWrite>[0],
+                    { ordered: false },
+                  );
                 const vectorOps = batch
                   .filter(({ vector }) => vector)
                   .map(({ job, vector }) => ({
@@ -1348,8 +1434,14 @@ export const jobIngestionService = {
                     },
                   }))
                   .filter((operation) => operation.updateOne.filter.jobId);
-                if (vectorOps.length) await JobVector.bulkWrite(vectorOps as unknown as Parameters<typeof JobVector.bulkWrite>[0], { ordered: false });
-                await updateVariantGroups(batch.map(({ job }) => String(job.groupKey || "")).filter(Boolean));
+                if (vectorOps.length)
+                  await JobVector.bulkWrite(
+                    vectorOps as unknown as Parameters<typeof JobVector.bulkWrite>[0],
+                    { ordered: false },
+                  );
+                await updateVariantGroups(
+                  batch.map(({ job }) => String(job.groupKey || "")).filter(Boolean),
+                );
               }
             } else {
               for (const job of changed)
@@ -1386,7 +1478,9 @@ export const jobIngestionService = {
           updated += result.modifiedCount || 0;
           inactiveBatch = [];
         };
-        const stream = page.events ? iterateJobs(page.events as RawJobInput[]) : iterateJobs((page.jobs || []) as RawJobInput[]);
+        const stream = page.events
+          ? iterateJobs(page.events as RawJobInput[])
+          : iterateJobs((page.jobs || []) as RawJobInput[]);
         for await (const item of stream) {
           if (page.events) {
             const event = item as { type?: string; sourceJobId?: string; job?: RawJobInput };
@@ -1527,7 +1621,9 @@ export const jobIngestionService = {
         await bumpCatalogVersion();
       }
       const sourceDoc = isMongoReady()
-        ? ((await JobSource.findOne({ key: sourceKey }).select("quotaUsed").lean()) as unknown as { quotaUsed?: number } | null)
+        ? ((await JobSource.findOne({ key: sourceKey }).select("quotaUsed").lean()) as unknown as {
+            quotaUsed?: number;
+          } | null)
         : null;
       return {
         source: sourceKey,
@@ -1611,7 +1707,9 @@ export const jobIngestionService = {
             },
           },
         );
-        const state = (await JobSource.findOne({ key: sourceKey }).select("circuit.failures").lean()) as unknown as { circuit?: { failures?: number } } | null;
+        const state = (await JobSource.findOne({ key: sourceKey })
+          .select("circuit.failures")
+          .lean()) as unknown as { circuit?: { failures?: number } } | null;
         const openUntil = computeCircuitOpenUntil(state?.circuit?.failures || 0);
         if (openUntil) {
           await JobSource.updateOne(
@@ -1701,7 +1799,10 @@ export const jobIngestionService = {
           : []),
       ];
     }
-    const occupationCodes = (((preferences.occupationCodes as string[] | undefined) || []).slice(0, 20));
+    const occupationCodes = ((preferences.occupationCodes as string[] | undefined) || []).slice(
+      0,
+      20,
+    );
     if (occupationCodes.length) filter.occupationCodes = { $in: occupationCodes };
     if (excludeJobIds.length) filter._id = { $nin: excludeJobIds };
     const minimumSalary = Number(preferences.minimumSalaryUsd) || 0;
@@ -1731,7 +1832,9 @@ export const jobIngestionService = {
     // preference must never hard-exclude remote jobs from the candidate pool.
     if (isMongoReady()) {
       const careerProfile = profile?.careerProfile as Record<string, unknown> | undefined;
-      const targetRoles = (careerProfile?.targetRoles as Array<{ customRoleLabel?: string; roleCode?: string }> | undefined) || [];
+      const targetRoles =
+        (careerProfile?.targetRoles as
+          Array<{ customRoleLabel?: string; roleCode?: string }> | undefined) || [];
       const roles = (profile?.roles as Array<{ title?: string }> | undefined) || [];
       const skills = (profile?.skills as Array<{ name?: string }> | undefined) || [];
       const prefTargetRoles = (preferences.targetRoles as string[] | undefined) || [];
@@ -1764,7 +1867,10 @@ export const jobIngestionService = {
       const existingOr = base.$or as unknown[] | undefined;
       delete base.$or;
       const commonAnd: unknown[] = [...existingAnd, ...(existingOr ? [{ $or: existingOr }] : [])];
-      const recentQuery: Record<string, unknown> = { ...base, ...(commonAnd.length ? { $and: commonAnd } : {}) };
+      const recentQuery: Record<string, unknown> = {
+        ...base,
+        ...(commonAnd.length ? { $and: commonAnd } : {}),
+      };
       const activeCatalogQuery = {
         status: "active",
         expiresAt: { $gt: now },
@@ -1794,7 +1900,10 @@ export const jobIngestionService = {
             .filter((term) => term.length > 1),
         ),
       ].slice(0, 32);
-      const occupationTerms = ((preferences.occupationCodes as string[] | undefined) || []).slice(0, 20);
+      const occupationTerms = ((preferences.occupationCodes as string[] | undefined) || []).slice(
+        0,
+        20,
+      );
       const skillTerms = [
         ...new Set(
           skills.map((skill) => canonicalSkill(skill.name)).filter((s): s is string => Boolean(s)),
@@ -1829,7 +1938,9 @@ export const jobIngestionService = {
             .lean(),
         );
       }
-      const lexicalBatches = (await Promise.all(lexicalQueries)) as Array<Array<Record<string, unknown>>>;
+      const lexicalBatches = (await Promise.all(lexicalQueries)) as Array<
+        Array<Record<string, unknown>>
+      >;
       const lexicalPool = new Map<string, Record<string, unknown>>(
         lexicalBatches.flat().map((job) => [String(job._id), job]),
       );
@@ -1863,7 +1974,12 @@ export const jobIngestionService = {
         ? ((await Job.find({
             ...recentQuery,
             ...(lexical.length
-              ? { _id: { ...((recentQuery._id as Record<string, unknown>) || {}), $nin: lexical.map((job) => job._id) } }
+              ? {
+                  _id: {
+                    ...((recentQuery._id as Record<string, unknown>) || {}),
+                    $nin: lexical.map((job) => job._id),
+                  },
+                }
               : {}),
           })
             .sort({ postedAt: -1, _id: 1 })
@@ -1975,7 +2091,7 @@ export const jobIngestionService = {
         .map((code) => String(code).toUpperCase())
         .filter((code) => /^[A-Z]{2}$/.test(code));
       filter.$and = [
-        ...(((filter.$and as unknown[]) || [])),
+        ...((filter.$and as unknown[]) || []),
         {
           $or: [
             { "eligibility.countries": { $in: codes } },
@@ -2037,7 +2153,10 @@ export const jobIngestionService = {
         { "compensation.max": null },
         { "compensation.max": { $lte: 0 } },
       ];
-      filter.$and = [...(((filter.$and as unknown[]) || [])), { $or: [...comparable, ...incomparable] }];
+      filter.$and = [
+        ...((filter.$and as unknown[]) || []),
+        { $or: [...comparable, ...incomparable] },
+      ];
     }
     if (excludeJobIds.length) filter._id = { $nin: excludeJobIds };
     const applicantCountries = eligibilityCountryCodes
@@ -2063,7 +2182,7 @@ export const jobIngestionService = {
           ...(matchingRegions.includes("APAC") ? [] : [{ "eligibility.remoteScope": "APAC" }]),
         ],
       };
-      filter.$nor = [...(((filter.$nor as unknown[]) || [])), explicitMismatch];
+      filter.$nor = [...((filter.$nor as unknown[]) || []), explicitMismatch];
     }
     if (isMongoReady()) {
       const cursorData = decodeCatalogCursor(cursor);
@@ -2199,7 +2318,10 @@ export const jobIngestionService = {
             key: row._id || "unclassified",
             count: row.count,
           })),
-          remoteTypes: (remoteTypes as Array<{ _id: string; count: number }>).map((row) => ({ key: row._id || "remote", count: row.count })),
+          remoteTypes: (remoteTypes as Array<{ _id: string; count: number }>).map((row) => ({
+            key: row._id || "remote",
+            count: row.count,
+          })),
           countries: (countries as Array<{ _id: string; count: number }>)
             .filter((row) => row._id)
             .map((row) => ({ key: row._id, count: row.count })),
@@ -2215,9 +2337,7 @@ export const jobIngestionService = {
             ...job,
             postedDateKnown:
               (job.postedDateKnown as boolean | undefined) ??
-              (postedAtMs && createdAtMs
-                ? Math.abs(postedAtMs - createdAtMs) > 5 * 60_000
-                : false),
+              (postedAtMs && createdAtMs ? Math.abs(postedAtMs - createdAtMs) > 5 * 60_000 : false),
             jobId: String(job._id),
           };
         }),
@@ -2278,7 +2398,8 @@ export const jobIngestionService = {
           if (
             scope !== "worldwide" &&
             !matchesRegion &&
-            ((countries.length && !countries.some((code: string) => applicantCountries.includes(code))) ||
+            ((countries.length &&
+              !countries.some((code: string) => applicantCountries.includes(code))) ||
               (country && scope !== "unknown" && !applicantCountries.includes(country)))
           )
             return false;
@@ -2607,15 +2728,10 @@ export const jobIngestionService = {
     const rawLocations = [
       profile?.careerProfile?.homeLocation,
       ...(profile?.careerProfile?.targetLocations || []),
-    ].filter(
-      (item): item is { countryCode: string; [key: string]: unknown } =>
-        Boolean(item && typeof item.countryCode === "string"),
+    ].filter((item): item is { countryCode: string; [key: string]: unknown } =>
+      Boolean(item && typeof item.countryCode === "string"),
     );
-    const locations = [
-      ...new Map(
-        rawLocations.map((item) => [item.countryCode, item]),
-      ).values(),
-    ];
+    const locations = [...new Map(rawLocations.map((item) => [item.countryCode, item])).values()];
     const targetLocations = await Promise.all(
       locations.map(async (location) => ({
         countryCode: location.countryCode,
@@ -2695,10 +2811,12 @@ export const jobIngestionService = {
       error.code = "SOURCE_REGISTRY_UNAVAILABLE";
       throw error;
     }
-    const source = (await JobSource.findOne({ key: sourceKey }).lean()) as unknown as (SourcePolicy & {
-      approved?: boolean;
-      key: string;
-    }) | null;
+    const source = (await JobSource.findOne({ key: sourceKey }).lean()) as unknown as
+      | (SourcePolicy & {
+          approved?: boolean;
+          key: string;
+        })
+      | null;
     if (enabled && !isSourceEnabledByEnvironment(sourceKey)) {
       const error = new Error(
         `Enable ${sourceKey} ingestion with its backend environment flag before turning it on in admin.`,
@@ -2713,7 +2831,9 @@ export const jobIngestionService = {
       !isSourcePolicyComplete(source) ||
       !isSourceActivationAllowed(source)
     ) {
-      const error = new Error("This source has not passed the approved source policy gate.") as Error & {
+      const error = new Error(
+        "This source has not passed the approved source policy gate.",
+      ) as Error & {
         statusCode?: number;
         code?: string;
       };
@@ -2739,16 +2859,20 @@ export const jobIngestionService = {
       error.code = "SOURCE_REGISTRY_UNAVAILABLE";
       throw error;
     }
-    const source = (await JobSource.findOne({ key: sourceKey }).lean()) as unknown as (SourcePolicy & {
-      approved?: boolean;
-      key: string;
-    }) | null;
+    const source = (await JobSource.findOne({ key: sourceKey }).lean()) as unknown as
+      | (SourcePolicy & {
+          approved?: boolean;
+          key: string;
+        })
+      | null;
     if (
       !source ||
       !isSourcePolicyComplete(source) ||
       (approved && !isSourceActivationAllowed(source))
     ) {
-      const error = new Error("This source does not have the required policy metadata.") as Error & {
+      const error = new Error(
+        "This source does not have the required policy metadata.",
+      ) as Error & {
         statusCode?: number;
         code?: string;
       };

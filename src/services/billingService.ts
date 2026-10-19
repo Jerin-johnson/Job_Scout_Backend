@@ -2,10 +2,10 @@ import Razorpay from "razorpay";
 import crypto from "node:crypto";
 import { env } from "../config/env.js";
 import { PLANS, PLAN_CONFIG } from "../shared/constants/plans.js";
-import { userRepository } from "../repositories/userRepository.js";
+import { userRepository } from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { isMongoReady } from "../config/database.js";
-import { Subscription } from "../models/Subscription.js";
-import { Payment } from "../models/Payment.js";
+import { Subscription } from "../infrastructure/database/mongoose/models/SubscriptionModel.js";
+import { Payment } from "../infrastructure/database/mongoose/models/PaymentModel.js";
 
 function getUserId(user?: unknown): string {
   if (!user || typeof user !== "object") return "";
@@ -25,7 +25,9 @@ function razorpayClient(): Razorpay {
     !env.RAZORPAY_KEY_SECRET ||
     env.RAZORPAY_KEY_SECRET.includes("dummy")
   ) {
-    const error: CustomHttpError = new Error("Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable checkout");
+    const error: CustomHttpError = new Error(
+      "Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable checkout",
+    );
     error.code = "BILLING_NOT_CONFIGURED";
     error.statusCode = 503;
     throw error;
@@ -51,7 +53,10 @@ export interface RazorpayWebhookResult {
 }
 
 export const billingService = {
-  async createCheckoutSession({ user, plan }: CreateCheckoutSessionParams): Promise<CreateCheckoutSessionResult> {
+  async createCheckoutSession({
+    user,
+    plan,
+  }: CreateCheckoutSessionParams): Promise<CreateCheckoutSessionResult> {
     const validPlan = plan as keyof typeof PLAN_CONFIG;
     if (!PLAN_CONFIG[validPlan] || plan === PLANS.FREE) {
       const error: CustomHttpError = new Error("Invalid paid subscription plan");
@@ -61,7 +66,9 @@ export const billingService = {
     }
     const planId = plan === PLANS.PRO ? env.RAZORPAY_PLAN_ID_PRO : env.RAZORPAY_PLAN_ID_PREMIUM;
     if (!planId || planId.includes("dummy")) {
-      const error: CustomHttpError = new Error(`Configure the Razorpay subscription plan ID for ${plan}`);
+      const error: CustomHttpError = new Error(
+        `Configure the Razorpay subscription plan ID for ${plan}`,
+      );
       error.code = "BILLING_NOT_CONFIGURED";
       error.statusCode = 503;
       throw error;
@@ -85,11 +92,21 @@ export const billingService = {
     return razorpayClient().subscriptions.cancel(subscriptionId, atPeriodEnd);
   },
 
-  async refundPayment(paymentId: string, amountMinor: number, notes: Record<string, unknown> = {}): Promise<unknown> {
-    return razorpayClient().payments.refund(paymentId, { amount: amountMinor, notes: notes as Record<string, string> });
+  async refundPayment(
+    paymentId: string,
+    amountMinor: number,
+    notes: Record<string, unknown> = {},
+  ): Promise<unknown> {
+    return razorpayClient().payments.refund(paymentId, {
+      amount: amountMinor,
+      notes: notes as Record<string, string>,
+    });
   },
 
-  async handleRazorpayWebhook(payload: unknown, signature?: string | null): Promise<RazorpayWebhookResult> {
+  async handleRazorpayWebhook(
+    payload: unknown,
+    signature?: string | null,
+  ): Promise<RazorpayWebhookResult> {
     if (!env.RAZORPAY_WEBHOOK_SECRET || env.RAZORPAY_WEBHOOK_SECRET.includes("dummy")) {
       const error: CustomHttpError = new Error("Razorpay webhook secret is not configured");
       error.code = "WEBHOOK_NOT_CONFIGURED";
@@ -161,15 +178,20 @@ export const billingService = {
               cancelAtPeriodEnd?: boolean;
             } | null)
           : null;
-      const userId = subscription.notes?.userId || (existingRecord?.userId ? String(existingRecord.userId) : undefined);
-      const plan = (subscription.notes?.plan || existingRecord?.plan) as keyof typeof PLAN_CONFIG | undefined;
-      const normalizedStatus = ({
-        "subscription.activated": "active",
-        "subscription.authenticated": "active",
-        "subscription.charged": "active",
-        "subscription.halted": "past_due",
-        "subscription.cancelled": "canceled",
-      } as Record<string, string>)[event.event];
+      const userId =
+        subscription.notes?.userId ||
+        (existingRecord?.userId ? String(existingRecord.userId) : undefined);
+      const plan = (subscription.notes?.plan || existingRecord?.plan) as
+        keyof typeof PLAN_CONFIG | undefined;
+      const normalizedStatus = (
+        {
+          "subscription.activated": "active",
+          "subscription.authenticated": "active",
+          "subscription.charged": "active",
+          "subscription.halted": "past_due",
+          "subscription.cancelled": "canceled",
+        } as Record<string, string>
+      )[event.event];
       const eventAt = event.created_at ? new Date(event.created_at * 1000) : new Date();
       const isCurrentEvent =
         !existingRecord?.lastProviderEventAt || eventAt >= existingRecord.lastProviderEventAt;
@@ -198,7 +220,11 @@ export const billingService = {
               lastProviderEventAt: eventAt,
             },
           },
-          { upsert: Boolean(userId && plan && PLAN_CONFIG[plan]), new: true, setDefaultsOnInsert: true },
+          {
+            upsert: Boolean(userId && plan && PLAN_CONFIG[plan]),
+            new: true,
+            setDefaultsOnInsert: true,
+          },
         ).lean()) as { userId?: unknown; plan?: string } | null;
       }
       if (isCurrentEvent && userId && plan && PLAN_CONFIG[plan] && plan !== PLANS.FREE) {
@@ -228,7 +254,10 @@ export const billingService = {
     if (payment?.id && isMongoReady()) {
       const subscriptionId = payment.subscription_id || subscription?.id || null;
       if (!subscriptionRecord && subscriptionId) {
-        subscriptionRecord = (await Subscription.findOne({ subscriptionId }).lean()) as { userId?: unknown; plan?: string } | null;
+        subscriptionRecord = (await Subscription.findOne({ subscriptionId }).lean()) as {
+          userId?: unknown;
+          plan?: string;
+        } | null;
       }
       if (event.event === "payment.captured" || event.event === "subscription.charged") {
         await Payment.findOneAndUpdate(

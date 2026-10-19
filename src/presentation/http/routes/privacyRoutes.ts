@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { privacyController } from "../../../controllers/privacyController.js";
-import { authenticate } from "../../../middleware/auth.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
+import { privacyController } from "../controllers/privacyController.js";
+import { authenticate } from "../middleware/auth.js";
+import { csrfProtection } from "../middleware/csrf.js";
 
 export const privacyRouter = Router();
 

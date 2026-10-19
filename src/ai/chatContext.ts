@@ -2,9 +2,9 @@ import mongoose from "mongoose";
 import { isMongoReady } from "../config/database.js";
 import { getCandidateContext, CandidateCard, CandidateContextResult } from "./candidateContext.js";
 import { longTermMemory, MemoryRecord } from "./memory/longTerm.js";
-import { applicationRepository } from "../repositories/applicationRepository.js";
-import { Job } from "../models/Job.js";
-import { JobDetail } from "../models/JobDetail.js";
+import { applicationRepository } from "../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
+import { Job } from "../infrastructure/database/mongoose/models/JobModel.js";
+import { JobDetail } from "../infrastructure/database/mongoose/models/JobDetailModel.js";
 import { logger } from "../shared/utils/logger.js";
 
 export const CHAT_AGENT_PROMPT_VERSION = "chat-agent-v2";
@@ -396,4 +396,3 @@ export interface HistoryMessage {
   [key: string]: unknown;
 }
 export type AssembledChatContext = Awaited<ReturnType<typeof assembleChatContext>>;
-

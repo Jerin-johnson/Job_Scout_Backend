@@ -1,11 +1,10 @@
 import { Router, RequestHandler } from "express";
 import multer from "multer";
 import { appContainer } from "../../../main/container.js";
-import { ProfileController } from "../controllers/ProfileController.js";
-import { profileController } from "../../../controllers/profileController.js";
+import { ProfileController, profileController } from "../controllers/ProfileController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
-import { generalApiLimiter } from "../../../middleware/rateLimiter.js";
+import { csrfProtection } from "../middleware/csrf.js";
+import { generalApiLimiter } from "../middleware/rateLimiter.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),

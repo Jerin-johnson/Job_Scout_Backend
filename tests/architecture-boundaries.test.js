@@ -30,8 +30,10 @@ test("Architecture Boundaries: production source code strictly passes all bounda
     "Source must have 0 'any' type annotations",
   );
   assert.ok(
-    output.includes("'src/routes' is completely removed"),
-    "src/routes must be confirmed eliminated",
+    output.includes(
+      "all 5 legacy directories (routes, controllers, middleware, models, repositories) removed",
+    ),
+    "All 5 legacy directories must be confirmed eliminated",
   );
 });
 
@@ -248,14 +250,47 @@ test("Architecture Boundaries: rejects infrastructure layer importing presentati
   }
 });
 
-test("Architecture Boundaries: rejects reintroduction of obsolete src/routes directory", () => {
-  const tempRoutesDir = path.join("src", "routes");
-  const tempRouteFile = path.join(tempRoutesDir, "tempRoute.ts");
-  try {
-    if (!fs.existsSync(tempRoutesDir)) {
-      fs.mkdirSync(tempRoutesDir, { recursive: true });
+test("Architecture Boundaries: rejects reintroduction of obsolete directories", () => {
+  const dirs = [
+    "src/routes",
+    "src/controllers",
+    "src/middleware",
+    "src/models",
+    "src/repositories",
+  ];
+  for (const dir of dirs) {
+    const tempFile = path.join(dir, "temp.ts");
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(tempFile, "export const x = 1;\n", "utf8");
+
+      assert.throws(
+        () => {
+          execFileSync("node", ["scripts/check-architecture.mjs"], {
+            encoding: "utf8",
+            stdio: "pipe",
+          });
+        },
+        /Obsolete architectural directory reintroduction forbidden/,
+        `Checker must throw error if ${dir} is reintroduced`,
+      );
+    } finally {
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+      if (fs.existsSync(dir)) {
+        fs.rmdirSync(dir);
+      }
     }
-    fs.writeFileSync(tempRouteFile, "export const x = 1;\n", "utf8");
+  }
+});
+
+test("Architecture Boundaries: rejects JavaScript files in src/", () => {
+  const tempJsFile = path.join("src", "tempIllegalFile.js");
+  try {
+    fs.writeFileSync(tempJsFile, "console.log('illegal js');\n", "utf8");
 
     assert.throws(
       () => {
@@ -264,15 +299,12 @@ test("Architecture Boundaries: rejects reintroduction of obsolete src/routes dir
           stdio: "pipe",
         });
       },
-      /Obsolete architectural directory reintroduction forbidden/,
-      "Checker must throw error if src/routes is reintroduced",
+      /Zero JavaScript files allowed in src\//,
+      "Checker must throw error if a .js file is present in src/",
     );
   } finally {
-    if (fs.existsSync(tempRouteFile)) {
-      fs.unlinkSync(tempRouteFile);
-    }
-    if (fs.existsSync(tempRoutesDir)) {
-      fs.rmdirSync(tempRoutesDir);
+    if (fs.existsSync(tempJsFile)) {
+      fs.unlinkSync(tempJsFile);
     }
   }
 });

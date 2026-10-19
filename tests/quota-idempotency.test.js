@@ -11,7 +11,9 @@ test("accepted quota operation increments exactly once for a replayed key", asyn
   const idempotencyKey = randomUUID();
   const first = await quotaService.incrementQuota(userId, "chat", idempotencyKey, "premium");
   const replay = await quotaService.incrementQuota(userId, "chat", idempotencyKey, "premium");
-  const count = await quotaService.getCounter(`quota:${userId}:chat:${new Date().toISOString().slice(0, 10)}`);
+  const count = await quotaService.getCounter(
+    `quota:${userId}:chat:${new Date().toISOString().slice(0, 10)}`,
+  );
 
   assert.equal(first, 1);
   assert.equal(replay, 1);
@@ -21,6 +23,7 @@ test("accepted quota operation increments exactly once for a replayed key", asyn
 test("quota counter refuses to use in-memory fallback when production store is unavailable", async () => {
   const { spawnSync } = await import("node:child_process");
   const script = `
+    await import('reflect-metadata');
     const { quotaService } = await import('./src/services/quotaService.js');
     try {
       await quotaService.checkQuota({ _id: '507f1f77bcf86cd799439011', plan: 'premium' }, 'chat');

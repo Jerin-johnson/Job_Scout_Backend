@@ -17,18 +17,55 @@ function getAllTsFiles(dir) {
   return res;
 }
 
+function getAllJsFilesInSrc() {
+  const res = [];
+  function scan(dir) {
+    if (!fs.existsSync(dir)) return;
+    for (const f of fs.readdirSync(dir)) {
+      const p = path.join(dir, f);
+      if (fs.statSync(p).isDirectory()) {
+        scan(p);
+      } else if (f.endsWith(".js") || f.endsWith(".mjs") || f.endsWith(".cjs")) {
+        res.push(path.normalize(p));
+      }
+    }
+  }
+  scan("src");
+  return res;
+}
+
 const violations = [];
 
 // 0. Ensure obsolete competing directories are NOT reintroduced
-if (fs.existsSync("src/routes")) {
-  const remainingFiles = fs.readdirSync("src/routes");
-  if (remainingFiles.length > 0) {
-    violations.push({
-      rule: "Obsolete architectural directory reintroduction forbidden",
-      file: "src/routes",
-      detail: `The 'src/routes/' directory was canonically consolidated into 'src/presentation/http/routes/' and must not be reintroduced (found: ${remainingFiles.join(", ")})`,
-    });
+const obsoleteDirs = [
+  { path: "src/routes", canonical: "src/presentation/http/routes/" },
+  { path: "src/controllers", canonical: "src/presentation/http/controllers/" },
+  { path: "src/middleware", canonical: "src/presentation/http/middleware/" },
+  { path: "src/models", canonical: "src/infrastructure/database/mongoose/models/" },
+  { path: "src/repositories", canonical: "src/infrastructure/database/mongoose/repositories/" },
+];
+
+for (const obsolete of obsoleteDirs) {
+  if (fs.existsSync(obsolete.path)) {
+    const remainingFiles = fs.readdirSync(obsolete.path);
+    if (remainingFiles.length > 0) {
+      violations.push({
+        rule: "Obsolete architectural directory reintroduction forbidden",
+        file: obsolete.path,
+        detail: `The '${obsolete.path}/' directory was canonically consolidated into '${obsolete.canonical}' and must not be reintroduced (found: ${remainingFiles.join(", ")})`,
+      });
+    }
   }
+}
+
+// 0.1 Ensure zero .js files in src/
+const jsFilesInSrc = getAllJsFilesInSrc();
+if (jsFilesInSrc.length > 0) {
+  violations.push({
+    rule: "Zero JavaScript files allowed in src/",
+    file: "src/",
+    detail: `Found ${jsFilesInSrc.length} JavaScript file(s) in src/: ${jsFilesInSrc.join(", ")}`,
+  });
 }
 
 // 1. Check Domain Layer boundaries
@@ -161,7 +198,10 @@ if (violations.length > 0) {
 }
 
 console.log(`Architecture Boundary Check PASSED:`);
-console.log(`- Obsolete directories: 'src/routes' is completely removed and forbidden`);
+console.log(
+  `- Obsolete directories: all 5 legacy directories (routes, controllers, middleware, models, repositories) removed`,
+);
+console.log(`- JavaScript files in src/: 0 files found`);
 console.log(
   `- Domain layer: 0 infrastructure/framework imports across ${domainFiles.length} files`,
 );

@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { jobController } from "../../../controllers/jobController.js";
-import { authenticate } from "../../../middleware/auth.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
-import { requireQuota } from "../../../middleware/quotaGate.js";
-import { generalApiLimiter } from "../../../middleware/rateLimiter.js";
+import { jobController } from "../controllers/jobController.js";
+import { authenticate } from "../middleware/auth.js";
+import { csrfProtection } from "../middleware/csrf.js";
+import { requireQuota } from "../middleware/quotaGate.js";
+import { generalApiLimiter } from "../middleware/rateLimiter.js";
 
 export const jobRouter = Router();
 

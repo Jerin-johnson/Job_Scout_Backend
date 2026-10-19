@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import cors from "cors";

@@ -1,4 +1,4 @@
-import { JobCatalogVersion } from "../../models/JobCatalogVersion.js";
+import { JobCatalogVersion } from "../../infrastructure/database/mongoose/models/JobCatalogVersionModel.js";
 import { isMongoReady } from "../../config/database.js";
 
 const GLOBAL_CATALOG_KEY = "global";
@@ -8,7 +8,9 @@ export async function getCatalogVersion(): Promise<number> {
   const state = (await JobCatalogVersion.findOne({ key: GLOBAL_CATALOG_KEY })
     .select("version")
     .lean()) as { version?: number } | null;
-  return typeof state?.version === "number" && Number.isSafeInteger(state.version) && state.version > 0
+  return typeof state?.version === "number" &&
+    Number.isSafeInteger(state.version) &&
+    state.version > 0
     ? state.version
     : 1;
 }

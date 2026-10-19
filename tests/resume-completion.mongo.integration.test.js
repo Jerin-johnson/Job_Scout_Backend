@@ -2,21 +2,27 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { Profile } from "../src/models/Profile.js";
-import { Resume } from "../src/models/Resume.js";
-import { User } from "../src/models/User.js";
-import { profileController } from "../src/controllers/profileController.js";
+import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
+import { Resume } from "../src/infrastructure/database/mongoose/models/ResumeModel.js";
+import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
+import { profileController } from "../src/presentation/http/controllers/ProfileController.js";
 import { storageService } from "../src/services/storageService.js";
 import { textExtractionService } from "../src/services/textExtractionService.js";
 import { resumeParserService } from "../src/services/resumeParserService.js";
-import { profileRepository } from "../src/repositories/profileRepository.js";
+import { profileRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 
 function response() {
   return {
     statusCode: null,
     body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
   };
 }
 
@@ -32,11 +38,26 @@ test("resume completion retry is idempotent and another user's upload ID returns
   const userA = new mongoose.Types.ObjectId();
   const userB = new mongoose.Types.ObjectId();
   await User.create([
-    { _id: userA, email: "resume-a@example.test", resumeAiConsent: { acceptedAt: new Date(), version: "resume-ai-processing-v1" } },
-    { _id: userB, email: "resume-b@example.test", resumeAiConsent: { acceptedAt: new Date(), version: "resume-ai-processing-v1" } },
+    {
+      _id: userA,
+      email: "resume-a@example.test",
+      resumeAiConsent: { acceptedAt: new Date(), version: "resume-ai-processing-v1" },
+    },
+    {
+      _id: userB,
+      email: "resume-b@example.test",
+      resumeAiConsent: { acceptedAt: new Date(), version: "resume-ai-processing-v1" },
+    },
   ]);
   await profileRepository.upsertProfile(userB, {
-    roles: [{ factId: "role-grounded-before", title: "Staff Nurse", company: "North Hospital", achievements: [] }],
+    roles: [
+      {
+        factId: "role-grounded-before",
+        title: "Staff Nurse",
+        company: "North Hospital",
+        achievements: [],
+      },
+    ],
     skills: [],
     education: [],
   });
@@ -58,7 +79,8 @@ test("resume completion retry is idempotent and another user's upload ID returns
     return { contentLength: pdf.length, contentType: "application/pdf", etag: "test-etag" };
   };
   storageService.getFile = async () => pdf;
-  textExtractionService.extractPdf = async () => "Grounded resume content with enough selectable text for processing.";
+  textExtractionService.extractPdf = async () =>
+    "Grounded resume content with enough selectable text for processing.";
   resumeParserService.parseResume = async ({ userId: parsedUserId, storedS3Key }) => {
     parseCalls += 1;
     const factsSummary = { skills: 2, roles: 1, education: 0, totalFacts: 3 };
@@ -73,7 +95,9 @@ test("resume completion retry is idempotent and another user's upload ID returns
       factsSummary,
     });
     const profile = await profileRepository.upsertProfile(parsedUserId, {
-      roles: [], skills: [], education: [],
+      roles: [],
+      skills: [],
+      education: [],
     });
     return {
       profile,
@@ -97,16 +121,27 @@ test("resume completion retry is idempotent and another user's upload ID returns
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = response();
     let error;
-    await profileController.completeResumeUpload(userBRequest, res, (value) => { error = value; });
+    await profileController.completeResumeUpload(userBRequest, res, (value) => {
+      error = value;
+    });
     assert.equal(error, undefined);
     assert.equal(res.statusCode, 200);
-    assert.equal(res.body.data.message, attempt === 0 ? "Resume successfully parsed and encrypted" : "Resume upload was already processed");
+    assert.equal(
+      res.body.data.message,
+      attempt === 0
+        ? "Resume successfully parsed and encrypted"
+        : "Resume upload was already processed",
+    );
     assert.equal(res.body.data.resume.factsSummary.totalFacts, 3);
   }
   assert.equal(parseCalls, 1, "a completed retry does not re-parse the resume");
   assert.equal(await Resume.countDocuments({ userId: userB }), 1, "retries keep one resume record");
   const preservedProfile = await Profile.findOne({ userId: userB }).lean();
-  assert.equal(preservedProfile.roles.length, 1, "an empty new extraction does not erase grounded role history");
+  assert.equal(
+    preservedProfile.roles.length,
+    1,
+    "an empty new extraction does not erase grounded role history",
+  );
 
   let requestedKey;
   storageService.getObjectMetadata = async ({ key }) => {
@@ -122,7 +157,9 @@ test("resume completion retry is idempotent and another user's upload ID returns
     await profileController.completeResumeUpload(
       { user: { id: userA.toString() }, body: userBRequest.body },
       res,
-      (value) => { error = value; },
+      (value) => {
+        error = value;
+      },
     );
     assert.equal(requestedKey, `resumes/${userA}/${uploadId}.pdf`);
     assert.equal(error?.statusCode, 404);

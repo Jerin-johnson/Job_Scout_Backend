@@ -1,290 +1,237 @@
 # Architecture File Inventory
 
-**Generated:** 2026-10-19
+**Generated:** 2026-10-20
 **Repository:** AiJob_search_backend
-**Total Active TypeScript Source Files:** 258
+**Total Active TypeScript Source Files:** 222
 
 ## Action Legend
 
 - **KEEP**: Active, canonical implementation adhering to Clean Architecture.
-- **KEEP (Forwarder)**: 1-line backward compatibility facade pointing to canonical infrastructure model.
 - **REFACTOR**: Maintained and strengthened for DI and runtime contracts.
 
 ## File Inventory Table
 
-| File Path                                                                          | Layer | Responsibility                 | Traits      | Action  |
-| :--------------------------------------------------------------------------------- | :---- | :----------------------------- | :---------- | :------ |
-| src\ai\candidateContext.ts                                                         | Root  | candidateContext               | Infra       | KEEP    |
-| src\ai\chatContext.ts                                                              | Root  | chatContext                    | Infra       | KEEP    |
-| src\ai\chatStream.ts                                                               | Root  | chatStream                     | Logic/Types | KEEP    |
-| src\ai\checkpointer.ts                                                             | Root  | checkpointer                   | Infra       | KEEP    |
-| src\ai\graphs\applicationGraph.ts                                                  | Root  | applicationGraph               | Logic/Types | KEEP    |
-| src\ai\graphs\chatGraph.ts                                                         | Root  | chatGraph                      | Logic/Types | KEEP    |
-| src\ai\graphs\discoveryGraph.ts                                                    | Root  | discoveryGraph                 | Infra       | KEEP    |
-| src\ai\graphs\interviewGraph.ts                                                    | Root  | interviewGraph                 | Logic/Types | KEEP    |
-| src\ai\graphs\tailoringGraph.ts                                                    | Root  | tailoringGraph                 | Logic/Types | KEEP    |
-| src\ai\llm.ts                                                                      | Root  | llm                            | Logic/Types | KEEP    |
-| src\ai\memory\chatSessionService.ts                                                | Root  | chatSessionService             | Logic/Types | KEEP    |
-| src\ai\memory\longTerm.ts                                                          | Root  | longTerm                       | Logic/Types | KEEP    |
-| src\ai\memory\shortTerm.ts                                                         | Root  | shortTerm                      | Logic/Types | KEEP    |
-| src\ai\modelCatalog.ts                                                             | Root  | modelCatalog                   | Logic/Types | KEEP    |
-| src\ai\modelPricingCatalog.ts                                                      | Root  | modelPricingCatalog            | Logic/Types | KEEP    |
-| src\ai\providerErrors.ts                                                           | Root  | providerErrors                 | Logic/Types | KEEP    |
-| src\ai\providers\anthropic.ts                                                      | Root  | anthropic                      | Logic/Types | KEEP    |
-| src\ai\providers\gemini.ts                                                         | Root  | gemini                         | Logic/Types | KEEP    |
-| src\ai\providers\groq.ts                                                           | Root  | groq                           | Logic/Types | KEEP    |
-| src\ai\providers\index.ts                                                          | Root  | index                          | Logic/Types | KEEP    |
-| src\ai\router.ts                                                                   | Root  | router                         | Logic/Types | KEEP    |
-| src\ai\tools\chatTools.ts                                                          | Root  | chatTools                      | Infra       | KEEP    |
-| src\app.ts                                                                         | Root  | app                            | Logic/Types | KEEP    |
-| src\application\dtos\applicationDtos.ts                                            | Root  | applicationDtos                | Logic/Types | KEEP    |
-| src\application\dtos\authDtos.ts                                                   | Root  | authDtos                       | Logic/Types | KEEP    |
-| src\application\dtos\index.ts                                                      | Root  | index                          | Logic/Types | KEEP    |
-| src\application\dtos\profileDtos.ts                                                | Root  | profileDtos                    | Logic/Types | KEEP    |
-| src\application\errors\ApplicationError.ts                                         | Root  | ApplicationError               | Logic/Types | KEEP    |
-| src\application\errors\index.ts                                                    | Root  | index                          | Logic/Types | KEEP    |
-| src\application\useCases\IUseCase.ts                                               | Root  | IUseCase                       | Logic/Types | KEEP    |
-| src\application\useCases\applications\CreateApplicationUseCase.ts                  | Root  | CreateApplicationUseCase       | Logic/Types | KEEP    |
-| src\application\useCases\applications\GetApplicationsUseCase.ts                    | Root  | GetApplicationsUseCase         | Logic/Types | KEEP    |
-| src\application\useCases\applications\UpdateApplicationStatusUseCase.ts            | Root  | UpdateApplicationStatusUseCase | Logic/Types | KEEP    |
-| src\application\useCases\applications\index.ts                                     | Root  | index                          | Logic/Types | KEEP    |
-| src\application\useCases\auth\LoginUserUseCase.ts                                  | Root  | LoginUserUseCase               | Logic/Types | KEEP    |
-| src\application\useCases\auth\RefreshTokenUseCase.ts                               | Root  | RefreshTokenUseCase            | Logic/Types | KEEP    |
-| src\application\useCases\auth\RegisterUserUseCase.ts                               | Root  | RegisterUserUseCase            | Logic/Types | KEEP    |
-| src\application\useCases\auth\index.ts                                             | Root  | index                          | Logic/Types | KEEP    |
-| src\application\useCases\index.ts                                                  | Root  | index                          | Logic/Types | KEEP    |
-| src\application\useCases\profile\GetProfileUseCase.ts                              | Root  | GetProfileUseCase              | Logic/Types | KEEP    |
-| src\application\useCases\profile\UpsertProfileUseCase.ts                           | Root  | UpsertProfileUseCase           | Logic/Types | KEEP    |
-| src\application\useCases\profile\index.ts                                          | Root  | index                          | Logic/Types | KEEP    |
-| src\config\aiStartupValidation.ts                                                  | Root  | aiStartupValidation            | Logic/Types | KEEP    |
-| src\config\database.ts                                                             | Root  | database                       | Infra       | KEEP    |
-| src\config\env.ts                                                                  | Root  | env                            | Logic/Types | KEEP    |
-| src\config\redis.ts                                                                | Root  | redis                          | Infra       | KEEP    |
-| src\config\sentry.ts                                                               | Root  | sentry                         | Logic/Types | KEEP    |
-| src\config\shutdown.ts                                                             | Root  | shutdown                       | Logic/Types | KEEP    |
-| src\controllers\adminController.ts                                                 | Root  | adminController                | HTTP, Infra | KEEP    |
-| src\controllers\aiController.ts                                                    | Root  | aiController                   | HTTP        | KEEP    |
-| src\controllers\applicationController.ts                                           | Root  | applicationController          | HTTP, Infra | KEEP    |
-| src\controllers\authController.ts                                                  | Root  | authController                 | HTTP        | KEEP    |
-| src\controllers\billingController.ts                                               | Root  | billingController              | HTTP        | KEEP    |
-| src\controllers\feedbackController.ts                                              | Root  | feedbackController             | HTTP        | KEEP    |
-| src\controllers\index.ts                                                           | Root  | index                          | Logic/Types | KEEP    |
-| src\controllers\interviewController.ts                                             | Root  | interviewController            | HTTP        | KEEP    |
-| src\controllers\jobController.ts                                                   | Root  | jobController                  | HTTP, Infra | KEEP    |
-| src\controllers\memoryController.ts                                                | Root  | memoryController               | HTTP        | KEEP    |
-| src\controllers\privacyController.ts                                               | Root  | privacyController              | HTTP        | KEEP    |
-| src\controllers\profileController.ts                                               | Root  | profileController              | HTTP        | KEEP    |
-| src\controllers\resumeMatchController.ts                                           | Root  | resumeMatchController          | HTTP, Infra | KEEP    |
-| src\controllers\tailoringController.ts                                             | Root  | tailoringController            | HTTP, Infra | KEEP    |
-| src\domain\entities\Application.ts                                                 | Root  | Application                    | Logic/Types | KEEP    |
-| src\domain\entities\Profile.ts                                                     | Root  | Profile                        | Logic/Types | KEEP    |
-| src\domain\entities\Resume.ts                                                      | Root  | Resume                         | Logic/Types | KEEP    |
-| src\domain\entities\User.ts                                                        | Root  | User                           | Logic/Types | KEEP    |
-| src\domain\entities\index.ts                                                       | Root  | index                          | Logic/Types | KEEP    |
-| src\domain\errors\DomainError.ts                                                   | Root  | DomainError                    | Logic/Types | KEEP    |
-| src\domain\errors\index.ts                                                         | Root  | index                          | Logic/Types | KEEP    |
-| src\domain\notifications\IEmailService.ts                                          | Root  | IEmailService                  | Logic/Types | KEEP    |
-| src\domain\repositories\IApplicationRepository.ts                                  | Root  | IApplicationRepository         | Logic/Types | KEEP    |
-| src\domain\repositories\IBaseRepository.ts                                         | Root  | IBaseRepository                | Logic/Types | KEEP    |
-| src\domain\repositories\IProfileRepository.ts                                      | Root  | IProfileRepository             | Logic/Types | KEEP    |
-| src\domain\repositories\IUserRepository.ts                                         | Root  | IUserRepository                | Logic/Types | KEEP    |
-| src\domain\repositories\index.ts                                                   | Root  | index                          | Logic/Types | KEEP    |
-| src\domain\security\IPasswordHasher.ts                                             | Root  | IPasswordHasher                | Logic/Types | KEEP    |
-| src\domain\security\ITokenService.ts                                               | Root  | ITokenService                  | Logic/Types | KEEP    |
-| src\domain\storage\IStorageService.ts                                              | Root  | IStorageService                | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\mappers\ApplicationMapper.ts                  | Root  | ApplicationMapper              | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\mappers\ProfileMapper.ts                      | Root  | ProfileMapper                  | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\mappers\ResumeMapper.ts                       | Root  | ResumeMapper                   | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\mappers\UserMapper.ts                         | Root  | UserMapper                     | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\mappers\index.ts                              | Root  | index                          | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\models\ApplicationModel.ts                    | Root  | ApplicationModel               | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\AuditLogModel.ts                       | Root  | AuditLogModel                  | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\ChatSessionModel.ts                    | Root  | ChatSessionModel               | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\CompanyModel.ts                        | Root  | CompanyModel                   | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\DocumentModel.ts                       | Root  | DocumentModel                  | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\FxRateModel.ts                         | Root  | FxRateModel                    | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\HiddenJobModel.ts                      | Root  | HiddenJobModel                 | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\InteractionEventModel.ts               | Root  | InteractionEventModel          | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\InterviewMessageModel.ts               | Root  | InterviewMessageModel          | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\InterviewReportModel.ts                | Root  | InterviewReportModel           | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\InterviewSessionModel.ts               | Root  | InterviewSessionModel          | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobCatalogVersionModel.ts              | Root  | JobCatalogVersionModel         | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobDetailModel.ts                      | Root  | JobDetailModel                 | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobMatchReportModel.ts                 | Root  | JobMatchReportModel            | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobModel.ts                            | Root  | JobModel                       | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobReportModel.ts                      | Root  | JobReportModel                 | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobSourceModel.ts                      | Root  | JobSourceModel                 | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\JobVectorModel.ts                      | Root  | JobVectorModel                 | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\MatchModel.ts                          | Root  | MatchModel                     | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\MatchRefreshModel.ts                   | Root  | MatchRefreshModel              | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\MemoryModel.ts                         | Root  | MemoryModel                    | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\PaymentModel.ts                        | Root  | PaymentModel                   | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\ProfileModel.ts                        | Root  | ProfileModel                   | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\ResumeModel.ts                         | Root  | ResumeModel                    | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\RoutingLogModel.ts                     | Root  | RoutingLogModel                | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\SavedSearchModel.ts                    | Root  | SavedSearchModel               | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\SemanticCacheModel.ts                  | Root  | SemanticCacheModel             | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\SubscriptionModel.ts                   | Root  | SubscriptionModel              | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\TrackedCompanyModel.ts                 | Root  | TrackedCompanyModel            | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\UsageEventModel.ts                     | Root  | UsageEventModel                | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\UserFeedbackModel.ts                   | Root  | UserFeedbackModel              | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\UserModel.ts                           | Root  | UserModel                      | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\models\index.ts                               | Root  | index                          | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\repositories\BaseMongooseRepository.ts        | Root  | BaseMongooseRepository         | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\repositories\MongooseApplicationRepository.ts | Root  | MongooseApplicationRepository  | Logic/Types | KEEP    |
-| src\infrastructure\database\mongoose\repositories\MongooseProfileRepository.ts     | Root  | MongooseProfileRepository      | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\repositories\MongooseUserRepository.ts        | Root  | MongooseUserRepository         | Infra       | KEEP    |
-| src\infrastructure\database\mongoose\repositories\index.ts                         | Root  | index                          | Logic/Types | KEEP    |
-| src\infrastructure\email\ResendEmailService.ts                                     | Root  | ResendEmailService             | Logic/Types | KEEP    |
-| src\infrastructure\security\BcryptPasswordHasher.ts                                | Root  | BcryptPasswordHasher           | Logic/Types | KEEP    |
-| src\infrastructure\security\JwtTokenService.ts                                     | Root  | JwtTokenService                | Logic/Types | KEEP    |
-| src\infrastructure\storage\S3StorageService.ts                                     | Root  | S3StorageService               | Logic/Types | KEEP    |
-| src\main\app.ts                                                                    | Root  | app                            | HTTP        | KEEP    |
-| src\main\container.ts                                                              | Root  | container                      | Infra       | KEEP    |
-| src\main\server.ts                                                                 | Root  | server                         | Logic/Types | KEEP    |
-| src\main\worker.ts                                                                 | Root  | worker                         | Infra       | KEEP    |
-| src\middleware\auth.ts                                                             | Root  | auth                           | HTTP        | KEEP    |
-| src\middleware\csrf.ts                                                             | Root  | csrf                           | HTTP        | KEEP    |
-| src\middleware\errorHandler.ts                                                     | Root  | errorHandler                   | HTTP        | KEEP    |
-| src\middleware\index.ts                                                            | Root  | index                          | Logic/Types | KEEP    |
-| src\middleware\interviewRateLimit.ts                                               | Root  | interviewRateLimit             | HTTP        | KEEP    |
-| src\middleware\quotaGate.ts                                                        | Root  | quotaGate                      | HTTP        | KEEP    |
-| src\middleware\rateLimiter.ts                                                      | Root  | rateLimiter                    | HTTP        | KEEP    |
-| src\models\Application.ts                                                          | Root  | Application                    | Infra       | KEEP    |
-| src\models\AuditLog.ts                                                             | Root  | AuditLog                       | Infra       | KEEP    |
-| src\models\ChatSession.ts                                                          | Root  | ChatSession                    | Infra       | KEEP    |
-| src\models\Company.ts                                                              | Root  | Company                        | Infra       | KEEP    |
-| src\models\Document.ts                                                             | Root  | Document                       | Infra       | KEEP    |
-| src\models\FxRate.ts                                                               | Root  | FxRate                         | Infra       | KEEP    |
-| src\models\HiddenJob.ts                                                            | Root  | HiddenJob                      | Infra       | KEEP    |
-| src\models\InteractionEvent.ts                                                     | Root  | InteractionEvent               | Infra       | KEEP    |
-| src\models\InterviewMessage.ts                                                     | Root  | InterviewMessage               | Infra       | KEEP    |
-| src\models\InterviewReport.ts                                                      | Root  | InterviewReport                | Infra       | KEEP    |
-| src\models\InterviewSession.ts                                                     | Root  | InterviewSession               | Infra       | KEEP    |
-| src\models\Job.ts                                                                  | Root  | Job                            | Infra       | KEEP    |
-| src\models\JobCatalogVersion.ts                                                    | Root  | JobCatalogVersion              | Infra       | KEEP    |
-| src\models\JobDetail.ts                                                            | Root  | JobDetail                      | Infra       | KEEP    |
-| src\models\JobMatchReport.ts                                                       | Root  | JobMatchReport                 | Infra       | KEEP    |
-| src\models\JobReport.ts                                                            | Root  | JobReport                      | Infra       | KEEP    |
-| src\models\JobSource.ts                                                            | Root  | JobSource                      | Infra       | KEEP    |
-| src\models\JobVector.ts                                                            | Root  | JobVector                      | Infra       | KEEP    |
-| src\models\Match.ts                                                                | Root  | Match                          | Infra       | KEEP    |
-| src\models\MatchRefresh.ts                                                         | Root  | MatchRefresh                   | Infra       | KEEP    |
-| src\models\Memory.ts                                                               | Root  | Memory                         | Infra       | KEEP    |
-| src\models\Payment.ts                                                              | Root  | Payment                        | Infra       | KEEP    |
-| src\models\Profile.ts                                                              | Root  | Profile                        | Infra       | KEEP    |
-| src\models\Resume.ts                                                               | Root  | Resume                         | Infra       | KEEP    |
-| src\models\RoutingLog.ts                                                           | Root  | RoutingLog                     | Infra       | KEEP    |
-| src\models\SavedSearch.ts                                                          | Root  | SavedSearch                    | Infra       | KEEP    |
-| src\models\SemanticCache.ts                                                        | Root  | SemanticCache                  | Infra       | KEEP    |
-| src\models\Subscription.ts                                                         | Root  | Subscription                   | Infra       | KEEP    |
-| src\models\TrackedCompany.ts                                                       | Root  | TrackedCompany                 | Infra       | KEEP    |
-| src\models\UsageEvent.ts                                                           | Root  | UsageEvent                     | Infra       | KEEP    |
-| src\models\User.ts                                                                 | Root  | User                           | Infra       | KEEP    |
-| src\models\UserFeedback.ts                                                         | Root  | UserFeedback                   | Infra       | KEEP    |
-| src\presentation\http\controllers\ApplicationController.ts                         | Root  | ApplicationController          | HTTP        | KEEP    |
-| src\presentation\http\controllers\AuthController.ts                                | Root  | AuthController                 | HTTP        | KEEP    |
-| src\presentation\http\controllers\ProfileController.ts                             | Root  | ProfileController              | HTTP        | KEEP    |
-| src\presentation\http\middleware\authMiddleware.ts                                 | Root  | authMiddleware                 | HTTP        | KEEP    |
-| src\presentation\http\middleware\errorHandlerMiddleware.ts                         | Root  | errorHandlerMiddleware         | HTTP        | KEEP    |
-| src\presentation\http\routes\applicationRoutes.ts                                  | Root  | applicationRoutes              | HTTP        | KEEP    |
-| src\presentation\http\routes\authRoutes.ts                                         | Root  | authRoutes                     | HTTP        | KEEP    |
-| src\presentation\http\routes\index.ts                                              | Root  | index                          | HTTP        | KEEP    |
-| src\presentation\http\routes\profileRoutes.ts                                      | Root  | profileRoutes                  | HTTP        | KEEP    |
-| src\presentation\http\types\index.ts                                               | Root  | index                          | HTTP        | KEEP    |
-| src\repositories\applicationRepository.ts                                          | Root  | applicationRepository          | Infra       | KEEP    |
-| src\repositories\index.ts                                                          | Root  | index                          | Logic/Types | KEEP    |
-| src\repositories\interviewRepository.ts                                            | Root  | interviewRepository            | Infra       | KEEP    |
-| src\repositories\profileRepository.ts                                              | Root  | profileRepository              | Infra       | KEEP    |
-| src\repositories\userRepository.ts                                                 | Root  | userRepository                 | Infra       | KEEP    |
-| src\presentation\http\routes\adminRoutes.ts                                        | Root  | adminRoutes                    | HTTP        | KEEP    |
-| src\presentation\http\routes\aiRoutes.ts                                           | Root  | aiRoutes                       | HTTP        | KEEP    |
-| src\presentation\http\routes\applicationRoutes.ts                                  | Root  | applicationRoutes              | HTTP        | KEEP    |
-| src\presentation\http\routes\authRoutes.ts                                         | Root  | authRoutes                     | HTTP        | KEEP    |
-| src\presentation\http\routes\billingRoutes.ts                                      | Root  | billingRoutes                  | HTTP        | KEEP    |
-| src\presentation\http\routes\feedbackRoutes.ts                                     | Root  | feedbackRoutes                 | HTTP        | KEEP    |
-| src\presentation\http\routes\healthRoutes.ts                                       | Root  | healthRoutes                   | HTTP        | KEEP    |
-| src\presentation\http\routes\interviewRoutes.ts                                    | Root  | interviewRoutes                | HTTP        | KEEP    |
-| src\presentation\http\routes\jobRoutes.ts                                          | Root  | jobRoutes                      | HTTP        | KEEP    |
-| src\presentation\http\routes\memoryRoutes.ts                                       | Root  | memoryRoutes                   | HTTP        | KEEP    |
-| src\presentation\http\routes\privacyRoutes.ts                                      | Root  | privacyRoutes                  | HTTP        | KEEP    |
-| src\presentation\http\routes\profileRoutes.ts                                      | Root  | profileRoutes                  | HTTP        | KEEP    |
-| src\presentation\http\routes\resumeMatchRoutes.ts                                  | Root  | resumeMatchRoutes              | HTTP        | KEEP    |
-| src\presentation\http\routes\tailorRoutes.ts                                       | Root  | tailorRoutes                   | HTTP        | KEEP    |
-| src\presentation\http\routes\index.ts                                              | Root  | index                          | HTTP        | KEEP    |
-| src\main\routes.ts                                                                 | Root  | routes                         | HTTP        | KEEP    |
-| src\routes\admin.ts                                                                | Root  | admin                          | HTTP        | DELETED |
-| src\routes\ai.ts                                                                   | Root  | ai                             | HTTP        | DELETED |
-| src\routes\billing.ts                                                              | Root  | billing                        | HTTP        | DELETED |
-| src\routes\feedback.ts                                                             | Root  | feedback                       | HTTP        | DELETED |
-| src\routes\health.ts                                                               | Root  | health                         | HTTP        | DELETED |
-| src\routes\interview.ts                                                            | Root  | interview                      | HTTP        | DELETED |
-| src\routes\jobs.ts                                                                 | Root  | jobs                           | HTTP        | DELETED |
-| src\routes\memory.ts                                                               | Root  | memory                         | HTTP        | DELETED |
-| src\routes\privacy.ts                                                              | Root  | privacy                        | HTTP        | DELETED |
-| src\routes\resumeMatch.ts                                                          | Root  | resumeMatch                    | HTTP        | DELETED |
-| src\routes\tailor.ts                                                               | Root  | tailor                         | HTTP        | DELETED |
-| src\server.ts                                                                      | Root  | server                         | Logic/Types | KEEP    |
-| src\services\applicationLifecycle.ts                                               | Root  | applicationLifecycle           | Logic/Types | KEEP    |
-| src\services\applicationReminderQueue.ts                                           | Root  | applicationReminderQueue       | Infra       | KEEP    |
-| src\services\authService.ts                                                        | Root  | authService                    | Logic/Types | KEEP    |
-| src\services\billingService.ts                                                     | Root  | billingService                 | Logic/Types | KEEP    |
-| src\services\emailDigestService.ts                                                 | Root  | emailDigestService             | Logic/Types | KEEP    |
-| src\services\embeddingService.ts                                                   | Root  | embeddingService               | Logic/Types | KEEP    |
-| src\services\exportService.ts                                                      | Root  | exportService                  | Logic/Types | KEEP    |
-| src\services\interview\sessionService.ts                                           | Root  | sessionService                 | Infra       | KEEP    |
-| src\services\jobs\adapters\adzunaAdapter.ts                                        | Root  | adzunaAdapter                  | Logic/Types | KEEP    |
-| src\services\jobs\adapters\baseAdapter.ts                                          | Root  | baseAdapter                    | Logic/Types | KEEP    |
-| src\services\jobs\adapters\franceTravailAdapter.ts                                 | Root  | franceTravailAdapter           | Logic/Types | KEEP    |
-| src\services\jobs\adapters\jobStreamAdapter.ts                                     | Root  | jobStreamAdapter               | Logic/Types | KEEP    |
-| src\services\jobs\adapters\jobicyAdapter.ts                                        | Root  | jobicyAdapter                  | Logic/Types | KEEP    |
-| src\services\jobs\adapters\licensedFeedAdapter.ts                                  | Root  | licensedFeedAdapter            | Logic/Types | KEEP    |
-| src\services\jobs\adapters\mockBoardAdapter.ts                                     | Root  | mockBoardAdapter               | Logic/Types | KEEP    |
-| src\services\jobs\adapters\navAdapter.ts                                           | Root  | navAdapter                     | Logic/Types | KEEP    |
-| src\services\jobs\adapters\publicAtsAdapter.ts                                     | Root  | publicAtsAdapter               | Logic/Types | KEEP    |
-| src\services\jobs\adapters\remoteOkAdapter.ts                                      | Root  | remoteOkAdapter                | Logic/Types | KEEP    |
-| src\services\jobs\adapters\remotiveAdapter.ts                                      | Root  | remotiveAdapter                | Logic/Types | KEEP    |
-| src\services\jobs\catalogVersion.ts                                                | Root  | catalogVersion                 | Logic/Types | KEEP    |
-| src\services\jobs\eligibility.ts                                                   | Root  | eligibility                    | Logic/Types | KEEP    |
-| src\services\jobs\eligibilityRegions.ts                                            | Root  | eligibilityRegions             | Logic/Types | KEEP    |
-| src\services\jobs\fxRates.ts                                                       | Root  | fxRates                        | Logic/Types | KEEP    |
-| src\services\jobs\incrementalMatching.ts                                           | Root  | incrementalMatching            | Logic/Types | KEEP    |
-| src\services\jobs\ingestionResilience.ts                                           | Root  | ingestionResilience            | Logic/Types | KEEP    |
-| src\services\jobs\interactionEvents.ts                                             | Root  | interactionEvents              | Logic/Types | KEEP    |
-| src\services\jobs\jobIndexes.ts                                                    | Root  | jobIndexes                     | Logic/Types | KEEP    |
-| src\services\jobs\jobIngestionService.ts                                           | Root  | jobIngestionService            | HTTP, Infra | KEEP    |
-| src\services\jobs\jobRisk.ts                                                       | Root  | jobRisk                        | Logic/Types | KEEP    |
-| src\services\jobs\jobSearch.ts                                                     | Root  | jobSearch                      | HTTP        | KEEP    |
-| src\services\jobs\jobStorage.ts                                                    | Root  | jobStorage                     | Logic/Types | KEEP    |
-| src\services\jobs\matching.ts                                                      | Root  | matching                       | Logic/Types | KEEP    |
-| src\services\jobs\occupationClassification.ts                                      | Root  | occupationClassification       | Logic/Types | KEEP    |
-| src\services\jobs\occupationEvaluation.ts                                          | Root  | occupationEvaluation           | Logic/Types | KEEP    |
-| src\services\jobs\referenceData\index.ts                                           | Root  | index                          | Logic/Types | KEEP    |
-| src\services\jobs\repeatSchedule.ts                                                | Root  | repeatSchedule                 | Logic/Types | KEEP    |
-| src\services\jobs\roleNormalization.ts                                             | Root  | roleNormalization              | Logic/Types | KEEP    |
-| src\services\jobs\savedSearchService.ts                                            | Root  | savedSearchService             | Infra       | KEEP    |
-| src\services\jobs\scheduleReport.ts                                                | Root  | scheduleReport                 | Logic/Types | KEEP    |
-| src\services\jobs\sourcePolicies.ts                                                | Root  | sourcePolicies                 | Logic/Types | KEEP    |
-| src\services\jobs\trackedCompanyService.ts                                         | Root  | trackedCompanyService          | Logic/Types | KEEP    |
-| src\services\matchRefreshService.ts                                                | Root  | matchRefreshService            | Infra       | KEEP    |
-| src\services\profileSuggestionCatalog.ts                                           | Root  | profileSuggestionCatalog       | Logic/Types | KEEP    |
-| src\services\quotaService.ts                                                       | Root  | quotaService                   | Logic/Types | KEEP    |
-| src\services\resumeAiConsent.ts                                                    | Root  | resumeAiConsent                | Logic/Types | KEEP    |
-| src\services\resumeDataLifecycle.ts                                                | Root  | resumeDataLifecycle            | Logic/Types | KEEP    |
-| src\services\resumeMatchService.ts                                                 | Root  | resumeMatchService             | Logic/Types | KEEP    |
-| src\services\resumeParserService.ts                                                | Root  | resumeParserService            | Logic/Types | KEEP    |
-| src\services\resumeRoleParser.ts                                                   | Root  | resumeRoleParser               | Logic/Types | KEEP    |
-| src\services\storageService.ts                                                     | Root  | storageService                 | Logic/Types | KEEP    |
-| src\services\textExtractionService.ts                                              | Root  | textExtractionService          | Logic/Types | KEEP    |
-| src\shared\cache.ts                                                                | Root  | cache                          | Logic/Types | KEEP    |
-| src\shared\constants\injectionTokens.ts                                            | Root  | injectionTokens                | Logic/Types | KEEP    |
-| src\shared\constants\interviews.ts                                                 | Root  | interviews                     | Logic/Types | KEEP    |
-| src\shared\constants\plans.ts                                                      | Root  | plans                          | Logic/Types | KEEP    |
-| src\shared\schemas\authSchemas.ts                                                  | Root  | authSchemas                    | Logic/Types | KEEP    |
-| src\shared\types\apiResponse.ts                                                    | Root  | apiResponse                    | Logic/Types | KEEP    |
-| src\shared\types\index.ts                                                          | Root  | index                          | Logic/Types | KEEP    |
-| src\shared\utils\crypto.ts                                                         | Root  | crypto                         | Logic/Types | KEEP    |
-| src\shared\utils\fileValidation.ts                                                 | Root  | fileValidation                 | Logic/Types | KEEP    |
-| src\shared\utils\logger.ts                                                         | Root  | logger                         | HTTP        | KEEP    |
-| src\shared\utils\webOrigin.ts                                                      | Root  | webOrigin                      | Logic/Types | KEEP    |
-| src\worker.ts                                                                      | Root  | worker                         | Logic/Types | KEEP    |
+| File Path                                                                          | Layer          | Responsibility                 | Action |
+| :--------------------------------------------------------------------------------- | :------------- | :----------------------------- | :----- |
+| src/ai\candidateContext.ts                                                         | Root/Shared    | candidateContext               | KEEP   |
+| src/ai\chatContext.ts                                                              | Root/Shared    | chatContext                    | KEEP   |
+| src/ai\chatStream.ts                                                               | Root/Shared    | chatStream                     | KEEP   |
+| src/ai\checkpointer.ts                                                             | Root/Shared    | checkpointer                   | KEEP   |
+| src/ai\graphs\applicationGraph.ts                                                  | Root/Shared    | applicationGraph               | KEEP   |
+| src/ai\graphs\chatGraph.ts                                                         | Root/Shared    | chatGraph                      | KEEP   |
+| src/ai\graphs\discoveryGraph.ts                                                    | Root/Shared    | discoveryGraph                 | KEEP   |
+| src/ai\graphs\interviewGraph.ts                                                    | Root/Shared    | interviewGraph                 | KEEP   |
+| src/ai\graphs\tailoringGraph.ts                                                    | Root/Shared    | tailoringGraph                 | KEEP   |
+| src/ai\llm.ts                                                                      | Root/Shared    | llm                            | KEEP   |
+| src/ai\memory\chatSessionService.ts                                                | Root/Shared    | chatSessionService             | KEEP   |
+| src/ai\memory\longTerm.ts                                                          | Root/Shared    | longTerm                       | KEEP   |
+| src/ai\memory\shortTerm.ts                                                         | Root/Shared    | shortTerm                      | KEEP   |
+| src/ai\modelCatalog.ts                                                             | Root/Shared    | modelCatalog                   | KEEP   |
+| src/ai\modelPricingCatalog.ts                                                      | Root/Shared    | modelPricingCatalog            | KEEP   |
+| src/ai\providerErrors.ts                                                           | Root/Shared    | providerErrors                 | KEEP   |
+| src/ai\providers\anthropic.ts                                                      | Root/Shared    | anthropic                      | KEEP   |
+| src/ai\providers\gemini.ts                                                         | Root/Shared    | gemini                         | KEEP   |
+| src/ai\providers\groq.ts                                                           | Root/Shared    | groq                           | KEEP   |
+| src/ai\providers\index.ts                                                          | Root/Shared    | index                          | KEEP   |
+| src/ai\router.ts                                                                   | Root/Shared    | router                         | KEEP   |
+| src/ai\tools\chatTools.ts                                                          | Root/Shared    | chatTools                      | KEEP   |
+| src/app.ts                                                                         | Root/Shared    | app                            | KEEP   |
+| src/application\dtos\applicationDtos.ts                                            | Application    | applicationDtos                | KEEP   |
+| src/application\dtos\authDtos.ts                                                   | Application    | authDtos                       | KEEP   |
+| src/application\dtos\index.ts                                                      | Application    | index                          | KEEP   |
+| src/application\dtos\profileDtos.ts                                                | Application    | profileDtos                    | KEEP   |
+| src/application\errors\ApplicationError.ts                                         | Application    | ApplicationError               | KEEP   |
+| src/application\errors\index.ts                                                    | Application    | index                          | KEEP   |
+| src/application\useCases\IUseCase.ts                                               | Application    | IUseCase                       | KEEP   |
+| src/application\useCases\applications\CreateApplicationUseCase.ts                  | Application    | CreateApplicationUseCase       | KEEP   |
+| src/application\useCases\applications\GetApplicationsUseCase.ts                    | Application    | GetApplicationsUseCase         | KEEP   |
+| src/application\useCases\applications\UpdateApplicationStatusUseCase.ts            | Application    | UpdateApplicationStatusUseCase | KEEP   |
+| src/application\useCases\applications\index.ts                                     | Application    | index                          | KEEP   |
+| src/application\useCases\auth\LoginUserUseCase.ts                                  | Application    | LoginUserUseCase               | KEEP   |
+| src/application\useCases\auth\RefreshTokenUseCase.ts                               | Application    | RefreshTokenUseCase            | KEEP   |
+| src/application\useCases\auth\RegisterUserUseCase.ts                               | Application    | RegisterUserUseCase            | KEEP   |
+| src/application\useCases\auth\index.ts                                             | Application    | index                          | KEEP   |
+| src/application\useCases\index.ts                                                  | Application    | index                          | KEEP   |
+| src/application\useCases\profile\GetProfileUseCase.ts                              | Application    | GetProfileUseCase              | KEEP   |
+| src/application\useCases\profile\UpsertProfileUseCase.ts                           | Application    | UpsertProfileUseCase           | KEEP   |
+| src/application\useCases\profile\index.ts                                          | Application    | index                          | KEEP   |
+| src/config\aiStartupValidation.ts                                                  | Root/Shared    | aiStartupValidation            | KEEP   |
+| src/config\database.ts                                                             | Root/Shared    | database                       | KEEP   |
+| src/config\env.ts                                                                  | Root/Shared    | env                            | KEEP   |
+| src/config\redis.ts                                                                | Root/Shared    | redis                          | KEEP   |
+| src/config\sentry.ts                                                               | Root/Shared    | sentry                         | KEEP   |
+| src/config\shutdown.ts                                                             | Root/Shared    | shutdown                       | KEEP   |
+| src/domain\entities\Application.ts                                                 | Domain         | Application                    | KEEP   |
+| src/domain\entities\Profile.ts                                                     | Domain         | Profile                        | KEEP   |
+| src/domain\entities\Resume.ts                                                      | Domain         | Resume                         | KEEP   |
+| src/domain\entities\User.ts                                                        | Domain         | User                           | KEEP   |
+| src/domain\entities\index.ts                                                       | Domain         | index                          | KEEP   |
+| src/domain\errors\DomainError.ts                                                   | Domain         | DomainError                    | KEEP   |
+| src/domain\errors\index.ts                                                         | Domain         | index                          | KEEP   |
+| src/domain\notifications\IEmailService.ts                                          | Domain         | IEmailService                  | KEEP   |
+| src/domain\repositories\IApplicationRepository.ts                                  | Domain         | IApplicationRepository         | KEEP   |
+| src/domain\repositories\IBaseRepository.ts                                         | Domain         | IBaseRepository                | KEEP   |
+| src/domain\repositories\IProfileRepository.ts                                      | Domain         | IProfileRepository             | KEEP   |
+| src/domain\repositories\IUserRepository.ts                                         | Domain         | IUserRepository                | KEEP   |
+| src/domain\repositories\index.ts                                                   | Domain         | index                          | KEEP   |
+| src/domain\security\IPasswordHasher.ts                                             | Domain         | IPasswordHasher                | KEEP   |
+| src/domain\security\ITokenService.ts                                               | Domain         | ITokenService                  | KEEP   |
+| src/domain\storage\IStorageService.ts                                              | Domain         | IStorageService                | KEEP   |
+| src/infrastructure\database\mongoose\mappers\ApplicationMapper.ts                  | Infrastructure | ApplicationMapper              | KEEP   |
+| src/infrastructure\database\mongoose\mappers\ProfileMapper.ts                      | Infrastructure | ProfileMapper                  | KEEP   |
+| src/infrastructure\database\mongoose\mappers\ResumeMapper.ts                       | Infrastructure | ResumeMapper                   | KEEP   |
+| src/infrastructure\database\mongoose\mappers\UserMapper.ts                         | Infrastructure | UserMapper                     | KEEP   |
+| src/infrastructure\database\mongoose\mappers\index.ts                              | Infrastructure | index                          | KEEP   |
+| src/infrastructure\database\mongoose\models\ApplicationModel.ts                    | Infrastructure | ApplicationModel               | KEEP   |
+| src/infrastructure\database\mongoose\models\AuditLogModel.ts                       | Infrastructure | AuditLogModel                  | KEEP   |
+| src/infrastructure\database\mongoose\models\ChatSessionModel.ts                    | Infrastructure | ChatSessionModel               | KEEP   |
+| src/infrastructure\database\mongoose\models\CompanyModel.ts                        | Infrastructure | CompanyModel                   | KEEP   |
+| src/infrastructure\database\mongoose\models\DocumentModel.ts                       | Infrastructure | DocumentModel                  | KEEP   |
+| src/infrastructure\database\mongoose\models\FxRateModel.ts                         | Infrastructure | FxRateModel                    | KEEP   |
+| src/infrastructure\database\mongoose\models\HiddenJobModel.ts                      | Infrastructure | HiddenJobModel                 | KEEP   |
+| src/infrastructure\database\mongoose\models\InteractionEventModel.ts               | Infrastructure | InteractionEventModel          | KEEP   |
+| src/infrastructure\database\mongoose\models\InterviewMessageModel.ts               | Infrastructure | InterviewMessageModel          | KEEP   |
+| src/infrastructure\database\mongoose\models\InterviewReportModel.ts                | Infrastructure | InterviewReportModel           | KEEP   |
+| src/infrastructure\database\mongoose\models\InterviewSessionModel.ts               | Infrastructure | InterviewSessionModel          | KEEP   |
+| src/infrastructure\database\mongoose\models\JobCatalogVersionModel.ts              | Infrastructure | JobCatalogVersionModel         | KEEP   |
+| src/infrastructure\database\mongoose\models\JobDetailModel.ts                      | Infrastructure | JobDetailModel                 | KEEP   |
+| src/infrastructure\database\mongoose\models\JobMatchReportModel.ts                 | Infrastructure | JobMatchReportModel            | KEEP   |
+| src/infrastructure\database\mongoose\models\JobModel.ts                            | Infrastructure | JobModel                       | KEEP   |
+| src/infrastructure\database\mongoose\models\JobReportModel.ts                      | Infrastructure | JobReportModel                 | KEEP   |
+| src/infrastructure\database\mongoose\models\JobSourceModel.ts                      | Infrastructure | JobSourceModel                 | KEEP   |
+| src/infrastructure\database\mongoose\models\JobVectorModel.ts                      | Infrastructure | JobVectorModel                 | KEEP   |
+| src/infrastructure\database\mongoose\models\MatchModel.ts                          | Infrastructure | MatchModel                     | KEEP   |
+| src/infrastructure\database\mongoose\models\MatchRefreshModel.ts                   | Infrastructure | MatchRefreshModel              | KEEP   |
+| src/infrastructure\database\mongoose\models\MemoryModel.ts                         | Infrastructure | MemoryModel                    | KEEP   |
+| src/infrastructure\database\mongoose\models\PaymentModel.ts                        | Infrastructure | PaymentModel                   | KEEP   |
+| src/infrastructure\database\mongoose\models\ProfileModel.ts                        | Infrastructure | ProfileModel                   | KEEP   |
+| src/infrastructure\database\mongoose\models\ResumeModel.ts                         | Infrastructure | ResumeModel                    | KEEP   |
+| src/infrastructure\database\mongoose\models\RoutingLogModel.ts                     | Infrastructure | RoutingLogModel                | KEEP   |
+| src/infrastructure\database\mongoose\models\SavedSearchModel.ts                    | Infrastructure | SavedSearchModel               | KEEP   |
+| src/infrastructure\database\mongoose\models\SemanticCacheModel.ts                  | Infrastructure | SemanticCacheModel             | KEEP   |
+| src/infrastructure\database\mongoose\models\SubscriptionModel.ts                   | Infrastructure | SubscriptionModel              | KEEP   |
+| src/infrastructure\database\mongoose\models\TrackedCompanyModel.ts                 | Infrastructure | TrackedCompanyModel            | KEEP   |
+| src/infrastructure\database\mongoose\models\UsageEventModel.ts                     | Infrastructure | UsageEventModel                | KEEP   |
+| src/infrastructure\database\mongoose\models\UserFeedbackModel.ts                   | Infrastructure | UserFeedbackModel              | KEEP   |
+| src/infrastructure\database\mongoose\models\UserModel.ts                           | Infrastructure | UserModel                      | KEEP   |
+| src/infrastructure\database\mongoose\models\index.ts                               | Infrastructure | index                          | KEEP   |
+| src/infrastructure\database\mongoose\repositories\BaseMongooseRepository.ts        | Infrastructure | BaseMongooseRepository         | KEEP   |
+| src/infrastructure\database\mongoose\repositories\MongooseApplicationRepository.ts | Infrastructure | MongooseApplicationRepository  | KEEP   |
+| src/infrastructure\database\mongoose\repositories\MongooseInterviewRepository.ts   | Infrastructure | MongooseInterviewRepository    | KEEP   |
+| src/infrastructure\database\mongoose\repositories\MongooseProfileRepository.ts     | Infrastructure | MongooseProfileRepository      | KEEP   |
+| src/infrastructure\database\mongoose\repositories\MongooseUserRepository.ts        | Infrastructure | MongooseUserRepository         | KEEP   |
+| src/infrastructure\database\mongoose\repositories\index.ts                         | Infrastructure | index                          | KEEP   |
+| src/infrastructure\email\ResendEmailService.ts                                     | Infrastructure | ResendEmailService             | KEEP   |
+| src/infrastructure\security\BcryptPasswordHasher.ts                                | Infrastructure | BcryptPasswordHasher           | KEEP   |
+| src/infrastructure\security\JwtTokenService.ts                                     | Infrastructure | JwtTokenService                | KEEP   |
+| src/infrastructure\storage\S3StorageService.ts                                     | Infrastructure | S3StorageService               | KEEP   |
+| src/main\app.ts                                                                    | Root/Shared    | app                            | KEEP   |
+| src/main\container.ts                                                              | Root/Shared    | container                      | KEEP   |
+| src/main\routes.ts                                                                 | Root/Shared    | routes                         | KEEP   |
+| src/main\server.ts                                                                 | Root/Shared    | server                         | KEEP   |
+| src/main\worker.ts                                                                 | Root/Shared    | worker                         | KEEP   |
+| src/presentation\http\controllers\ApplicationController.ts                         | Presentation   | ApplicationController          | KEEP   |
+| src/presentation\http\controllers\AuthController.ts                                | Presentation   | AuthController                 | KEEP   |
+| src/presentation\http\controllers\ProfileController.ts                             | Presentation   | ProfileController              | KEEP   |
+| src/presentation\http\controllers\adminController.ts                               | Presentation   | adminController                | KEEP   |
+| src/presentation\http\controllers\aiController.ts                                  | Presentation   | aiController                   | KEEP   |
+| src/presentation\http\controllers\billingController.ts                             | Presentation   | billingController              | KEEP   |
+| src/presentation\http\controllers\feedbackController.ts                            | Presentation   | feedbackController             | KEEP   |
+| src/presentation\http\controllers\index.ts                                         | Presentation   | index                          | KEEP   |
+| src/presentation\http\controllers\interviewController.ts                           | Presentation   | interviewController            | KEEP   |
+| src/presentation\http\controllers\jobController.ts                                 | Presentation   | jobController                  | KEEP   |
+| src/presentation\http\controllers\memoryController.ts                              | Presentation   | memoryController               | KEEP   |
+| src/presentation\http\controllers\privacyController.ts                             | Presentation   | privacyController              | KEEP   |
+| src/presentation\http\controllers\resumeMatchController.ts                         | Presentation   | resumeMatchController          | KEEP   |
+| src/presentation\http\controllers\tailoringController.ts                           | Presentation   | tailoringController            | KEEP   |
+| src/presentation\http\middleware\auth.ts                                           | Presentation   | auth                           | KEEP   |
+| src/presentation\http\middleware\authMiddleware.ts                                 | Presentation   | authMiddleware                 | KEEP   |
+| src/presentation\http\middleware\csrf.ts                                           | Presentation   | csrf                           | KEEP   |
+| src/presentation\http\middleware\errorHandler.ts                                   | Presentation   | errorHandler                   | KEEP   |
+| src/presentation\http\middleware\errorHandlerMiddleware.ts                         | Presentation   | errorHandlerMiddleware         | KEEP   |
+| src/presentation\http\middleware\index.ts                                          | Presentation   | index                          | KEEP   |
+| src/presentation\http\middleware\interviewRateLimit.ts                             | Presentation   | interviewRateLimit             | KEEP   |
+| src/presentation\http\middleware\quotaGate.ts                                      | Presentation   | quotaGate                      | KEEP   |
+| src/presentation\http\middleware\rateLimiter.ts                                    | Presentation   | rateLimiter                    | KEEP   |
+| src/presentation\http\routes\adminRoutes.ts                                        | Presentation   | adminRoutes                    | KEEP   |
+| src/presentation\http\routes\aiRoutes.ts                                           | Presentation   | aiRoutes                       | KEEP   |
+| src/presentation\http\routes\applicationRoutes.ts                                  | Presentation   | applicationRoutes              | KEEP   |
+| src/presentation\http\routes\authRoutes.ts                                         | Presentation   | authRoutes                     | KEEP   |
+| src/presentation\http\routes\billingRoutes.ts                                      | Presentation   | billingRoutes                  | KEEP   |
+| src/presentation\http\routes\feedbackRoutes.ts                                     | Presentation   | feedbackRoutes                 | KEEP   |
+| src/presentation\http\routes\healthRoutes.ts                                       | Presentation   | healthRoutes                   | KEEP   |
+| src/presentation\http\routes\index.ts                                              | Presentation   | index                          | KEEP   |
+| src/presentation\http\routes\interviewRoutes.ts                                    | Presentation   | interviewRoutes                | KEEP   |
+| src/presentation\http\routes\jobRoutes.ts                                          | Presentation   | jobRoutes                      | KEEP   |
+| src/presentation\http\routes\memoryRoutes.ts                                       | Presentation   | memoryRoutes                   | KEEP   |
+| src/presentation\http\routes\privacyRoutes.ts                                      | Presentation   | privacyRoutes                  | KEEP   |
+| src/presentation\http\routes\profileRoutes.ts                                      | Presentation   | profileRoutes                  | KEEP   |
+| src/presentation\http\routes\resumeMatchRoutes.ts                                  | Presentation   | resumeMatchRoutes              | KEEP   |
+| src/presentation\http\routes\tailorRoutes.ts                                       | Presentation   | tailorRoutes                   | KEEP   |
+| src/presentation\http\types\index.ts                                               | Presentation   | index                          | KEEP   |
+| src/server.ts                                                                      | Root/Shared    | server                         | KEEP   |
+| src/services\applicationLifecycle.ts                                               | Root/Shared    | applicationLifecycle           | KEEP   |
+| src/services\applicationReminderQueue.ts                                           | Root/Shared    | applicationReminderQueue       | KEEP   |
+| src/services\authService.ts                                                        | Root/Shared    | authService                    | KEEP   |
+| src/services\billingService.ts                                                     | Root/Shared    | billingService                 | KEEP   |
+| src/services\emailDigestService.ts                                                 | Root/Shared    | emailDigestService             | KEEP   |
+| src/services\embeddingService.ts                                                   | Root/Shared    | embeddingService               | KEEP   |
+| src/services\exportService.ts                                                      | Root/Shared    | exportService                  | KEEP   |
+| src/services\interview\sessionService.ts                                           | Root/Shared    | sessionService                 | KEEP   |
+| src/services\jobs\adapters\adzunaAdapter.ts                                        | Root/Shared    | adzunaAdapter                  | KEEP   |
+| src/services\jobs\adapters\baseAdapter.ts                                          | Root/Shared    | baseAdapter                    | KEEP   |
+| src/services\jobs\adapters\franceTravailAdapter.ts                                 | Root/Shared    | franceTravailAdapter           | KEEP   |
+| src/services\jobs\adapters\jobStreamAdapter.ts                                     | Root/Shared    | jobStreamAdapter               | KEEP   |
+| src/services\jobs\adapters\jobicyAdapter.ts                                        | Root/Shared    | jobicyAdapter                  | KEEP   |
+| src/services\jobs\adapters\licensedFeedAdapter.ts                                  | Root/Shared    | licensedFeedAdapter            | KEEP   |
+| src/services\jobs\adapters\mockBoardAdapter.ts                                     | Root/Shared    | mockBoardAdapter               | KEEP   |
+| src/services\jobs\adapters\navAdapter.ts                                           | Root/Shared    | navAdapter                     | KEEP   |
+| src/services\jobs\adapters\publicAtsAdapter.ts                                     | Root/Shared    | publicAtsAdapter               | KEEP   |
+| src/services\jobs\adapters\remoteOkAdapter.ts                                      | Root/Shared    | remoteOkAdapter                | KEEP   |
+| src/services\jobs\adapters\remotiveAdapter.ts                                      | Root/Shared    | remotiveAdapter                | KEEP   |
+| src/services\jobs\catalogVersion.ts                                                | Root/Shared    | catalogVersion                 | KEEP   |
+| src/services\jobs\eligibility.ts                                                   | Root/Shared    | eligibility                    | KEEP   |
+| src/services\jobs\eligibilityRegions.ts                                            | Root/Shared    | eligibilityRegions             | KEEP   |
+| src/services\jobs\fxRates.ts                                                       | Root/Shared    | fxRates                        | KEEP   |
+| src/services\jobs\incrementalMatching.ts                                           | Root/Shared    | incrementalMatching            | KEEP   |
+| src/services\jobs\ingestionResilience.ts                                           | Root/Shared    | ingestionResilience            | KEEP   |
+| src/services\jobs\interactionEvents.ts                                             | Root/Shared    | interactionEvents              | KEEP   |
+| src/services\jobs\jobIndexes.ts                                                    | Root/Shared    | jobIndexes                     | KEEP   |
+| src/services\jobs\jobIngestionService.ts                                           | Root/Shared    | jobIngestionService            | KEEP   |
+| src/services\jobs\jobRisk.ts                                                       | Root/Shared    | jobRisk                        | KEEP   |
+| src/services\jobs\jobSearch.ts                                                     | Root/Shared    | jobSearch                      | KEEP   |
+| src/services\jobs\jobStorage.ts                                                    | Root/Shared    | jobStorage                     | KEEP   |
+| src/services\jobs\matching.ts                                                      | Root/Shared    | matching                       | KEEP   |
+| src/services\jobs\occupationClassification.ts                                      | Root/Shared    | occupationClassification       | KEEP   |
+| src/services\jobs\occupationEvaluation.ts                                          | Root/Shared    | occupationEvaluation           | KEEP   |
+| src/services\jobs\referenceData\index.ts                                           | Root/Shared    | index                          | KEEP   |
+| src/services\jobs\repeatSchedule.ts                                                | Root/Shared    | repeatSchedule                 | KEEP   |
+| src/services\jobs\roleNormalization.ts                                             | Root/Shared    | roleNormalization              | KEEP   |
+| src/services\jobs\savedSearchService.ts                                            | Root/Shared    | savedSearchService             | KEEP   |
+| src/services\jobs\scheduleReport.ts                                                | Root/Shared    | scheduleReport                 | KEEP   |
+| src/services\jobs\sourcePolicies.ts                                                | Root/Shared    | sourcePolicies                 | KEEP   |
+| src/services\jobs\trackedCompanyService.ts                                         | Root/Shared    | trackedCompanyService          | KEEP   |
+| src/services\matchRefreshService.ts                                                | Root/Shared    | matchRefreshService            | KEEP   |
+| src/services\profileSuggestionCatalog.ts                                           | Root/Shared    | profileSuggestionCatalog       | KEEP   |
+| src/services\quotaService.ts                                                       | Root/Shared    | quotaService                   | KEEP   |
+| src/services\resumeAiConsent.ts                                                    | Root/Shared    | resumeAiConsent                | KEEP   |
+| src/services\resumeDataLifecycle.ts                                                | Root/Shared    | resumeDataLifecycle            | KEEP   |
+| src/services\resumeMatchService.ts                                                 | Root/Shared    | resumeMatchService             | KEEP   |
+| src/services\resumeParserService.ts                                                | Root/Shared    | resumeParserService            | KEEP   |
+| src/services\resumeRoleParser.ts                                                   | Root/Shared    | resumeRoleParser               | KEEP   |
+| src/services\storageService.ts                                                     | Root/Shared    | storageService                 | KEEP   |
+| src/services\textExtractionService.ts                                              | Root/Shared    | textExtractionService          | KEEP   |
+| src/shared\cache.ts                                                                | Root/Shared    | cache                          | KEEP   |
+| src/shared\constants\injectionTokens.ts                                            | Root/Shared    | injectionTokens                | KEEP   |
+| src/shared\constants\interviews.ts                                                 | Root/Shared    | interviews                     | KEEP   |
+| src/shared\constants\plans.ts                                                      | Root/Shared    | plans                          | KEEP   |
+| src/shared\schemas\authSchemas.ts                                                  | Root/Shared    | authSchemas                    | KEEP   |
+| src/shared\types\apiResponse.ts                                                    | Root/Shared    | apiResponse                    | KEEP   |
+| src/shared\types\index.ts                                                          | Root/Shared    | index                          | KEEP   |
+| src/shared\utils\crypto.ts                                                         | Root/Shared    | crypto                         | KEEP   |
+| src/shared\utils\fileValidation.ts                                                 | Root/Shared    | fileValidation                 | KEEP   |
+| src/shared\utils\logger.ts                                                         | Root/Shared    | logger                         | KEEP   |
+| src/shared\utils\webOrigin.ts                                                      | Root/Shared    | webOrigin                      | KEEP   |
+| src/types\express.d.ts                                                             | Root/Shared    | express.d                      | KEEP   |
+| src/types\modules.d.ts                                                             | Root/Shared    | modules.d                      | KEEP   |
+| src/worker.ts                                                                      | Root/Shared    | worker                         | KEEP   |

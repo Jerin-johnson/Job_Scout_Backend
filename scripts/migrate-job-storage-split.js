@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
-import { Job } from "../src/models/Job.js";
-import { JobDetail } from "../src/models/JobDetail.js";
-import { JobVector } from "../src/models/JobVector.js";
+import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
+import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
+import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
 import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 import { normalizeProvenanceList } from "../src/services/jobs/jobStorage.js";
 

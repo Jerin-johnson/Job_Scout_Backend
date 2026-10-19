@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { billingController } from "../../../controllers/billingController.js";
-import { authenticate } from "../../../middleware/auth.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
+import { billingController } from "../controllers/billingController.js";
+import { authenticate } from "../middleware/auth.js";
+import { csrfProtection } from "../middleware/csrf.js";
 
 export const billingRouter = Router();
 

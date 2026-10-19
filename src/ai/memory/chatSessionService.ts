@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ChatSession } from "../../models/ChatSession.js";
+import { ChatSession } from "../../infrastructure/database/mongoose/models/ChatSessionModel.js";
 import { isMongoReady } from "../../config/database.js";
 import { toNamespacedThreadId, purgeUserCheckpoints } from "../checkpointer.js";
 import { shortTermMemory } from "../memory/shortTerm.js";
@@ -192,7 +192,10 @@ export const chatSessionService = {
         return created;
       } catch (err: unknown) {
         if ((err as { code?: number })?.code === 11000) {
-          return (await ChatSession.findOne({ userId: uid, threadId: tid }).lean()) as unknown as ChatSessionRecord;
+          return (await ChatSession.findOne({
+            userId: uid,
+            threadId: tid,
+          }).lean()) as unknown as ChatSessionRecord;
         }
         throw err;
       }
@@ -405,7 +408,10 @@ export const chatSessionService = {
     return session;
   },
 
-  async listSessions(userId: string | unknown, { limit = 30 }: { limit?: number } = {}): Promise<SessionSummary[]> {
+  async listSessions(
+    userId: string | unknown,
+    { limit = 30 }: { limit?: number } = {},
+  ): Promise<SessionSummary[]> {
     const uid = String(userId);
     if (isMongoReady()) {
       const docs = (await ChatSession.find({ userId: uid, isDeleted: false })
@@ -416,12 +422,18 @@ export const chatSessionService = {
     }
     const items = [...inMemorySessions.values()]
       .filter((s) => s.userId === uid && !s.isDeleted)
-      .sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime(),
+      )
       .slice(0, limit);
     return items.map(serializeSessionSummary).filter((s): s is SessionSummary => s !== null);
   },
 
-  async getSession(userId: string | unknown, threadId: string | unknown): Promise<SessionDetail | null> {
+  async getSession(
+    userId: string | unknown,
+    threadId: string | unknown,
+  ): Promise<SessionDetail | null> {
     const uid = String(userId);
     const tid = String(threadId || "").trim();
     if (!tid) return null;
@@ -438,7 +450,11 @@ export const chatSessionService = {
     return serializeSessionDetail(session);
   },
 
-  async renameSession(userId: string | unknown, threadId: string | unknown, title: string): Promise<SessionSummary | null> {
+  async renameSession(
+    userId: string | unknown,
+    threadId: string | unknown,
+    title: string,
+  ): Promise<SessionSummary | null> {
     const uid = String(userId);
     const tid = String(threadId || "").trim();
     const cleanTitle = deriveSessionTitle(title);
@@ -472,7 +488,10 @@ export const chatSessionService = {
     return existed;
   },
 
-  async updateRetentionForUser(userId: string | unknown, retentionDays: number | string): Promise<number> {
+  async updateRetentionForUser(
+    userId: string | unknown,
+    retentionDays: number | string,
+  ): Promise<number> {
     const uid = String(userId);
     const days = Math.max(1, Math.min(365, Number(retentionDays) || 90));
     const expiresAt = new Date(Date.now() + days * 86_400_000);

@@ -1,9 +1,11 @@
 import { Router, RequestHandler } from "express";
 import { appContainer } from "../../../main/container.js";
-import { ApplicationController } from "../controllers/ApplicationController.js";
-import { applicationController } from "../../../controllers/applicationController.js";
+import {
+  ApplicationController,
+  applicationController,
+} from "../controllers/ApplicationController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
+import { csrfProtection } from "../middleware/csrf.js";
 
 export function createApplicationRouter(): Router {
   const router = Router();

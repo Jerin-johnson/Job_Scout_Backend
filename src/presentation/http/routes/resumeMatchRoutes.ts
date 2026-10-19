@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { resumeMatchController } from "../../../controllers/resumeMatchController.js";
-import { authenticate } from "../../../middleware/auth.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
-import { generalApiLimiter } from "../../../middleware/rateLimiter.js";
+import { resumeMatchController } from "../controllers/resumeMatchController.js";
+import { authenticate } from "../middleware/auth.js";
+import { csrfProtection } from "../middleware/csrf.js";
+import { generalApiLimiter } from "../middleware/rateLimiter.js";
 
 export const resumeMatchRouter = Router();
 resumeMatchRouter.use(authenticate, generalApiLimiter);

@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { memoryController } from "../../../controllers/memoryController.js";
-import { authenticate } from "../../../middleware/auth.js";
-import { csrfProtection } from "../../../middleware/csrf.js";
+import { memoryController } from "../controllers/memoryController.js";
+import { authenticate } from "../middleware/auth.js";
+import { csrfProtection } from "../middleware/csrf.js";
 
 export const memoryRouter = Router();
 
