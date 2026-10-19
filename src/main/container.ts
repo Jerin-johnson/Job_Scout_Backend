@@ -1,9 +1,9 @@
 import "reflect-metadata";
 import { container, injectable, inject } from "tsyringe";
 
-export const TOKENS = {
-  TestService: Symbol("ITestService"),
-} as const;
+import { TOKENS } from "../shared/constants/injectionTokens.js";
+
+export { TOKENS };
 
 export interface ITestService {
   execute(): string;

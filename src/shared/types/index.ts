@@ -22,3 +22,5 @@ export interface IPaginatedResult<T> {
   page: number;
   totalPages: number;
 }
+
+export * from "./apiResponse.js";
