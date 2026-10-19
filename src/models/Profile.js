@@ -57,6 +57,14 @@ const ProfileSchema = new mongoose.Schema(
     // Additive v1 profile surface. Validation and size bounds live in the
     // profile controller; optional and intentionally has no prefilled values.
     careerProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    matchTokens: {
+      type: [{ type: String }],
+      default: [],
+    },
+    matchCountryCodes: {
+      type: [{ type: String, uppercase: true }],
+      default: [],
+    },
     version: {
       type: Number,
       default: 1,
@@ -66,5 +74,7 @@ const ProfileSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+ProfileSchema.index({ matchTokens: 1, updatedAt: -1 }, { name: "profile_match_tokens_idx" });
 
 export const Profile = mongoose.models.Profile || mongoose.model("Profile", ProfileSchema);

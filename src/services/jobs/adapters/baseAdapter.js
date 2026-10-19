@@ -1,4 +1,5 @@
 import { computeSha256 } from "../../../shared/utils/crypto.js";
+import { computeRetryBackoffMs } from "../ingestionResilience.js";
 
 export function sourceDescriptionText(value) {
   return String(value || "")
@@ -24,7 +25,8 @@ export function normalizeCanonicalJobUrl(value) {
     url.hash = "";
     url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
     for (const key of [...url.searchParams.keys()]) {
-      if (/^(utm_[a-z]+|ref|source|tracking|trk|campaign|gh_src)$/i.test(key)) url.searchParams.delete(key);
+      if (/^(utm_[a-z]+|ref|source|tracking|trk|campaign|gh_src)$/i.test(key))
+        url.searchParams.delete(key);
     }
     url.pathname = url.pathname.replace(/\/+$/, "") || "/";
     url.searchParams.sort();
@@ -35,13 +37,22 @@ export function normalizeCanonicalJobUrl(value) {
 }
 
 export class BaseJobAdapter {
-  constructor({ key, displayName, capabilities, intervalMs = 86400000, timeoutMs = 10000, maxRetries = 2 } = {}) {
+  constructor({
+    key,
+    displayName,
+    capabilities,
+    intervalMs = 86400000,
+    timeoutMs = 10000,
+    maxRetries = 2,
+    retryBackoffBaseMs = 300,
+  } = {}) {
     this.name = key;
     this.displayName = displayName || key;
     this.capabilities = Object.freeze(capabilities || {});
     this.intervalMs = intervalMs;
     this.timeoutMs = timeoutMs;
     this.maxRetries = maxRetries;
+    this.retryBackoffBaseMs = retryBackoffBaseMs;
     this.enabled = true;
     this.consumeQuota = null;
   }
@@ -49,15 +60,35 @@ export class BaseJobAdapter {
   generateIdentity({ source = this.name, sourceJobId, canonicalUrl, title, company, location }) {
     const sourceId = String(sourceJobId || "").trim();
     const url = normalizeCanonicalJobUrl(canonicalUrl);
-    const normalize = (value) => String(value || "").normalize("NFKC").toLowerCase().trim().replace(/\s+/g, " ");
+    const normalize = (value) =>
+      String(value || "")
+        .normalize("NFKC")
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, " ");
     const fallback = `${normalize(company)}|${normalize(title)}|${normalize(location) || "unknown"}`;
-    return computeSha256(sourceId ? `${source}:${sourceId}` : url ? `${source}:${url}` : `${source}:${fallback}`);
+    return computeSha256(
+      sourceId ? `${source}:${sourceId}` : url ? `${source}:${url}` : `${source}:${fallback}`,
+    );
   }
 
-  generateGroupKey({ canonicalUrl, company, title, location, employmentType = "", postedAt = null }) {
+  generateGroupKey({
+    canonicalUrl,
+    company,
+    title,
+    location,
+    employmentType = "",
+    postedAt = null,
+  }) {
     const url = normalizeCanonicalJobUrl(canonicalUrl);
     if (url) return computeSha256(`canonical:${url}`);
-    const normalize = (value) => String(value || "").normalize("NFKC").toLowerCase().trim().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const normalize = (value) =>
+      String(value || "")
+        .normalize("NFKC")
+        .toLowerCase()
+        .trim()
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim();
     const postedDay = postedAt ? new Date(postedAt).toISOString().slice(0, 10) : "unknown-date";
     const entity = [company, title, location, employmentType, postedDay].map(normalize).join("|");
     return entity.replaceAll("|", "") ? computeSha256(`entity:${entity}`) : "";
@@ -119,23 +150,37 @@ export class BaseJobAdapter {
         lastError = error;
         // Abort timeouts are not retried; other network failures get bounded retries.
         if (error.name === "AbortError" || attempt >= this.maxRetries) throw error;
-        await new Promise((resolve) => setTimeout(resolve, Math.min(4000, 300 * 2 ** attempt)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, computeRetryBackoffMs(attempt, { baseMs: this.retryBackoffBaseMs })),
+        );
         continue;
       } finally {
         clearTimeout(timeoutId);
       }
       if (response.status === 304 && acceptNotModified) {
-        return { notModified: true, jobs: [], etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") };
+        return {
+          notModified: true,
+          jobs: [],
+          etag: response.headers.get("etag"),
+          lastModified: response.headers.get("last-modified"),
+        };
       }
       if (!response.ok) {
         const error = new Error(`Source returned HTTP ${response.status}`);
         error.status = response.status;
-        if (!(response.status === 429 || response.status >= 500) || attempt >= this.maxRetries) throw error;
+        if (!(response.status === 429 || response.status >= 500) || attempt >= this.maxRetries)
+          throw error;
         lastError = error;
-        await new Promise((resolve) => setTimeout(resolve, Math.min(4000, 300 * 2 ** attempt)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, computeRetryBackoffMs(attempt, { baseMs: this.retryBackoffBaseMs })),
+        );
         continue;
       }
-      return { data: await response.json(), etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") };
+      return {
+        data: await response.json(),
+        etag: response.headers.get("etag"),
+        lastModified: response.headers.get("last-modified"),
+      };
     }
     throw lastError;
   }

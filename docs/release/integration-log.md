@@ -119,3 +119,75 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Verification results: full backend suite 197 passed, 0 failed, 1 optional skip (198 total) with local MongoDB 8.0.8 and WSL Redis (`127.0.0.1:6379`); isolated backend smoke 44/44 passed (0 skipped); backend lint 0 errors (2 existing warnings); `docs:check` passed; `npm audit --omit=dev --audit-level=high` reported 1 high transitive advisory (`langsmith <=0.5.26` via `@langchain/core`, fix requires breaking major upgrade). Docker Desktop Linux daemon pipe remains offline so `smoke:compose` is unverified.
 - Installed Graphify Antigravity skill/rules/workflows, rebuilt backend AST graph (2,065 nodes, 4,276 edges, 161 communities), frontend graph (1,060 nodes, 1,969 edges, 92 communities), and merged cross-repo graph (`../graphify-out/merged-graph.json`: 3,116 nodes, 6,245 edges).
 - Added `docs/architecture/reuse-map.md` and `docs/engineering/parallel-work.md`, updated `AGENTS.md` with Antigravity operating mode and `chore/test-foundation` testing rules, merged into `development` and `main` (`v0.1.0-beta.1-rc.1`) locally without pushing, and prepared sibling worktrees for `feat/jobs-production`, `feat/chat-agent`, and `feat/product-loop`.
+
+## Task A (`feat/jobs-production`) — Item 1 Baseline — 2026-10-19
+
+- Updated `docs/engineering/commit-baseline.txt` in backend (`71c72a5458bfb750440095a8be3fdc8ee4c0f527`) and frontend (`4950be5647776c65be2a8d02b97054755d93f287`) to the `feat/jobs-production` branch point.
+- Executed `scripts/explain-job-discovery.js`, `scripts/measure-job-bson.js`, `scripts/verify-job-storage-split.js`, `scripts/compact-job-hot-documents.js` (dry-run), and `scripts/benchmark-jobs-scale.js --sizes=100k` against local loopback MongoDB (`127.0.0.1:27017`).
+- Recorded baseline query latencies, BSON field sizes (28,160 B mean before compaction, 2,256 B projected mean before `features` slimming), index sizes (2.92 MB across 570 docs), `provenance` split mismatch finding, and 10k/100k/1M RAM estimates in `docs/ai/jobs-production.md`.
+
+## Task A (`feat/jobs-production`) — Item 2 Search relevance at scale — 2026-10-19
+
+- Added `src/services/jobs/jobSearch.js` with `tokenizeSearchText`, `buildSearchTokens`, `boundedEditDistance`, `expandQueryTokensWithTypos`, `scoreCatalogSearchRelevance`, `compareJobsByRelevance`, and `isAfterRelevanceCursor`.
+- Added `searchTokens` field and `job_search_tokens_recent` compound multikey index on `Job`; wired indexed token search, typo-tolerant query expansion, weighted title/skill/company + recency ranking, stable relevance cursor pagination, and `catalogVersion`-keyed Redis caching for totals and facets into `jobIngestionService.js` and `jobController.js`.
+- Verified with 27/27 passing tests across `tests/jobs-search-relevance.test.js`, `tests/job-storage.test.js`, and `tests/jobs-catalog.mongo.integration.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 3 Storage split & hot-document compaction — 2026-10-19
+
+- Normalized `provenance` subdocuments (`_id: false` + `normalizeProvenanceList`) across `Job`, `JobDetail`, `migrate-job-storage-split.js`, `verify-job-storage-split.js`, and `compact-job-hot-documents.js`, resolving all 570 provenance mismatches (`detailMismatch: 0`, `safeToRemoveLegacyFields: true`).
+- Added `compactHotFeatures` and `compactHotJobFields` in `src/services/jobs/jobStorage.js` and updated `scripts/compact-job-hot-documents.js` to compact hot `Job` documents below 2 KB (`29,262 B` -> `2,047 B` across all 570 docs, `1,960 B` sample mean; logical collection size reduced 93.0% from 16.68 MB to 1.17 MB; discovery `explain()` latency reduced from 231 ms to 9 ms). Verified dry-run, `--apply`, `--rollback`, and re-apply on local loopback MongoDB.
+
+## Task A (`feat/jobs-production`) — Item 4 Ingestion robustness — 2026-10-19
+
+- Added `src/services/jobs/ingestionResilience.js` (`INGESTION_ALERT_THRESHOLDS`, `computeRetryBackoffMs`, `computeCircuitOpenUntil`, `validateRawIngestJob`, `buildDeadLetterEntry`, `appendDeadLetters`, `evaluateSourceHealthAlerts`, `requestIngestionShutdown`, `resetIngestionShutdown`, `isIngestionShuttingDown`).
+- Wired per-record dead-letter isolation (`JobSource.deadLetters` and `metrics.deadLettered`), exponential circuit breaker cooldown, batch-completing graceful shutdown with checkpoint persistence and idempotent restart, and admin health/alert reporting into `jobIngestionService.js`, `baseAdapter.js`, `JobSource.js`, and `src/worker.js`.
+- Verified with 27/27 passing tests in `tests/jobs-ingestion-resilience.test.js` and `tests/jobs-catalog.mongo.integration.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 5 Freshness and trust — 2026-10-19
+
+- Extended `src/services/jobs/jobRisk.js` with `detectRepostSignal`, `classifyLinkHealthStatus`, `sampleJobsForPoliteLinkCheck`, `computeSourceTermExpiry`, and non-defamatory risk flags (`ghost_listing_risk`, `broken_or_expired_link`, `possible_repost`, `older_listing`).
+- Added `repostCount` to `Job`, wired polite host-bounded link check sampling (`maxTotal: 50, maxPerHost: 5`), repost detection, source-term expiry, and `trustAndFreshness` coverage metrics into `jobIngestionService.js`.
+- Measured local catalog (570 active jobs): `staleCount: 0`, `closedCount: 0`, `olderThan30dCount: 61` (`10.70%`), `possibleRepostCount: 0` (`0%`), `ghostRiskCount: 46` (`8.07%`). Verified with 11/11 passing tests in `tests/jobs-presentation-services.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 6 Matching at scale — 2026-10-19
+
+- Added `src/services/jobs/incrementalMatching.js` (`INCREMENTAL_MATCH_BUDGET`, `buildProfileMatchIndex`, `extractBatchJobDemandIndex`, `rankAffectedProfilesForNewJobs`, `findAffectedUsersForNewJobs`) and `profile_match_tokens_idx` (`{ matchTokens: 1, updatedAt: -1 }`) on `Profile`.
+- Wired `buildProfileMatchIndex` into `profileRepository.upsertProfile` and `enqueueIncrementalMatchesForNewJobs` into `matchRefreshService.js`. Kept `lexical-v2` as default scoring version.
+- Benchmarked 10,000 synthetic users in `20.20 ms` and verified `IXSCAN` (`totalDocsExamined: 12` out of 500 profiles) in `tests/jobs-incremental-matching.test.js` (3/3 passed).
+
+## Task A (`feat/jobs-production`) — Item 7 Saved jobs, saved searches & alerts — 2026-10-19
+
+- Added `src/models/SavedSearch.js` and `src/services/jobs/savedSearchService.js` (`getSavedSearchPlanLimits`, `isWithinQuietHours`, `selectUnsentAlertJobs`, `appendBoundedSentJobIds`, `canSendSavedSearchAlert`, `savedSearchService`).
+- Added per-plan tier limits (`Free: 3/2`, `Pro: 15/10`, `Premium: 50/25`) in `src/shared/constants/plans.js`, routes in `src/routes/jobs.js`, handlers in `src/controllers/jobController.js`, and GDPR/DPDP export/deletion in `src/controllers/privacyController.js`.
+- Verified with 5/5 passing tests in `tests/jobs-saved-searches.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 8 Reference data & classification — 2026-10-19
+
+- Added curated local O*NET 29.0 (`src/services/jobs/referenceData/onetSubset.json`) and GeoNames (`src/services/jobs/referenceData/geonamesSubset.json`) subsets with explicit CC BY 4.0 attribution; ESCO remains deferred.
+- Updated `occupationClassification.js` (`OCCUPATION_FEATURES_VERSION = 8`), `roleNormalization.js`, and `occupationEvaluation.js` (`recallByGoldFamily`, `macroPrecision`, `macroRecall`, `unclassifiedShare`).
+- Measured before/after on 100-row gold fixture (`accuracy: 41.0% -> 100.0%`, `unclassifiedShare: 60.0% -> 1.0%`, `macroPrecision: 1.0`, `macroRecall: 0.404 -> 1.0`) and applied local catalog backfill (`570` active jobs: unclassified reduced from `83/570` `14.56%` to `65/570` `11.40%`, `jobicy` `8.41%`). Verified with 8/8 passing tests.
+
+## Task A (`feat/jobs-production`) — Item 9 Sources & admin coverage — 2026-10-19
+
+- Re-verified source policy gates across all adapters (`tests/job-source-adapters.test.js` and `tests/job-regional-adapters.test.js` 22/22 passed): `remotive` blocked without written redistribution permission, `jobicy` gated behind `ENABLE_JOBICY_INGESTION=true` + approved registry state (`6h` cadence), and `fantastic_jobs`, `ncs_india`, `norka_roots`, `jobstream_se`, `nav_arbeidsplassen`, `france_travail`, and ATS adapters disabled in public catalog mode.
+- Documented the staging owner activation procedure for `ENABLE_JOBICY_INGESTION` and aligned admin coverage reporting (`byOccupation`, `byCountry`, `bySource`, `freshness`, `trustAndFreshness`, `eligibilityConfidence`, `targetSegmentGaps`) in `docs/ai/data-supply-strategy.md` and `docs/ai/jobs-production.md`.
+
+## Task A (`feat/jobs-production`) — Item 10 Frontend list performance & UX — 2026-10-19
+
+- Added `src/lib/jobs/jobListUx.mjs` (`computeJobListWindow`, `countActiveSecondaryFilters`, `formatTypoCorrectionBanner`, `summarizeJobRiskFlags`, `normalizeSavedSearchForm`) in `Ai_resume_frontend`.
+- Updated `src/lib/schema/jobs.js`, `src/lib/api/operations.js`, and `src/app/app/jobs/page.jsx` with windowed list rendering (bounded at 40 DOM cards even at 250+ loaded jobs), relevance sort option, active secondary filter count badge, typo correction banner, saved searches bar & alert management, and structured risk flag badges.
+- Verified with 53/53 passing frontend tests (`tests/jobs-list-ux.test.mjs`), 0 ESLint warnings/errors, and `docs:check` passed.
+
+## Task A (`feat/jobs-production`) — Item 11 Docs, OpenAPI & final verification — 2026-10-19
+
+- Updated `docs/ai/06-job-matching-engine.md`, `docs/ai/13-failure-modes-and-runbooks.md`, `docs/ai/15-classification-and-catalog-coverage.md`, `docs/ai/16-data-inventory.md`, `docs/architecture/caching.md`, `docs/ai/CHANGELOG.md`, `docs/ai/jobs-production.md`, and regenerated OpenAPI spec (`npm run openapi`).
+- Verified `npm run docs:check`, `npm run lint`, and full backend/frontend test suites.
+
+## Task B (`feat/chat-agent`) — Production Chat Agent — 2026-10-19
+
+- Implemented LangGraph StateGraph chat assistant (`src/ai/graphs/chatGraph.js`) with typed state, iteration bounds (<=4), per-tool timeouts (4000ms), prompt injection guardrails, and deterministic mock mode.
+- Added 11 read-only tools (`src/ai/tools/chatTools.js`) ownership-scoped via server-side configurable `userId` with untrusted delimiter wrapping (`<untrusted_tool_result>`) and payload truncation.
+- Added 5 propose-and-confirm action tools returning HMAC-SHA256 signed action tokens with timingSafeEqual validation, TTL, replay protection, and AuditLog recording.
+- Integrated MongoDB checkpointer (`src/ai/checkpointer.js`, `src/models/ChatSession.js`, `src/ai/memory/chatSessionService.js`) with user-namespaced thread IDs (`toNamespacedThreadId`), session persistence, rolling summaries, and GDPR export/delete cascade.
+- Implemented versioned memory consent (`memory-consent-v1`) with sensitive category filtering and Career Profile priority resolution.
+- Completed offline evaluation (`scripts/evaluate-chat-agent.js`) with 65 prompts yielding 92.3% tool accuracy, 100% groundedness, 100% prompt injection block rate, 9ms p50 latency, and $0.000108 USD / turn.

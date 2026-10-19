@@ -17,6 +17,9 @@ import { deleteAllUserResumeData } from "../services/resumeDataLifecycle.js";
 import { InteractionEvent } from "../models/InteractionEvent.js";
 import { interactionActorKey } from "../services/jobs/interactionEvents.js";
 import { UserFeedback } from "../models/UserFeedback.js";
+import { savedSearchService } from "../services/jobs/savedSearchService.js";
+import { ChatSession } from "../models/ChatSession.js";
+import { purgeUserCheckpoints } from "../ai/checkpointer.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -36,6 +39,7 @@ export const privacyController = {
       const profile = await profileRepository.findByUserId(userId);
       const applications = await applicationRepository.findByUserId(userId);
       const memories = await longTermMemory.listUserMemories(userId);
+      const savedSearches = await savedSearchService.exportForUser(userId);
 
       let documents = [];
       let interviews = [];
@@ -43,6 +47,7 @@ export const privacyController = {
       let jobMatchReports = [];
       let interactionEvents = [];
       let feedback = [];
+      let chatSessions = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
         [resumes, jobMatchReports] = await Promise.all([
@@ -66,8 +71,15 @@ export const privacyController = {
             reports.find((report) => report.interviewId.toString() === session._id.toString())
               ?.report || null,
         }));
-        interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) }).select("-actorKey").sort({ createdAt: -1 }).lean();
-        feedback = await UserFeedback.find({ userId }).select("category message createdAt").sort({ createdAt: -1 }).lean();
+        interactionEvents = await InteractionEvent.find({ actorKey: interactionActorKey(userId) })
+          .select("-actorKey")
+          .sort({ createdAt: -1 })
+          .lean();
+        feedback = await UserFeedback.find({ userId })
+          .select("category message createdAt")
+          .sort({ createdAt: -1 })
+          .lean();
+        chatSessions = await ChatSession.find({ userId, isDeleted: false }).lean();
       }
 
       const exportBundle = {
@@ -83,10 +95,12 @@ export const privacyController = {
         },
         profile: profile || {},
         applications: applications || [],
+        savedSearches: savedSearches || [],
         tailoredDocuments: documents,
         resumes,
         jobMatchReports,
         agentMemories: memories || [],
+        chatSessions: chatSessions || [],
         interviews,
         interactionEvents,
         feedback,
@@ -115,9 +129,11 @@ export const privacyController = {
       const user = req.user;
       const userId = getUserId(user);
 
-      // 1. Purge agent memories
+      // 1. Purge agent memories & chat checkpoints
       await longTermMemory.forgetAllMemories(userId);
       await deleteAllUserResumeData(userId);
+      await savedSearchService.deleteAllForUser(userId);
+      await purgeUserCheckpoints(userId).catch(() => {});
 
       // Remove durable interview transcripts/reports and legacy process-local sessions.
       if (isMongoReady()) {
@@ -130,6 +146,7 @@ export const privacyController = {
           Application.deleteMany({ userId }),
           InteractionEvent.deleteMany({ actorKey: interactionActorKey(userId) }),
           UserFeedback.deleteMany({ userId }),
+          ChatSession.deleteMany({ userId }),
         ]);
       }
       interviewGraph.deleteMockSessionsByUserId(userId);

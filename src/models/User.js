@@ -96,6 +96,16 @@ const UserSchema = new mongoose.Schema(
       acceptedAt: { type: Date, default: null },
       version: { type: String, default: null },
     },
+    memoryConsent: {
+      acceptedAt: { type: Date, default: null },
+      version: { type: String, default: null },
+    },
+    chatRetentionDays: {
+      type: Number,
+      min: 1,
+      max: 365,
+      default: 90,
+    },
     timezone: { type: String, default: "UTC", trim: true, maxlength: 64 },
     mockInterviewTrialUsedAt: { type: Date, default: undefined },
     mockInterviewTrialSessionId: { type: mongoose.Schema.Types.ObjectId, default: undefined },
