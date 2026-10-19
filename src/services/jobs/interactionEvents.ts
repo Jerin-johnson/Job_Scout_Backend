@@ -98,3 +98,8 @@ export async function recordImpressions(
     }),
   );
 }
+
+export async function deleteInteractionEventsForUser(userId: string | unknown): Promise<void> {
+  if (!userId) return;
+  await InteractionEvent.deleteMany({ actorKey: interactionActorKey(userId) });
+}

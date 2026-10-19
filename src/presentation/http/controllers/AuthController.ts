@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction, CookieOptions } from "express";
+import { Request, Response, CookieOptions } from "express";
 import { injectable, inject } from "tsyringe";
 import { RegisterUserUseCase } from "../../../application/useCases/auth/RegisterUserUseCase.js";
 import { LoginUserUseCase } from "../../../application/useCases/auth/LoginUserUseCase.js";
@@ -13,6 +13,8 @@ import {
   googleAuthSchema,
 } from "../../../shared/schemas/authSchemas.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 
 const COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
@@ -63,171 +65,150 @@ export class AuthController {
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
   ) {}
 
-  register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const session = await this.registerUseCase.execute(req.body);
-      setAuthCookies(res, session.tokens);
-      const authToken = session.tokens.accessToken;
-      res.status(201).json({
-        data: {
-          user: session.user,
-          accessToken: authToken,
-        },
-      });
-    } catch (err: unknown) {
-      next(err);
+  register = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const session = await this.registerUseCase.execute(req.body);
+    setAuthCookies(res, session.tokens);
+    const authToken = session.tokens.accessToken;
+    res.status(201).json(
+      successResponse({
+        user: session.user,
+        accessToken: authToken,
+      }),
+    );
+  });
+
+  login = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const session = await this.loginUseCase.execute(req.body);
+    setAuthCookies(res, session.tokens);
+    const authToken = session.tokens.accessToken;
+    res.status(200).json(
+      successResponse({
+        user: session.user,
+        accessToken: authToken,
+      }),
+    );
+  });
+
+  refresh = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const cookies = (req.cookies || {}) as Record<string, string | undefined>;
+    const body = (req.body || {}) as Record<string, string | undefined>;
+    const rawRefreshToken = cookies.refreshToken || body.refreshToken;
+
+    if (!rawRefreshToken) {
+      throw new UnauthorizedError("Refresh token is missing");
     }
-  };
 
-  login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const session = await this.loginUseCase.execute(req.body);
-      setAuthCookies(res, session.tokens);
-      const authToken = session.tokens.accessToken;
-      res.status(200).json({
-        data: {
-          user: session.user,
-          accessToken: authToken,
-        },
-      });
-    } catch (err: unknown) {
-      next(err);
-    }
-  };
-
-  refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const cookies = (req.cookies || {}) as Record<string, string | undefined>;
-      const body = (req.body || {}) as Record<string, string | undefined>;
-      const rawRefreshToken = cookies.refreshToken || body.refreshToken;
-
-      if (!rawRefreshToken) {
-        throw new UnauthorizedError("Refresh token is missing");
-      }
-
-      const tokens = await this.refreshTokenUseCase.execute({
-        refreshToken: rawRefreshToken,
-      });
-
-      setAuthCookies(res, tokens);
-      res.status(200).json({
-        data: {
-          accessToken: tokens.accessToken,
-        },
-      });
-    } catch (err: unknown) {
-      next(err);
-    }
-  };
-
-  logout = async (_req: Request, res: Response): Promise<void> => {
-    clearAuthCookies(res);
-    res.status(200).json({
-      data: {
-        message: "Successfully logged out",
-      },
+    const tokens = await this.refreshTokenUseCase.execute({
+      refreshToken: rawRefreshToken,
     });
-  };
+
+    setAuthCookies(res, tokens);
+    res.status(200).json(
+      successResponse({
+        accessToken: tokens.accessToken,
+      }),
+    );
+  });
+
+  logout = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    clearAuthCookies(res);
+    res.status(200).json(
+      successResponse({
+        message: "Successfully logged out",
+      }),
+    );
+  });
 }
 
 export const authController = {
-  async register(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const data = registerSchema.parse(req.body);
-      const session = (await authService.register(data)) as SessionResult;
+  register: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const data = registerSchema.parse(req.body);
+    const session = (await authService.register(data)) as SessionResult;
 
-      setAuthCookies(res, session);
-      res.status(201).json({
-        data: {
-          user: session.user,
-          accessToken: session.accessToken,
-        },
-      });
-    } catch (err) {
-      next(err);
+    setAuthCookies(res, session);
+    res.status(201).json(
+      successResponse({
+        user: session.user,
+        accessToken: session.accessToken,
+      }),
+    );
+  }),
+
+  login: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const data = loginSchema.parse(req.body);
+    const session = (await authService.login({
+      email: data.email,
+      password: data.password,
+    })) as SessionResult;
+
+    setAuthCookies(res, session);
+    res.status(200).json(
+      successResponse({
+        user: session.user,
+        accessToken: session.accessToken,
+      }),
+    );
+  }),
+
+  googleAuth: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const data = googleAuthSchema.parse(req.body);
+    const session = (await authService.googleLogin(data.idToken)) as SessionResult;
+
+    setAuthCookies(res, session);
+    res.status(200).json(
+      successResponse({
+        user: session.user,
+        accessToken: session.accessToken,
+      }),
+    );
+  }),
+
+  refresh: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const rawRefreshToken =
+      (req.cookies?.refreshToken as string | undefined) ||
+      (req.body?.refreshToken as string | undefined);
+    if (!rawRefreshToken) {
+      res
+        .status(401)
+        .json(
+          errorResponse(
+            "REFRESH_TOKEN_REQUIRED",
+            "Refresh token is missing",
+            req.id ? String(req.id) : (req.headers["x-request-id"] as string) || undefined,
+          ),
+        );
+      return;
     }
-  },
 
-  async login(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const data = loginSchema.parse(req.body);
-      const session = (await authService.login({
-        email: data.email,
-        password: data.password,
-      })) as SessionResult;
-
-      setAuthCookies(res, session);
-      res.status(200).json({
-        data: {
-          user: session.user,
-          accessToken: session.accessToken,
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async googleAuth(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const data = googleAuthSchema.parse(req.body);
-      const session = (await authService.googleLogin(data.idToken)) as SessionResult;
-
-      setAuthCookies(res, session);
-      res.status(200).json({
-        data: {
-          user: session.user,
-          accessToken: session.accessToken,
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async refresh(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const rawRefreshToken =
-        (req.cookies?.refreshToken as string | undefined) ||
-        (req.body?.refreshToken as string | undefined);
-      if (!rawRefreshToken) {
-        return res.status(401).json({
-          error: {
-            code: "REFRESH_TOKEN_REQUIRED",
-            message: "Refresh token is missing",
-            requestId: req.id || (req.headers["x-request-id"] as string) || "req_unknown",
-          },
-        });
-      }
-
       const session = (await authService.rotateRefreshToken(rawRefreshToken)) as SessionResult;
       setAuthCookies(res, session);
 
-      res.status(200).json({
-        data: {
+      res.status(200).json(
+        successResponse({
           user: session.user,
           accessToken: session.accessToken,
-        },
-      });
+        }),
+      );
     } catch (err) {
       clearAuthCookies(res);
-      next(err);
+      throw err;
     }
-  },
+  }),
 
-  async logout(_req: Request, res: Response): Promise<Response | void> {
+  logout: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
     clearAuthCookies(res);
-    res.status(200).json({
-      data: {
+    res.status(200).json(
+      successResponse({
         message: "Successfully logged out",
-      },
-    });
-  },
+      }),
+    );
+  }),
 
-  async me(req: Request, res: Response): Promise<Response | void> {
+  me: asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
-    res.status(200).json({
-      data: {
+    res.status(200).json(
+      successResponse({
         user: {
           id: user?._id ? user._id.toString() : (user as unknown as { id?: string })?.id,
           email: user?.email,
@@ -237,7 +218,7 @@ export const authController = {
           planVersion: user?.planVersion,
           profileVersion: user?.profileVersion,
         },
-      },
-    });
-  },
+      }),
+    );
+  }),
 };

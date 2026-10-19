@@ -111,7 +111,7 @@ graph TD
 ## 5. Dependency Inversion & Dependency Injection
 
 - **DI Engine:** TSyringe with `reflect-metadata` imported across all entry points (`src/main/app.ts`, `src/main/server.ts`, `src/main/worker.ts`, and `tests/test-env.js`).
-- **Tokens:** Unique `Symbol` injection tokens defined in [`src/shared/constants/injectionTokens.ts`](file:///c:/Users/jerin/OneDrive/Desktop/Irowz_scout_offical/AiJob_search_backend/src/shared/constants/injectionTokens.ts).
+- **Tokens:** Unique `Symbol` injection tokens defined in [`src/shared/constants/injectionTokens.ts`](../src/shared/constants/injectionTokens.ts).
 - **Controllers & Use Cases:** All use cases are decorated with `@injectable()` and receive injected repository interfaces via `@inject(TOKENS.Repositories.*)`.
 - **Dual Export Pattern:** Controllers are exported both as TSyringe-injectable classes (for modern DI testing and use) and singleton instances / bound handlers (for seamless Express route binding).
 

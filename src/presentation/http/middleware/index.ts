@@ -6,3 +6,4 @@ export * from "./errorHandlerMiddleware.js";
 export * from "./interviewRateLimit.js";
 export * from "./quotaGate.js";
 export * from "./rateLimiter.js";
+export * from "./asyncHandler.js";
