@@ -159,3 +159,46 @@ This document defines the incremental, phase-by-phase migration of the `jobscout
 2. **MongoDB Database Compatibility:** Preserve all existing collection names (`users`, `profiles`, `resumes`, `jobs`, `applications`, `interviewsessions`, etc.), field names, compound indexes, and lean projection behavior.
 3. **Security Invariants:** Retain bcrypt cost factor 12, token rotation with cryptographic family revocation, cookie security settings (Lax, HTTPOnly, secure in production), and rate limiting.
 4. **Local Isolation:** Ensure all test bootstrap guards refusing non-loopback MongoDB and Redis remain strictly intact.
+
+---
+
+## 5. Cleanup, Architecture Enforcement & Execution Plan
+
+### 5.1 Current Migration State
+
+- **Target Architecture:** Clean Architecture and TSyringe DI foundation established in `src/domain/`, `src/application/`, `src/infrastructure/`, `src/presentation/`, `src/main/`.
+- **Zero `any` Enforcement:** Complete (0 `any` keyword usages in `src/**/*.ts`).
+- **Legacy Inventory:** 159 JavaScript files in `src/` audited and cataloged in `docs/legacy-file-audit.md`.
+- **Graphify Audit:** Graph dependencies analyzed in `docs/graphify-cleanup-analysis.md`.
+
+### 5.2 Remaining Work
+
+1. **Complete Express Route Mounting in `src/main/app.ts`:**
+   - Wire Clean Architecture controllers (`AuthController`, `ApplicationController`, `ProfileController`) and route handlers for remaining domains (`jobs`, `ai`, `memories`, `interview`, `billing`, `admin`, `privacy`, `resumeMatch`, `feedback`, `tailor`).
+   - Configure raw webhook body parsing for `/api/v1/billing/razorpay-webhook`.
+   - Attach global 404 handler and `errorHandlerMiddleware`.
+2. **Worker Entry Point Migration:**
+   - Migrate BullMQ worker lifecycle to `src/main/worker.ts` preserving repeat schedules, heartbeat, and graceful shutdown.
+3. **Server Entry Point Migration:**
+   - Enhance `src/main/server.ts` to include Sentry initialization, AI config validation, interview session expiry sweeps, super admin bootstrap, and graceful shutdown.
+4. **App Delegation & Legacy Compatibility:**
+   - Ensure `src/app.js` delegates to `src/main/app.ts` so all callers use the unified Clean Architecture app.
+5. **Safe Legacy Deprecation:**
+   - Keep backward compatibility stubs where required to prevent broken imports across existing services and tests.
+
+### 5.3 Risks and Mitigation
+
+- **Risk 1: Broken Imports from Premature Deletions.**
+  - _Mitigation:_ Zero file deletions until incoming edge count in `graph.json` reaches 0. Re-export and delegate rather than deleting files that are still imported by active services.
+- **Risk 2: API Contract Divergence.**
+  - _Mitigation:_ Preserve existing JSON response shapes (`{ data: ... }` and `{ error: { code, message, details, requestId } }`), status codes, and cookie properties.
+- **Risk 3: Test Regressions.**
+  - _Mitigation:_ Run the full 260+ test suite, linting, docs checks, and secret scanner after every phase.
+
+### 5.4 Proposed Commit Sequence
+
+1. `docs(docs): audit legacy files and migration state`
+2. `refactor(infra): complete clean architecture route tree and worker bootstrap`
+3. `refactor(infra): unify express application entry points`
+4. `test(infra): verify clean architecture routing and regression test suite`
+5. `docs(docs): finalize architecture and legacy cleanup documentation`
