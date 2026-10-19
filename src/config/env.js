@@ -51,8 +51,14 @@ const envSchema = z.object({
   OPENAI_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(3072).default(1536),
   VOYAGE_EMBEDDING_MODEL: z.string().default("voyage-large-2-instruct"),
   VOYAGE_EMBEDDING_DIMENSION: z.coerce.number().int().min(1).max(4096).default(1024),
-  JOB_EMBEDDINGS_ENABLED: z.string().transform((value) => value === "true").default("false"),
-  JOB_HOT_DOCUMENT_COMPACTION_ENABLED: z.string().transform((value) => value === "true").default("false"),
+  JOB_EMBEDDINGS_ENABLED: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
+  JOB_HOT_DOCUMENT_COMPACTION_ENABLED: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
   AI_ALLOW_MOCKS: z
     .string()
     .transform((value) => value === "true")
@@ -68,7 +74,10 @@ const envSchema = z.object({
   AI_MONTHLY_ALLOWANCE_SHADOW_RATIO: z.coerce.number().finite().positive().max(1).default(0.25),
   AI_PROVIDER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
   ORPHAN_RESUME_CLEANUP_AFTER_HOURS: z.coerce.number().int().min(1).max(8760).default(24),
-  ORPHAN_RESUME_CLEANUP_DELETE_ENABLED: z.string().transform((value) => value === "true").default("false"),
+  ORPHAN_RESUME_CLEANUP_DELETE_ENABLED: z
+    .string()
+    .transform((value) => value === "true")
+    .default("false"),
   OPENAI_API_KEY: z.string().optional().default("dummy_openai_key"),
   VOYAGE_API_KEY: z.string().optional().default(""),
 
@@ -86,6 +95,10 @@ const envSchema = z.object({
   MOCK_INTERVIEW_EVALUATION_TIER: z.enum(["small", "strong"]).default("small"),
   MOCK_INTERVIEW_REPORT_TIER: z.enum(["small", "strong"]).default("strong"),
   AI_KILL_SWITCH: z
+    .string()
+    .transform((val) => val === "true")
+    .default("false"),
+  AI_CHAT_TOOLS_KILL_SWITCH: z
     .string()
     .transform((val) => val === "true")
     .default("false"),

@@ -129,7 +129,9 @@ async function runTier1Classifier({ prompt, user, signal, requestId }) {
     schema: routerClassifierSchema,
     signal,
     requestId,
-    onUsage: (usage) => { costUsd = usage.costUsd; },
+    onUsage: (usage) => {
+      costUsd = usage.costUsd;
+    },
   });
   return { ...result, _costUsd: costUsd };
 }
@@ -206,7 +208,7 @@ export async function routeRequest({ prompt, user, contextVersion = 1, requestId
       tier1Result = await runTier1Classifier({ prompt, user, requestId });
     }
 
-    // 2. Evaluate Tier 1 Output
+    // 2. Evaluate Tier 1 Output (plan-aware: free tier stays on Tier 1 unless confidence < 0.7 or heavy intent)
     let selectedTier = 1;
     let escalated = false;
 
@@ -235,9 +237,10 @@ export async function routeRequest({ prompt, user, contextVersion = 1, requestId
       intent: tier1Result.intent,
       complexity: tier1Result.complexity,
       confidence: tier1Result.confidence,
-      needsTools: tier1Result.needsTools,
-      needsMemory: tier1Result.needsMemory,
-      entities: tier1Result.entities,
+      needsTools: Boolean(tier1Result.needsTools),
+      needsMemory: Boolean(tier1Result.needsMemory),
+      suggestedTools: tier1Result.suggestedTools || [],
+      entities: tier1Result.entities || {},
       escalated,
       latencyMs,
       costUsd,
@@ -252,12 +255,18 @@ export async function routeRequest({ prompt, user, contextVersion = 1, requestId
     return decision;
   } catch (error) {
     if (error?.code === "AI_USAGE_LEDGER_UNAVAILABLE") throw error;
-    logger.warn({ reason: "classifier_unavailable" }, "Routing classifier unavailable; using safe default");
+    logger.warn(
+      { reason: "classifier_unavailable" },
+      "Routing classifier unavailable; using safe default",
+    );
     return {
       tier: 1,
       intent: "chat_simple",
       complexity: "low",
       confidence: 0.5,
+      needsTools: false,
+      needsMemory: false,
+      suggestedTools: [],
       escalated: false,
       latencyMs: Math.round(performance.now() - start),
       costUsd: 0.0,
@@ -266,19 +275,91 @@ export async function routeRequest({ prompt, user, contextVersion = 1, requestId
 }
 
 export function classifyHeuristically(prompt) {
-  const text = String(prompt || "").trim().toLowerCase();
+  const text = String(prompt || "")
+    .trim()
+    .toLowerCase();
   if (!text) return null;
   const rules = [
-    { pattern: /\b(applications?|job search|follow.?up|companies|company|offer|recruiter)\b/, intent: "db_lookup", confidence: 0.84 },
-    { pattern: /\b(resume|cv|profile|my name|my skills|my experience|target role)\b/, intent: "chat_simple", confidence: 0.9 },
-    { pattern: /\b(mock interview|interview|interview score)\b/, intent: "interview_prep", confidence: 0.86 },
-    { pattern: /\b(tailor|rewrite|improve this resume|cover letter)\b/, intent: "tailor_resume", confidence: 0.82 },
-    { pattern: /\b(find|search|match|recommend)\b.*\b(job|role|position|opening)s?\b/, intent: "match_jobs", confidence: 0.85 },
+    {
+      pattern:
+        /\b(applications?|job search|follow.?up|companies|company|offer|recruiter|tracker|pipeline|priority)\b/,
+      intent: "db_lookup",
+      confidence: 0.84,
+      needsTools: true,
+      suggestedTools: ["list_applications"],
+    },
+    {
+      pattern: /\b(resume match|match score|missing skills|ats score|match my resume)\b/,
+      intent: "tailor_resume",
+      confidence: 0.86,
+      needsTools: true,
+      suggestedTools: ["run_resume_match"],
+    },
+    {
+      pattern:
+        /\b(resume|cv|profile|my name|my skills|my experience|target role|career profile|education|achievements)\b/,
+      intent: "chat_simple",
+      confidence: 0.9,
+      needsTools: /\b(career profile|achievements|education|bullets|facts|details)\b/.test(text),
+      suggestedTools: /\b(career profile)\b/.test(text)
+        ? ["get_career_profile_status"]
+        : /\b(achievements|education|bullets|facts)\b/.test(text)
+          ? ["get_resume_facts"]
+          : [],
+    },
+    {
+      pattern: /\b(mock interview|interview|interview score|interview report)\b/,
+      intent: "interview_prep",
+      confidence: 0.86,
+      needsTools: true,
+      suggestedTools: ["get_interview_reports"],
+    },
+    {
+      pattern: /\b(tailor|rewrite|improve this resume|cover letter)\b/,
+      intent: "tailor_resume",
+      confidence: 0.82,
+      needsTools: true,
+      suggestedTools: ["get_resume_facts"],
+    },
+    {
+      pattern:
+        /\b(find|search|match|recommend|show|lookup|openings)\b.*\b(job|role|position|opening)s?\b/,
+      intent: "match_jobs",
+      confidence: 0.85,
+      needsTools: true,
+      suggestedTools: ["search_jobs"],
+    },
+    {
+      pattern: /\b(remember|memories|preferences|saved memory)\b/,
+      intent: "chat_simple",
+      confidence: 0.85,
+      needsTools: true,
+      needsMemory: true,
+      suggestedTools: ["search_memories"],
+    },
   ];
   const matched = rules.find((rule) => rule.pattern.test(text));
-  if (matched) return { ...matched, complexity: "low", needsTools: false, needsMemory: false, entities: {} };
+  if (matched) {
+    return {
+      intent: matched.intent,
+      confidence: matched.confidence,
+      complexity: "low",
+      needsTools: Boolean(matched.needsTools),
+      needsMemory: Boolean(matched.needsMemory),
+      suggestedTools: matched.suggestedTools || [],
+      entities: {},
+    };
+  }
   // Ordinary open-ended conversation is a deterministic default. Very short follow-ups
   // such as "that one" remain ambiguous and may use the structured fallback classifier.
   if (/^(that|this|it|those|them|why|how about)\b/.test(text)) return null;
-  return { intent: "chat_simple", complexity: text.length > 500 ? "medium" : "low", needsTools: false, needsMemory: false, confidence: 0.74, entities: {} };
+  return {
+    intent: "chat_simple",
+    complexity: text.length > 500 ? "medium" : "low",
+    needsTools: false,
+    needsMemory: false,
+    suggestedTools: [],
+    confidence: 0.74,
+    entities: {},
+  };
 }

@@ -18,6 +18,8 @@ import { InteractionEvent } from "../models/InteractionEvent.js";
 import { interactionActorKey } from "../services/jobs/interactionEvents.js";
 import { UserFeedback } from "../models/UserFeedback.js";
 import { savedSearchService } from "../services/jobs/savedSearchService.js";
+import { ChatSession } from "../models/ChatSession.js";
+import { purgeUserCheckpoints } from "../ai/checkpointer.js";
 
 function getUserId(user) {
   if (!user) return "";
@@ -45,6 +47,7 @@ export const privacyController = {
       let jobMatchReports = [];
       let interactionEvents = [];
       let feedback = [];
+      let chatSessions = [];
       if (isMongoReady()) {
         documents = await Document.find({ userId }).lean();
         [resumes, jobMatchReports] = await Promise.all([
@@ -76,6 +79,7 @@ export const privacyController = {
           .select("category message createdAt")
           .sort({ createdAt: -1 })
           .lean();
+        chatSessions = await ChatSession.find({ userId, isDeleted: false }).lean();
       }
 
       const exportBundle = {
@@ -96,6 +100,7 @@ export const privacyController = {
         resumes,
         jobMatchReports,
         agentMemories: memories || [],
+        chatSessions: chatSessions || [],
         interviews,
         interactionEvents,
         feedback,
@@ -124,10 +129,11 @@ export const privacyController = {
       const user = req.user;
       const userId = getUserId(user);
 
-      // 1. Purge agent memories
+      // 1. Purge agent memories & chat checkpoints
       await longTermMemory.forgetAllMemories(userId);
       await deleteAllUserResumeData(userId);
       await savedSearchService.deleteAllForUser(userId);
+      await purgeUserCheckpoints(userId).catch(() => {});
 
       // Remove durable interview transcripts/reports and legacy process-local sessions.
       if (isMongoReady()) {
@@ -140,6 +146,7 @@ export const privacyController = {
           Application.deleteMany({ userId }),
           InteractionEvent.deleteMany({ actorKey: interactionActorKey(userId) }),
           UserFeedback.deleteMany({ userId }),
+          ChatSession.deleteMany({ userId }),
         ]);
       }
       interviewGraph.deleteMockSessionsByUserId(userId);

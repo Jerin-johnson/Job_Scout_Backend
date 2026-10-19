@@ -20,6 +20,9 @@ export const PLAN_CONFIG = {
       tailoredDocsMonthly: 1,
       resumeMatchSuggestionsMonthly: 2,
       chatMessagesDaily: 20,
+      chatToolCallsPerTurn: 2,
+      chatToolCallsDaily: 25,
+      chatTurnTokenBudget: 4000,
       maxMemories: 50,
       dailyUsdBudget: 0.1,
       savedSearchesMax: 3,
@@ -31,6 +34,7 @@ export const PLAN_CONFIG = {
       interviewPrep: false,
       mockInterview: false,
       followUpAutomation: false,
+      chatModelTier: "small",
     },
   },
   [PLANS.PRO]: {
@@ -42,6 +46,9 @@ export const PLAN_CONFIG = {
       tailoredDocsMonthly: 30,
       resumeMatchSuggestionsMonthly: 30,
       chatMessagesDaily: 200,
+      chatToolCallsPerTurn: 4,
+      chatToolCallsDaily: 250,
+      chatTurnTokenBudget: 6000,
       maxMemories: 300,
       dailyUsdBudget: 1.5,
       savedSearchesMax: 15,
@@ -53,6 +60,7 @@ export const PLAN_CONFIG = {
       interviewPrep: true,
       mockInterview: false,
       followUpAutomation: false,
+      chatModelTier: "strong",
     },
   },
   [PLANS.PREMIUM]: {
@@ -64,6 +72,9 @@ export const PLAN_CONFIG = {
       tailoredDocsMonthly: 500, // fair-use cap
       resumeMatchSuggestionsMonthly: 100,
       chatMessagesDaily: 1000,
+      chatToolCallsPerTurn: 4,
+      chatToolCallsDaily: 1000,
+      chatTurnTokenBudget: 8000,
       maxMemories: 1000,
       dailyUsdBudget: 5.0,
       savedSearchesMax: 50,
@@ -75,6 +86,7 @@ export const PLAN_CONFIG = {
       interviewPrep: true,
       mockInterview: true,
       followUpAutomation: true,
+      chatModelTier: "strong",
     },
   },
 };

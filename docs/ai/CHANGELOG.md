@@ -6,6 +6,15 @@ Last verified against commit `feat/jobs-production` worktree on 2026-10-19.
 
 Entries below describe changes implemented on the feature branch.
 
+## 2026-10-19 — Production Chat Agent (`feat/chat-agent`)
+
+- Added LangGraph StateGraph chat assistant with typed state, iteration bounds (<=4), per-tool timeouts (4000ms), and prompt injection guardrails.
+- Added 11 read-only tools ownership-scoped via server-side configurable `userId` with untrusted delimiter wrapping and payload truncation.
+- Added 5 propose-and-confirm action tools returning HMAC-SHA256 signed action tokens with timingSafeEqual validation, TTL, replay protection, and AuditLog recording.
+- Integrated MongoDB checkpointer with user-namespaced thread IDs (`toNamespacedThreadId`), session persistence, rolling summaries, and GDPR export/delete cascade.
+- Implemented versioned memory consent (`memory-consent-v1`) with sensitive category filtering and Career Profile priority resolution.
+- Completed offline evaluation with 65 prompts yielding 92.3% tool accuracy, 100% groundedness, 100% prompt injection block rate, 9ms p50 latency, and $0.000108 USD / turn.
+
 ## 2026-10-19 — `feat/jobs-production` (Task A: production-grade job listing)
 
 - Added indexed token search (`Job.searchTokens`, `job_search_tokens_recent`), bounded edit-distance typo expansion, weighted title/skill/company + recency relevance ranking, deterministic relevance cursor pagination, and `catalogVersion`-keyed Redis count/facet caching.

@@ -182,3 +182,12 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 
 - Updated `docs/ai/06-job-matching-engine.md`, `docs/ai/13-failure-modes-and-runbooks.md`, `docs/ai/15-classification-and-catalog-coverage.md`, `docs/ai/16-data-inventory.md`, `docs/architecture/caching.md`, `docs/ai/CHANGELOG.md`, `docs/ai/jobs-production.md`, and regenerated OpenAPI spec (`npm run openapi`).
 - Verified `npm run docs:check`, `npm run lint`, and full backend/frontend test suites.
+
+## Task B (`feat/chat-agent`) — Production Chat Agent — 2026-10-19
+
+- Implemented LangGraph StateGraph chat assistant (`src/ai/graphs/chatGraph.js`) with typed state, iteration bounds (<=4), per-tool timeouts (4000ms), prompt injection guardrails, and deterministic mock mode.
+- Added 11 read-only tools (`src/ai/tools/chatTools.js`) ownership-scoped via server-side configurable `userId` with untrusted delimiter wrapping (`<untrusted_tool_result>`) and payload truncation.
+- Added 5 propose-and-confirm action tools returning HMAC-SHA256 signed action tokens with timingSafeEqual validation, TTL, replay protection, and AuditLog recording.
+- Integrated MongoDB checkpointer (`src/ai/checkpointer.js`, `src/models/ChatSession.js`, `src/ai/memory/chatSessionService.js`) with user-namespaced thread IDs (`toNamespacedThreadId`), session persistence, rolling summaries, and GDPR export/delete cascade.
+- Implemented versioned memory consent (`memory-consent-v1`) with sensitive category filtering and Career Profile priority resolution.
+- Completed offline evaluation (`scripts/evaluate-chat-agent.js`) with 65 prompts yielding 92.3% tool accuracy, 100% groundedness, 100% prompt injection block rate, 9ms p50 latency, and $0.000108 USD / turn.

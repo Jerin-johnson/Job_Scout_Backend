@@ -50,6 +50,10 @@ const MemorySchema = new mongoose.Schema(
       enum: ["chat", "tailoring", "interview", "user_edit"],
       default: "chat",
     },
+    consentVersion: {
+      type: String,
+      default: "memory-consent-v1",
+    },
     lastUsedAt: {
       type: Date,
       default: Date.now,
@@ -97,14 +101,16 @@ MemorySchema.index(
 MemorySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 /**
- * Pre-save compliance hook: Block protected attributes
+ * Pre-save compliance hook: Block protected attributes and secrets
  */
 MemorySchema.pre("save", function (next) {
   const protectedPatterns = [
     /\b(christian|muslim|hindu|jewish|sikh|buddhist|atheist|religion)\b/i,
     /\b(caucasian|black|african|hispanic|latino|asian|ethnicity|race)\b/i,
     /\b(brahmin|dalit|caste|kshatriya|vaishya)\b/i,
-    /\b(pregnant|disability|disease|medical condition|diagnosed with)\b/i,
+    /\b(pregnant|disability|disease|medical condition|diagnosed with|health condition|surgery)\b/i,
+    /\b(democrat|republican|bjp|congress|political party|voted for|politics|communist|socialist)\b/i,
+    /\b(password|api[_ -]?key|secret[_ -]?key|private[_ -]?key|ssn|social security|aadhaar|pan card|credit card)\b/i,
     /\b(born in 19[0-9]{2}|age is [0-9]{2}|years old)\b/i,
   ];
 
@@ -112,7 +118,7 @@ MemorySchema.pre("save", function (next) {
   for (const pattern of protectedPatterns) {
     if (pattern.test(fullText)) {
       const err = new Error(
-        "Compliance violation: Storing protected attributes (religion, ethnicity, caste, health, age inferences) is strictly prohibited.",
+        "Compliance violation: Storing protected attributes (religion, ethnicity, caste, health, politics, secrets, age inferences) is strictly prohibited.",
       );
       err.code = "PROTECTED_ATTRIBUTE_REJECTED";
       return next(err);
