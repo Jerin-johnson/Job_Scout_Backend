@@ -110,7 +110,9 @@ export const quotaService = {
 
     return {
       plan,
+      toolsEnabled: !degraded && (planConfig.quotas.chatToolCallsPerTurn || 2) > 0,
       maxToolCallsPerTurn: degraded ? 0 : planConfig.quotas.chatToolCallsPerTurn || 2,
+
       maxToolCallsDaily: toolCallsDailyLimit,
       toolCallsUsedToday: toolCallsToday,
       turnTokenBudget: nearBudget

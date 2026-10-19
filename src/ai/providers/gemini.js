@@ -1,5 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { env } from "../../config/env.js";
 import { getModelRate } from "../modelPricingCatalog.js";
 
@@ -81,7 +81,9 @@ const CHAT_MODELS = [
 ];
 
 const FREE_GEMINI_MODEL_IDS = new Set(
-  CHAT_MODELS.filter((model) => model.enabled && model.access === "free_tier").map((model) => model.id),
+  CHAT_MODELS.filter((model) => model.enabled && model.access === "free_tier").map(
+    (model) => model.id,
+  ),
 );
 
 function messageText(content) {
@@ -94,15 +96,35 @@ function messageText(content) {
 }
 
 function toLangChainMessages(messages) {
-  return messages.map(({ role, content }) => {
+  return messages.map((msg) => {
+    if (
+      msg instanceof SystemMessage ||
+      msg instanceof AIMessage ||
+      msg instanceof HumanMessage ||
+      msg instanceof ToolMessage
+    ) {
+      return msg;
+    }
+    const { role, content, tool_calls, tool_call_id, name } = msg;
     const text = messageText(content);
     if (role === "system") return new SystemMessage(text);
-    if (role === "assistant") return new AIMessage(text);
+    if (role === "tool")
+      return new ToolMessage({
+        content: text,
+        tool_call_id: tool_call_id || "tc_0",
+        name: name || "tool",
+      });
+    if (role === "assistant") {
+      return new AIMessage({
+        content: text,
+        ...(Array.isArray(tool_calls) && tool_calls.length ? { tool_calls } : {}),
+      });
+    }
     return new HumanMessage(text);
   });
 }
 
-export function createGeminiModel({ modelName, temperature, maxTokens, schema }) {
+export function createGeminiModel({ modelName, temperature, maxTokens, schema, tools }) {
   if (!FREE_GEMINI_MODEL_IDS.has(modelName)) {
     throw new Error("Gemini model is not allowlisted for this product.");
   }
@@ -117,6 +139,9 @@ export function createGeminiModel({ modelName, temperature, maxTokens, schema })
     maxRetries: 0,
   });
   if (schema) model = model.withStructuredOutput(schema, { includeRaw: true });
+  else if (Array.isArray(tools) && tools.length > 0 && typeof model.bindTools === "function") {
+    model = model.bindTools(tools);
+  }
 
   return {
     async invoke(messages, options = {}) {
@@ -136,6 +161,7 @@ export function createGeminiModel({ modelName, temperature, maxTokens, schema })
       }
       return {
         content: typeof result.content === "string" ? result.content : messageText(result.content),
+        tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
         response_metadata: {
           usage: {
             input_tokens: result.usage_metadata?.input_tokens || 0,
@@ -150,6 +176,7 @@ export function createGeminiModel({ modelName, temperature, maxTokens, schema })
       for await (const chunk of chunks) {
         yield {
           content: typeof chunk.content === "string" ? chunk.content : messageText(chunk.content),
+          tool_calls: Array.isArray(chunk.tool_calls) ? chunk.tool_calls : undefined,
           usage_metadata: chunk.usage_metadata || {},
         };
       }
@@ -162,8 +189,12 @@ export function estimateGeminiCost(modelName, usage = {}) {
   const cached = usage.cachedInputTokens ?? usage.cacheReadTokens ?? 0;
   const regularInput = Math.max(0, (usage.inputTokens || 0) - cached);
   const cachedRate = rates.cachedInputUsdPerMillion ?? rates.inputUsdPerMillion;
-  return (regularInput * rates.inputUsdPerMillion + cached * cachedRate +
-    (usage.outputTokens || 0) * rates.outputUsdPerMillion) / 1_000_000;
+  return (
+    (regularInput * rates.inputUsdPerMillion +
+      cached * cachedRate +
+      (usage.outputTokens || 0) * rates.outputUsdPerMillion) /
+    1_000_000
+  );
 }
 
 export const geminiProvider = {

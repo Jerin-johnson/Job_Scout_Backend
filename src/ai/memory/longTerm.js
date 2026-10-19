@@ -425,4 +425,8 @@ export const longTermMemory = {
   async forgetAllMemories(userId) {
     return this.forgetAll(userId);
   },
+
+  hasMemoryConsent,
+  isSensitiveMemoryContent,
+  resolveProfileMemoryConflicts,
 };

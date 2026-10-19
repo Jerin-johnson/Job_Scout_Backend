@@ -118,6 +118,7 @@ export async function invokeLLM({
   feature = "chat",
   prompt,
   schema = null,
+  tools = null,
   maxTokens = 2000,
   temperature = 0,
   signal = null,
@@ -125,6 +126,8 @@ export async function invokeLLM({
   requestId = null,
   onUsage = null,
   featureQuotaAccepted = false,
+  providerOverride = null,
+  mockResponder = null,
 }) {
   const start = performance.now();
   requestId ||= randomUUID();
@@ -134,7 +137,7 @@ export async function invokeLLM({
   if (modelId && (feature !== "chat" || !selectedProvider)) {
     throw new Error("The selected model is unavailable for this feature.");
   }
-  const provider = selectedProvider || getLLMProvider(env.LLM_PROVIDER);
+  const provider = providerOverride || selectedProvider || getLLMProvider(env.LLM_PROVIDER);
   const modelName = modelId || provider.modelForTier(tier);
   const rate = getModelRate(provider.id, modelName);
   const policyError = personalDataPolicyError(provider.id, modelName, feature);
@@ -142,11 +145,11 @@ export async function invokeLLM({
 
   // 3. Prepare messages
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
-  const estimatedCostUsd = (
-    (approximateTokens(messages) * rate.inputUsdPerMillion) +
-    (maxTokens * rate.outputUsdPerMillion)
-  ) / 1_000_000;
-  if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd, featureQuotaAccepted });
+  const estimatedCostUsd =
+    (approximateTokens(messages) * rate.inputUsdPerMillion + maxTokens * rate.outputUsdPerMillion) /
+    1_000_000;
+  if (user)
+    await quotaService.checkQuota(user, feature, { estimatedCostUsd, featureQuotaAccepted });
   else await quotaService.assertAIEnabled();
 
   // 4. Check if live Anthropic key is available or in mock/offline mode
@@ -160,6 +163,36 @@ export async function invokeLLM({
 
   if (isMockMode) {
     const latencyMs = Math.round(performance.now() - start);
+
+    if (typeof mockResponder === "function") {
+      const mockResult = await mockResponder({ messages, tools, schema, modelName, feature });
+      const inputTokens = approximateTokens(messages);
+      const outputTokens = approximateResultTokens(mockResult);
+      if (user) {
+        await quotaService.recordUsage({
+          userId: user._id || user.id,
+          userPlan: user.plan || PLANS.FREE,
+          feature,
+          model: modelName,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          costUsd: 0,
+          latencyMs,
+        });
+      }
+      onUsage?.({
+        provider: provider.id,
+        model: modelName,
+        inputTokens,
+        outputTokens,
+        costUsd: 0,
+        usageIsEstimated: true,
+        retryCount: 0,
+      });
+      return mockResult;
+    }
 
     // Mock structured responses if schema was requested
     if (schema) {
@@ -200,15 +233,20 @@ export async function invokeLLM({
     return mockOutput;
   }
 
-  // 5. Construct ChatAnthropic instance
-  const modelInstance = provider.createModel({ modelName, temperature, maxTokens, schema });
+  // 5. Construct model instance
+  const modelInstance = provider.createModel({ modelName, temperature, maxTokens, schema, tools });
   const attemptId = randomUUID();
   let retryCount = 0;
   let result;
   try {
     result = await invokeWithTransientRetry(
       () => llmBreaker.fire({ model: modelInstance, messages, signal }),
-      { maxRetries: env.AI_PROVIDER_MAX_RETRIES, onRetry: (count) => { retryCount = count; } },
+      {
+        maxRetries: env.AI_PROVIDER_MAX_RETRIES,
+        onRetry: (count) => {
+          retryCount = count;
+        },
+      },
     );
   } catch (error) {
     if (user) {
@@ -244,8 +282,11 @@ export async function invokeLLM({
   const providerOutputTokens = usage.output_tokens ?? usage.completion_tokens;
   const inputTokens = providerInputTokens ?? approximateTokens(messages);
   const outputTokens = providerOutputTokens ?? approximateResultTokens(result);
-  const usageIsEstimated = providerInputTokens === null || providerInputTokens === undefined ||
-    providerOutputTokens === null || providerOutputTokens === undefined;
+  const usageIsEstimated =
+    providerInputTokens === null ||
+    providerInputTokens === undefined ||
+    providerOutputTokens === null ||
+    providerOutputTokens === undefined;
   const cacheReadTokens = usage.cache_read_input_tokens ?? usage.cached_input_tokens ?? 0;
   const cacheWriteTokens = usage.cache_creation_input_tokens || 0;
 
@@ -259,28 +300,36 @@ export async function invokeLLM({
   // 8. Await the usage ledger write before returning a billable result.
   if (user) {
     await quotaService.recordUsage({
-        userId: user._id || user.id,
-        userPlan: user.plan || PLANS.FREE,
-        planVersion: user.planVersion || "unversioned",
-        feature,
-        provider: provider.id,
-        model: modelName,
-        requestId,
-        attemptId,
-        status: "success",
-        outcome: "success",
-        usageIsEstimated,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cachedInputTokens: cacheReadTokens,
-        cacheWriteTokens,
-        costUsd,
-        latencyMs,
-        retryCount,
-      });
+      userId: user._id || user.id,
+      userPlan: user.plan || PLANS.FREE,
+      planVersion: user.planVersion || "unversioned",
+      feature,
+      provider: provider.id,
+      model: modelName,
+      requestId,
+      attemptId,
+      status: "success",
+      outcome: "success",
+      usageIsEstimated,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cachedInputTokens: cacheReadTokens,
+      cacheWriteTokens,
+      costUsd,
+      latencyMs,
+      retryCount,
+    });
   }
-  onUsage?.({ provider: provider.id, model: modelName, inputTokens, outputTokens, costUsd, usageIsEstimated, retryCount });
+  onUsage?.({
+    provider: provider.id,
+    model: modelName,
+    inputTokens,
+    outputTokens,
+    costUsd,
+    usageIsEstimated,
+    retryCount,
+  });
 
   return result;
 }
@@ -299,9 +348,14 @@ function approximateTokens(messages) {
 function approximateResultTokens(result) {
   let text;
   if (typeof result === "string") text = result;
-  else if (typeof result?.content === "string" || Array.isArray(result?.content)) text = messageText(result.content);
+  else if (typeof result?.content === "string" || Array.isArray(result?.content))
+    text = messageText(result.content);
   else {
-    try { text = JSON.stringify(result ?? ""); } catch { text = ""; }
+    try {
+      text = JSON.stringify(result ?? "");
+    } catch {
+      text = "";
+    }
   }
   return Math.ceil(text.length / 4);
 }
@@ -331,10 +385,9 @@ export async function* streamLLM({
   const policyError = personalDataPolicyError(provider.id, modelName, feature);
   if (policyError) throw policyError;
   const messages = Array.isArray(prompt) ? prompt : formatCachedPrompt(prompt);
-  const estimatedCostUsd = (
-    (approximateTokens(messages) * rate.inputUsdPerMillion) +
-    (maxTokens * rate.outputUsdPerMillion)
-  ) / 1_000_000;
+  const estimatedCostUsd =
+    (approximateTokens(messages) * rate.inputUsdPerMillion + maxTokens * rate.outputUsdPerMillion) /
+    1_000_000;
   if (user) await quotaService.checkQuota(user, feature, { estimatedCostUsd });
   else await quotaService.assertAIEnabled();
   const mockMode = !provider.isConfigured();
@@ -371,11 +424,22 @@ export async function* streamLLM({
       if (typeof model.stream !== "function") {
         const response = await invokeWithTransientRetry(
           () => model.invoke(messages, signal ? { signal } : {}),
-          { maxRetries: env.AI_PROVIDER_MAX_RETRIES, onRetry: (count) => { retryCount = count; } },
+          {
+            maxRetries: env.AI_PROVIDER_MAX_RETRIES,
+            onRetry: (count) => {
+              retryCount = count;
+            },
+          },
         );
         outputText = typeof response === "string" ? response : messageText(response?.content);
-        providerInputTokens = response?.usage_metadata?.input_tokens ?? response?.response_metadata?.usage?.input_tokens ?? null;
-        providerOutputTokens = response?.usage_metadata?.output_tokens ?? response?.response_metadata?.usage?.output_tokens ?? null;
+        providerInputTokens =
+          response?.usage_metadata?.input_tokens ??
+          response?.response_metadata?.usage?.input_tokens ??
+          null;
+        providerOutputTokens =
+          response?.usage_metadata?.output_tokens ??
+          response?.response_metadata?.usage?.output_tokens ??
+          null;
         cacheReadTokens = response?.response_metadata?.usage?.cache_read_input_tokens ?? 0;
         firstTokenLatencyMs = Math.round(performance.now() - startedAt);
         yield { text: outputText };
@@ -403,11 +467,22 @@ export async function* streamLLM({
     if (user && !mockMode) {
       inputTokens = providerInputTokens ?? approximateTokens(messages);
       outputTokens = providerOutputTokens ?? approximateResultTokens(outputText);
-      const usageIsEstimated = providerInputTokens === null || providerInputTokens === undefined ||
-        providerOutputTokens === null || providerOutputTokens === undefined;
-      const costUsd = provider.estimateCostUsd(modelName, { inputTokens, outputTokens, cacheReadTokens });
+      const usageIsEstimated =
+        providerInputTokens === null ||
+        providerInputTokens === undefined ||
+        providerOutputTokens === null ||
+        providerOutputTokens === undefined;
+      const costUsd = provider.estimateCostUsd(modelName, {
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+      });
       const status = completed ? "success" : outputText ? "partial" : "failed";
-      const outcome = completed ? "success" : signal?.aborted ? "client_cancelled" : "provider_error";
+      const outcome = completed
+        ? "success"
+        : signal?.aborted
+          ? "client_cancelled"
+          : "provider_error";
       await quotaService.recordUsage({
         userId: user._id || user.id,
         userPlan: user.plan || PLANS.FREE,
@@ -429,17 +504,27 @@ export async function* streamLLM({
         retryCount,
       });
     }
-    if (failure && !user) logger.debug({ provider: provider.id, errorCode: failure?.code }, "Unattributed stream request ended");
+    if (failure && !user)
+      logger.debug(
+        { provider: provider.id, errorCode: failure?.code },
+        "Unattributed stream request ended",
+      );
   }
 
   const latencyMs = Math.round(performance.now() - startedAt);
-  const usageIsEstimated = !mockMode && (
-    providerInputTokens === null || providerInputTokens === undefined ||
-    providerOutputTokens === null || providerOutputTokens === undefined
-  );
+  const usageIsEstimated =
+    !mockMode &&
+    (providerInputTokens === null ||
+      providerInputTokens === undefined ||
+      providerOutputTokens === null ||
+      providerOutputTokens === undefined);
   inputTokens = providerInputTokens ?? approximateTokens(messages);
   outputTokens = providerOutputTokens ?? approximateResultTokens(outputText);
-  const costUsd = provider.estimateCostUsd(modelName, { inputTokens, outputTokens, cacheReadTokens });
+  const costUsd = provider.estimateCostUsd(modelName, {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+  });
   yield {
     done: true,
     usage: { inputTokens, outputTokens, usageIsEstimated, costUsd },
