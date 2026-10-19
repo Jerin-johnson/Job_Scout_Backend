@@ -100,11 +100,11 @@ export const interviewController = {
       await acceptRequestQuota(req, "interview_prep");
 
       const prepResult = await interviewGraph.generatePrep({
-        user: req.user,
+        user: user as unknown as Parameters<typeof interviewGraph.generatePrep>[0]["user"],
         jobTitle,
         company,
         jdText,
-        profile,
+        profile: profile as unknown as Parameters<typeof interviewGraph.generatePrep>[0]["profile"],
       });
 
       logger.info({ userId, company, jobTitle }, "Interview prep pack generated");
@@ -135,11 +135,12 @@ export const interviewController = {
       }
 
       const { sessionId, questionId, question, candidateAnswer } = parsed.data;
+      const user = req.user as UserRecord;
 
       await acceptRequestQuota(req, "mock_interview");
 
       const result = await interviewGraph.runMockTurn({
-        user: req.user,
+        user: user as unknown as Parameters<typeof interviewGraph.runMockTurn>[0]["user"],
         sessionId,
         questionId,
         question,
@@ -162,7 +163,7 @@ export const interviewController = {
     try {
       const { id } = req.params;
       const user = req.user as UserRecord;
-      const report = await interviewGraph.getMockSessionReport(id, getUserId(user));
+      const report = await interviewGraph.getMockSessionReport(String(id), getUserId(user));
 
       if (!report) {
         return res.status(404).json({

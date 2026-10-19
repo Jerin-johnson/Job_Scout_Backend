@@ -278,7 +278,7 @@ export const jobController = {
         profileReady: hasProfileFacts,
         otherRolesOnly:
           matches.length > 0 &&
-          matches.every((match: Record<string, unknown>) => typeof match.score === "number" && match.score < 50),
+          matches.every((match: unknown) => typeof (match as Record<string, unknown>)?.score === "number" && Number((match as Record<string, unknown>).score) < 50),
         roleSuggestions: suggestTargetRoleCorrections(profile || {}),
         emptyReason,
       };

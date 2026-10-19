@@ -9,6 +9,7 @@ import { JobMatchReport } from "../models/JobMatchReport.js";
 import { Resume } from "../models/Resume.js";
 import { Profile } from "../models/Profile.js";
 import { invokeLLM } from "../ai/llm.js";
+import { UserLike } from "../ai/candidateContext.js";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import { logger } from "../shared/utils/logger.js";
 import { env } from "../config/env.js";
@@ -544,7 +545,7 @@ export const resumeMatchController = {
       const serialized = (value: unknown) =>
         JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
       const generated = await invokeLLM({
-        user: req.user!,
+        user: req.user as unknown as UserLike,
         tier: "small",
         feature: "resume_match_suggestions",
         maxTokens: 900,

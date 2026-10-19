@@ -35,8 +35,23 @@ import { logger } from "../../shared/utils/logger.js";
 
 export const ACTION_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-const inMemoryConsumedActions = new Map();
-const inMemoryAuditLogs = [];
+interface AuditLogEntry {
+  userId: string;
+  action: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: Date;
+  [key: string]: unknown;
+}
+
+const inMemoryConsumedActions = new Map<string, unknown>();
+const inMemoryAuditLogs: AuditLogEntry[] = [];
+
+function createHttpError(message: string, statusCode: number, code: string): Error & { statusCode: number; code: string } {
+  const err = new Error(message) as Error & { statusCode: number; code: string };
+  err.statusCode = statusCode;
+  err.code = code;
+  return err;
+}
 
 export const TOOL_STATUS_LABELS = Object.freeze({
   get_profile_summary: "Checking your profile summary...",
@@ -76,7 +91,16 @@ export const TOOL_SOURCE_LABELS = Object.freeze({
   propose_open_resume_match: "Resume Match",
 });
 
-function sanitizeString(value, maxChars = 600) {
+export interface ActionEnvelope {
+  v: number;
+  nonce: string;
+  userId: string;
+  actionType: string;
+  payload: Record<string, unknown>;
+  expiresAt: number;
+}
+
+function sanitizeString(value: unknown, maxChars = 600): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -87,7 +111,7 @@ function sanitizeString(value, maxChars = 600) {
     .slice(0, maxChars);
 }
 
-function sanitizeDeep(value, depth = 0) {
+function sanitizeDeep(value: unknown, depth = 0): unknown {
   if (depth > 5) return "[truncated]";
   if (value === null || value === undefined) return value;
   if (typeof value === "string") return sanitizeString(value, 800);
@@ -97,8 +121,8 @@ function sanitizeDeep(value, depth = 0) {
     return value.slice(0, 20).map((item) => sanitizeDeep(item, depth + 1));
   }
   if (typeof value === "object") {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (k === "encryptedRawText" || k === "embedding" || k === "password") continue;
       out[k] = sanitizeDeep(v, depth + 1);
     }
@@ -111,7 +135,7 @@ function sanitizeDeep(value, depth = 0) {
  * Wraps any tool output in an explicit untrusted delimiter block so prompt-injection
  * instructions inside job descriptions, application notes, or resume text are treated strictly as data.
  */
-export function wrapUntrustedToolResult(toolName, payload, maxChars = 2800) {
+export function wrapUntrustedToolResult(toolName: string, payload: unknown, maxChars = 2800): string {
   const safeName = String(toolName || "tool").replace(/[^a-z0-9_]/gi, "_");
   const sanitized = sanitizeDeep(payload);
   const serialized = JSON.stringify(sanitized);
@@ -120,22 +144,32 @@ export function wrapUntrustedToolResult(toolName, payload, maxChars = 2800) {
   return `<untrusted_tool_result name="${safeName}">\n${body}\n</untrusted_tool_result>`;
 }
 
-function getActionSecret() {
+function getActionSecret(): string {
   return env.JWT_ACCESS_SECRET || "dev-chat-action-secret-key-minimum-32-chars";
 }
 
 /**
  * Creates an HMAC-SHA256 signed expiring confirmation token bound to userId, actionType, and payload.
  */
-export function createActionToken({ userId, actionType, payload, ttlMs = ACTION_TOKEN_TTL_MS }) {
+export function createActionToken({
+  userId,
+  actionType,
+  payload,
+  ttlMs = ACTION_TOKEN_TTL_MS,
+}: {
+  userId: string | unknown;
+  actionType: string;
+  payload: Record<string, unknown> | unknown;
+  ttlMs?: number;
+}): string {
   const uid = String(userId || "");
   if (!uid) throw new Error("userId is required to sign an action confirmation token");
-  const envelope = {
+  const envelope: ActionEnvelope = {
     v: 1,
     nonce: randomUUID(),
     userId: uid,
     actionType,
-    payload,
+    payload: (payload || {}) as Record<string, unknown>,
     expiresAt: Date.now() + ttlMs,
   };
   const encoded = Buffer.from(JSON.stringify(envelope), "utf8").toString("base64url");
@@ -146,37 +180,26 @@ export function createActionToken({ userId, actionType, payload, ttlMs = ACTION_
 /**
  * Verifies an HMAC-SHA256 action confirmation token and enforces userId ownership and expiry.
  */
-export function verifyActionToken(token, expectedUserId) {
-  if (!token || typeof token !== "string" || !token.includes(".")) {
-    const err = new Error("Invalid confirmation token format.");
-    err.statusCode = 400;
-    err.code = "INVALID_ACTION_TOKEN";
-    throw err;
+export function verifyActionToken(token: string | unknown, expectedUserId: string | unknown): ActionEnvelope {
+  const tokenStr = String(token || "");
+  if (!tokenStr || !tokenStr.includes(".")) {
+    throw createHttpError("Invalid confirmation token format.", 400, "INVALID_ACTION_TOKEN");
   }
-  const [encoded, providedSig] = token.split(".");
+  const [encoded, providedSig] = tokenStr.split(".");
   if (!encoded || !providedSig) {
-    const err = new Error("Malformed confirmation token.");
-    err.statusCode = 400;
-    err.code = "INVALID_ACTION_TOKEN";
-    throw err;
+    throw createHttpError("Malformed confirmation token.", 400, "INVALID_ACTION_TOKEN");
   }
   const expectedSig = createHmac("sha256", getActionSecret()).update(encoded).digest("base64url");
   const a = Buffer.from(providedSig, "utf8");
   const b = Buffer.from(expectedSig, "utf8");
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    const err = new Error("Confirmation token signature is invalid.");
-    err.statusCode = 403;
-    err.code = "INVALID_ACTION_SIGNATURE";
-    throw err;
+    throw createHttpError("Confirmation token signature is invalid.", 403, "INVALID_ACTION_SIGNATURE");
   }
-  let envelope;
+  let envelope: ActionEnvelope;
   try {
     envelope = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
   } catch {
-    const err = new Error("Confirmation token payload is unreadable.");
-    err.statusCode = 400;
-    err.code = "INVALID_ACTION_TOKEN";
-    throw err;
+    throw createHttpError("Confirmation token payload is unreadable.", 400, "INVALID_ACTION_TOKEN");
   }
   if (
     !envelope ||
@@ -185,39 +208,49 @@ export function verifyActionToken(token, expectedUserId) {
     !envelope.userId ||
     !envelope.actionType
   ) {
-    const err = new Error("Confirmation token is missing required claims.");
-    err.statusCode = 400;
-    err.code = "INVALID_ACTION_TOKEN";
-    throw err;
+    throw createHttpError("Confirmation token is missing required claims.", 400, "INVALID_ACTION_TOKEN");
   }
   if (String(envelope.userId) !== String(expectedUserId)) {
-    const err = new Error("Confirmation token does not belong to the current user.");
-    err.statusCode = 403;
-    err.code = "ACTION_USER_MISMATCH";
-    throw err;
+    throw createHttpError("Confirmation token does not belong to the current user.", 403, "ACTION_USER_MISMATCH");
   }
   if (!Number.isFinite(envelope.expiresAt) || Date.now() > envelope.expiresAt) {
-    const err = new Error(
+    throw createHttpError(
       "This action confirmation card has expired. Ask the assistant to propose it again.",
+      410,
+      "ACTION_TOKEN_EXPIRED",
     );
-    err.statusCode = 410;
-    err.code = "ACTION_TOKEN_EXPIRED";
-    throw err;
   }
   return envelope;
 }
 
-async function loadCatalogJobById(jobId) {
+interface CatalogJobResult {
+  _id: unknown;
+  sourceJobId?: string;
+  title: string;
+  company: string;
+  location?: string;
+  remoteType?: string;
+  sourceBoard?: string;
+  sourceUrl?: string;
+  applyUrl?: string;
+  rawDescription?: string;
+  requirements?: string[];
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+async function loadCatalogJobById(jobId: string | unknown): Promise<CatalogJobResult | null> {
   if (!jobId) return null;
   if (!isMongoReady()) return null;
-  const query = mongoose.isValidObjectId(jobId)
-    ? { _id: jobId, status: "active" }
-    : { sourceJobId: String(jobId), status: "active" };
-  const job = await Job.findOne(query).lean();
+  const idStr = String(jobId);
+  const query = mongoose.isValidObjectId(idStr)
+    ? { _id: idStr, status: "active" }
+    : { sourceJobId: idStr, status: "active" };
+  const job = (await Job.findOne(query).lean()) as CatalogJobResult | null;
   if (!job) return null;
-  const detail = await JobDetail.findOne({ jobId: job._id })
+  const detail = (await JobDetail.findOne({ jobId: job._id })
     .select("description requirements")
-    .lean();
+    .lean()) as { description?: string; requirements?: string[] } | null;
   return {
     ...job,
     rawDescription: detail?.description || job.rawDescription || "",
@@ -225,24 +258,43 @@ async function loadCatalogJobById(jobId) {
   };
 }
 
-function requireContextUser(config) {
-  const user = config?.configurable?.user;
-  const userId = config?.configurable?.userId || (user?._id || user?.id)?.toString();
+export interface ContextUserConfig {
+  configurable?: {
+    user?: { _id?: unknown; id?: unknown; plan?: string; [key: string]: unknown };
+    userId?: string;
+    onToolComplete?: (payload: unknown) => void;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+function requireContextUser(config?: ContextUserConfig | unknown): { user: { _id?: unknown; id?: unknown; plan?: string; [key: string]: unknown }; userId: string } {
+  const conf = config as ContextUserConfig | undefined;
+  const user = conf?.configurable?.user;
+  const userId = conf?.configurable?.userId || (user?._id || user?.id)?.toString();
   if (!userId) {
-    const err = new Error("Authenticated userId is required in tool execution context.");
-    err.statusCode = 401;
-    err.code = "UNAUTHORIZED";
-    throw err;
+    throw createHttpError("Authenticated userId is required in tool execution context.", 401, "UNAUTHORIZED");
   }
   return { user: user || { _id: userId, id: userId, plan: "free" }, userId: String(userId) };
 }
 
 function recordToolOutcome(
-  config,
-  { toolName, sourceLabel, proposedAction = null, summary = null },
-) {
-  if (config?.configurable?.onToolComplete) {
-    config.configurable.onToolComplete({
+  config: ContextUserConfig | unknown,
+  {
+    toolName,
+    sourceLabel,
+    proposedAction = null,
+    summary = null,
+  }: {
+    toolName: string;
+    sourceLabel?: string;
+    proposedAction?: unknown;
+    summary?: string | null;
+  },
+): void {
+  const conf = config as ContextUserConfig | undefined;
+  if (conf?.configurable?.onToolComplete) {
+    conf.configurable.onToolComplete({
       toolName,
       sourceLabel,
       proposedAction,
@@ -254,42 +306,61 @@ function recordToolOutcome(
 /**
  * Executes a single read or propose tool by name with strict Zod validation and userId scoping.
  */
-export async function executeChatToolByName(toolName, rawArgs = {}, config = {}) {
+export async function executeChatToolByName(
+  toolName: string,
+  rawArgs: Record<string, unknown> = {},
+  config: ContextUserConfig = {},
+): Promise<unknown> {
   const tools = createChatTools(config);
   const found = tools.find((t) => t.name === toolName);
   if (!found) {
-    const err = new Error(`Unknown chat tool: ${toolName}`);
-    err.statusCode = 400;
-    err.code = "UNKNOWN_TOOL";
-    throw err;
+    throw createHttpError(`Unknown chat tool: ${toolName}`, 400, "UNKNOWN_TOOL");
   }
-  const parsedArgs = found.schema.parse(rawArgs || {});
-  return found.func(parsedArgs, config);
+  const parsedArgs = (found.schema as z.ZodTypeAny).parse(rawArgs || {});
+  return (found as unknown as { func: (args: unknown, conf: unknown) => Promise<unknown> }).func(parsedArgs, config);
 }
 
 /**
  * Builds the LangChain DynamicStructuredTools for the authenticated user session.
  * Note: userId is NEVER accepted from model arguments; it is read exclusively from config.configurable.userId.
  */
-export function createChatTools(defaultConfig = {}) {
-  const resolveCtx = (callConfig) =>
-    requireContextUser(callConfig?.configurable ? callConfig : defaultConfig);
-  const notifyComplete = (callConfig, payload) =>
-    recordToolOutcome(callConfig?.configurable ? callConfig : defaultConfig, payload);
+function extractConfig(
+  runManager?: unknown,
+  callConfig?: unknown,
+  defaultConfig: ContextUserConfig = {},
+): ContextUserConfig {
+  if (callConfig && typeof callConfig === "object" && "configurable" in callConfig) {
+    return callConfig as ContextUserConfig;
+  }
+  if (runManager && typeof runManager === "object" && "configurable" in runManager) {
+    return runManager as ContextUserConfig;
+  }
+  return defaultConfig;
+}
+
+export function createChatTools(defaultConfig: ContextUserConfig = {}) {
+  const resolveCtx = (runManager?: unknown, callConfig?: unknown) =>
+    requireContextUser(extractConfig(runManager, callConfig, defaultConfig));
+  const notifyComplete = (
+    runManager: unknown,
+    callConfig: unknown,
+    payload: { toolName: string; sourceLabel?: string; proposedAction?: unknown; summary?: string | null },
+  ) =>
+    recordToolOutcome(extractConfig(runManager, callConfig, defaultConfig), payload);
 
   const getProfileSummaryTool = new DynamicStructuredTool({
     name: "get_profile_summary",
     description:
       "Get a concise summary of the current user's candidate profile, skills, experience years, target roles, active applications count, and latest interview score.",
     schema: z.object({}).strict(),
-    func: async (_args, callConfig) => {
-      const { user } = resolveCtx(callConfig);
+    func: async (_args, runManager, callConfig) => {
+      const { user } = resolveCtx(runManager, callConfig);
       const snapshot = await getCandidateContext(user);
       const result = {
         profile: snapshot.card,
         suggestions: snapshot.suggestions,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_profile_summary",
         sourceLabel: TOOL_SOURCE_LABELS.get_profile_summary,
         summary: `Profile loaded (${snapshot.card.skills?.length || 0} skills, ${snapshot.card.activeApplications || 0} active applications)`,
@@ -303,11 +374,23 @@ export function createChatTools(defaultConfig = {}) {
     description:
       "Check which fields of the user's career profile (target roles, experience, home location, target locations, work preferences, compensation) are complete or missing.",
     schema: z.object({}).strict(),
-    func: async (_args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (_args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const profile = await profileRepository.findByUserId(userId);
-      const cp = profile?.careerProfile || {};
-      const prefs = profile?.preferences || {};
+      const cp = (profile?.careerProfile || {}) as {
+        targetRoles?: Array<{ roleCode?: string; customRoleLabel?: string }>;
+        experience?: { confirmedYears?: number | null };
+        homeLocation?: { countryCode?: string; scope?: string };
+        targetLocations?: Array<{ cityCode?: string; countryCode?: string; scope?: string }>;
+        workPreferences?: { workMode?: string };
+        compensation?: { minimumAmount?: number };
+      };
+      const prefs = (profile?.preferences || {}) as {
+        targetRoles?: string[];
+        minimumSalaryUsd?: number;
+        preferredLocations?: string[];
+        remotePreference?: string;
+      };
       const hasTargetRoles = Boolean(
         (cp.targetRoles && cp.targetRoles.length > 0) ||
         (prefs.targetRoles && prefs.targetRoles.length > 0),
@@ -324,7 +407,7 @@ export function createChatTools(defaultConfig = {}) {
       const hasWorkPreferences = Boolean(cp.workPreferences?.workMode || prefs.remotePreference);
       const hasCompensation = Boolean(cp.compensation?.minimumAmount || prefs.minimumSalaryUsd);
 
-      const missingFields = [];
+      const missingFields: string[] = [];
       if (!hasTargetRoles) missingFields.push("targetRoles");
       if (!hasExperience) missingFields.push("experience");
       if (!hasHomeLocation) missingFields.push("homeLocation");
@@ -342,16 +425,16 @@ export function createChatTools(defaultConfig = {}) {
         hasCompensation,
         missingFields,
         targetRoles:
-          cp.targetRoles?.map((r) => r.customRoleLabel || r.roleCode).filter(Boolean) ||
+          cp.targetRoles?.map((r) => r.customRoleLabel || r.roleCode).filter((r): r is string => Boolean(r)) ||
           prefs.targetRoles ||
           [],
         preferredLocations:
-          cp.targetLocations?.map((l) => l.cityCode || l.countryCode || l.scope).filter(Boolean) ||
+          cp.targetLocations?.map((l) => l.cityCode || l.countryCode || l.scope).filter((l): l is string => Boolean(l)) ||
           prefs.preferredLocations ||
           [],
         workMode: cp.workPreferences?.workMode || prefs.remotePreference || "any",
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_career_profile_status",
         sourceLabel: TOOL_SOURCE_LABELS.get_career_profile_status,
         summary: `Career profile ${status.completenessPercent}% complete`,
@@ -373,11 +456,14 @@ export function createChatTools(defaultConfig = {}) {
         limit: z.number().int().min(1).max(10).nullable().optional().default(5),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const profile = await profileRepository.findByUserId(userId);
       const hiddenJobIds = isMongoReady() ? await HiddenJob.distinct("jobId", { userId }) : [];
-      const searchResult = await jobIngestionService
+      const searchService = jobIngestionService as unknown as {
+        searchJobs: (opts: Record<string, unknown>) => Promise<{ jobs: CatalogJobResult[]; total: number }>;
+      };
+      const searchResult = await searchService
         .searchJobs({
           q: args.query || "",
           location: args.location || "",
@@ -393,6 +479,7 @@ export function createChatTools(defaultConfig = {}) {
       const jobs = (searchResult.jobs || []).slice(0, args.limit || 5).map((job) => {
         const match = profile ? scoreJobMatch(profile, job) : null;
         const eligibility = match?.eligibility || classifyEligibility(job, profile || {}).status;
+        const matchBand = (match as unknown as { scoreBand?: string; band?: string } | null)?.scoreBand ?? match?.band ?? null;
         return {
           jobId: String(job._id || job.sourceJobId || ""),
           title: job.title,
@@ -400,7 +487,7 @@ export function createChatTools(defaultConfig = {}) {
           location: job.location || "",
           remoteType: job.remoteType || "unknown",
           score: match?.score ?? null,
-          scoreBand: match?.scoreBand ?? null,
+          scoreBand: matchBand,
           matchingSkills: (match?.matchingSkills || []).slice(0, 6),
           missingSkills: (match?.missingSkills || []).slice(0, 5),
           eligibility,
@@ -412,7 +499,7 @@ export function createChatTools(defaultConfig = {}) {
         totalFound: searchResult.total ?? jobs.length,
         jobs,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "search_jobs",
         sourceLabel: TOOL_SOURCE_LABELS.search_jobs,
         summary: `Found ${jobs.length} matching jobs`,
@@ -430,11 +517,11 @@ export function createChatTools(defaultConfig = {}) {
         jobId: z.string().trim().min(1).max(100),
       })
       .strict(),
-    func: async ({ jobId }, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async ({ jobId }, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const job = await loadCatalogJobById(jobId);
       if (!job) {
-        notifyComplete(callConfig, {
+        notifyComplete(runManager, callConfig, {
           toolName: "get_job",
           sourceLabel: TOOL_SOURCE_LABELS.get_job,
           summary: "Job not found",
@@ -447,6 +534,7 @@ export function createChatTools(defaultConfig = {}) {
       const profile = await profileRepository.findByUserId(userId);
       const match = profile ? scoreJobMatch(profile, job) : null;
       const eligibility = classifyEligibility(job, profile || {});
+      const matchBand = (match as unknown as { scoreBand?: string; band?: string } | null)?.scoreBand ?? match?.band ?? null;
       const payload = {
         jobId: String(job._id),
         title: job.title,
@@ -457,14 +545,14 @@ export function createChatTools(defaultConfig = {}) {
         tags: (job.tags || []).slice(0, 10),
         descriptionExcerpt: String(job.rawDescription || "").slice(0, 1000),
         score: match?.score ?? null,
-        scoreBand: match?.scoreBand ?? null,
+        scoreBand: matchBand,
         matchingSkills: (match?.matchingSkills || []).slice(0, 8),
         missingSkills: (match?.missingSkills || []).slice(0, 8),
         eligibility: eligibility.status,
         eligibilityReason: eligibility.reason || "",
         riskFlags: getJobRiskFlags(job),
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_job",
         sourceLabel: TOOL_SOURCE_LABELS.get_job,
         summary: `Loaded job: ${job.title} at ${job.company}`,
@@ -484,14 +572,14 @@ export function createChatTools(defaultConfig = {}) {
         resumeId: z.string().trim().max(100).nullable().optional(),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const resumes = await profileRepository.findResumesByUserId(userId);
       const selectedResume = args.resumeId
         ? resumes.find((r) => String(r._id) === String(args.resumeId))
         : resumes[0];
       if (!selectedResume) {
-        notifyComplete(callConfig, {
+        notifyComplete(runManager, callConfig, {
           toolName: "run_resume_match",
           sourceLabel: TOOL_SOURCE_LABELS.run_resume_match,
           summary: "No resume uploaded yet",
@@ -576,7 +664,7 @@ export function createChatTools(defaultConfig = {}) {
         atsReadinessScore: scored.atsReadiness?.score ?? null,
         evidence: (scored.match.evidence || []).slice(0, 5),
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "run_resume_match",
         sourceLabel: TOOL_SOURCE_LABELS.run_resume_match,
         summary: `Resume match for ${sourceLabel}: ${scored.match.score}% (${scored.match.band})`,
@@ -602,8 +690,8 @@ export function createChatTools(defaultConfig = {}) {
         limit: z.number().int().min(1).max(15).nullable().optional().default(8),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const filters = {
         stages: args.stage ? [args.stage] : [],
         priority: args.priority || undefined,
@@ -631,7 +719,7 @@ export function createChatTools(defaultConfig = {}) {
         totalMatching: apps.length,
         applications: items,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "list_applications",
         sourceLabel: TOOL_SOURCE_LABELS.list_applications,
         summary: `Checked ${items.length} of ${apps.length} applications`,
@@ -649,11 +737,11 @@ export function createChatTools(defaultConfig = {}) {
         applicationId: z.string().trim().min(1).max(100),
       })
       .strict(),
-    func: async ({ applicationId }, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async ({ applicationId }, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const app = await applicationRepository.findOwnedById(applicationId, userId);
       if (!app) {
-        notifyComplete(callConfig, {
+        notifyComplete(runManager, callConfig, {
           toolName: "get_application",
           sourceLabel: TOOL_SOURCE_LABELS.get_application,
           summary: "Application not found",
@@ -685,7 +773,7 @@ export function createChatTools(defaultConfig = {}) {
           : null,
         timeline: (app.timeline || []).slice(-6),
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_application",
         sourceLabel: TOOL_SOURCE_LABELS.get_application,
         summary: `Loaded application: ${app.role} at ${app.company}`,
@@ -703,10 +791,10 @@ export function createChatTools(defaultConfig = {}) {
         limit: z.number().int().min(1).max(10).nullable().optional().default(5),
       })
       .strict(),
-    func: async ({ limit }, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async ({ limit }, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       if (!isMongoReady()) {
-        notifyComplete(callConfig, {
+        notifyComplete(runManager, callConfig, {
           toolName: "get_interview_reports",
           sourceLabel: TOOL_SOURCE_LABELS.get_interview_reports,
           summary: "0 interview reports",
@@ -737,7 +825,7 @@ export function createChatTools(defaultConfig = {}) {
           focusAreas: (rep?.report?.focusAreas || []).slice(0, 4),
         };
       });
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_interview_reports",
         sourceLabel: TOOL_SOURCE_LABELS.get_interview_reports,
         summary: `Loaded ${items.length} interview sessions`,
@@ -755,18 +843,20 @@ export function createChatTools(defaultConfig = {}) {
         interviewId: z.string().trim().min(1).max(100),
       })
       .strict(),
-    func: async ({ interviewId }, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async ({ interviewId }, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       if (!isMongoReady() || !mongoose.isValidObjectId(interviewId)) {
         return wrapUntrustedToolResult("get_interview_report", {
           error: "NOT_FOUND",
           message: "Interview report not found.",
         });
       }
-      const [session, reportDoc] = await Promise.all([
+      const [sessionDoc, reportDocRaw] = await Promise.all([
         InterviewSession.findOne({ _id: interviewId, userId }).lean(),
         InterviewReport.findOne({ interviewId, userId }).lean(),
       ]);
+      const session = sessionDoc as { _id: unknown; role?: string; level?: string; mode?: string; status?: string } | null;
+      const reportDoc = reportDocRaw as { report?: Record<string, unknown> } | null;
       if (!session) {
         return wrapUntrustedToolResult("get_interview_report", {
           error: "NOT_FOUND",
@@ -786,14 +876,14 @@ export function createChatTools(defaultConfig = {}) {
               readiness: report.readiness,
               summary: report.summary,
               dimensions: report.dimensions,
-              strengths: report.strengths || [],
-              focusAreas: report.focusAreas || [],
-              priorityActions: report.priorityActions || [],
-              practicePlan: report.practicePlan || [],
+              strengths: (report.strengths as unknown[]) || [],
+              focusAreas: (report.focusAreas as unknown[]) || [],
+              priorityActions: (report.priorityActions as unknown[]) || [],
+              practicePlan: (report.practicePlan as unknown[]) || [],
             }
           : null,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_interview_report",
         sourceLabel: TOOL_SOURCE_LABELS.get_interview_report,
         summary: `Loaded interview report for ${session.role}`,
@@ -807,41 +897,57 @@ export function createChatTools(defaultConfig = {}) {
     description:
       "Get the current user's source-grounded resume facts (roles, achievements, skills, education) and uploaded resume metadata.",
     schema: z.object({}).strict(),
-    func: async (_args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (_args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const [profile, resumes] = await Promise.all([
         profileRepository.findByUserId(userId),
         profileRepository.findResumesByUserId(userId),
       ]);
+      const rawRoles = (profile?.roles || []) as Array<{
+        factId?: string;
+        title?: string;
+        company?: string;
+        startDate?: string;
+        endDate?: string;
+        isCurrent?: boolean;
+        achievements?: Array<{ factId?: string; bullet?: string }>;
+      }>;
+      const rawSkills = (profile?.skills || []) as unknown[];
+      const rawEdu = ((profile as unknown as { education?: unknown[] })?.education || []) as Array<{
+        factId?: string;
+        degree?: string;
+        institution?: string;
+        graduationYear?: unknown;
+      }>;
       const payload = {
         resumes: (resumes || []).slice(0, 5).map((r) => ({
           resumeId: String(r._id),
           filename: r.originalFilename || "Resume",
           createdAt: r.createdAt,
         })),
-        roles: (profile?.roles || []).slice(0, 8).map((role) => ({
+        roles: rawRoles.slice(0, 8).map((role) => ({
           factId: role.factId || "",
           title: role.title || "",
           company: role.company || "",
           startDate: role.startDate || "",
           endDate: role.endDate || (role.isCurrent ? "present" : ""),
-          achievements: (role.achievements || []).slice(0, 4).map((a) => ({
+          achievements: (role.achievements || []).slice(0, 4).map((a: { factId?: string; bullet?: string }) => ({
             factId: a.factId || "",
             bullet: String(a.bullet || "").slice(0, 220),
           })),
         })),
-        skills: (profile?.skills || [])
+        skills: rawSkills
           .slice(0, 25)
-          .map((s) => s.name)
+          .map((s: unknown) => (typeof s === "string" ? s : (s as { name?: string })?.name))
           .filter(Boolean),
-        education: (profile?.education || []).slice(0, 5).map((e) => ({
+        education: rawEdu.slice(0, 5).map((e: { factId?: string; degree?: string; institution?: string; graduationYear?: unknown }) => ({
           factId: e.factId || "",
           degree: e.degree || "",
           institution: e.institution || "",
           graduationYear: e.graduationYear || null,
         })),
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "get_resume_facts",
         sourceLabel: TOOL_SOURCE_LABELS.get_resume_facts,
         summary: `Loaded ${payload.roles.length} roles and ${payload.skills.length} skills from resume`,
@@ -859,8 +965,8 @@ export function createChatTools(defaultConfig = {}) {
         query: z.string().trim().min(1).max(200),
       })
       .strict(),
-    func: async ({ query }, callConfig) => {
-      const { user, userId } = resolveCtx(callConfig);
+    func: async ({ query }, runManager, callConfig) => {
+      const { user, userId } = resolveCtx(runManager, callConfig);
       const memories = await longTermMemory.retrieveRelevant(userId, query, 5, { user });
       const snapshot = await getCandidateContext(user).catch(() => ({ card: {} }));
       const resolved = longTermMemory.resolveProfileMemoryConflicts(memories, snapshot.card);
@@ -874,7 +980,7 @@ export function createChatTools(defaultConfig = {}) {
           content: m.content,
         })),
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "search_memories",
         sourceLabel: TOOL_SOURCE_LABELS.search_memories,
         summary: `Retrieved ${payload.memories.length} relevant memories`,
@@ -902,8 +1008,8 @@ export function createChatTools(defaultConfig = {}) {
         notes: z.string().trim().max(500).nullable().optional().default(""),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       let company = args.company || "";
       let role = args.role || "";
       let location = args.location || "";
@@ -954,7 +1060,7 @@ export function createChatTools(defaultConfig = {}) {
         confirmationToken,
         requiresConfirmation: true,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "propose_add_job_to_tracker",
         sourceLabel: TOOL_SOURCE_LABELS.propose_add_job_to_tracker,
         proposedAction,
@@ -979,8 +1085,8 @@ export function createChatTools(defaultConfig = {}) {
         reminderEnabled: z.boolean().nullable().optional().default(true),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const app = await applicationRepository.findOwnedById(args.applicationId, userId);
       if (!app) {
         return wrapUntrustedToolResult("propose_set_follow_up", {
@@ -1014,7 +1120,7 @@ export function createChatTools(defaultConfig = {}) {
         confirmationToken,
         requiresConfirmation: true,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "propose_set_follow_up",
         sourceLabel: TOOL_SOURCE_LABELS.propose_set_follow_up,
         proposedAction,
@@ -1037,8 +1143,8 @@ export function createChatTools(defaultConfig = {}) {
         priority: z.enum(["high", "medium", "low"]),
       })
       .strict(),
-    func: async ({ applicationId, priority }, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async ({ applicationId, priority }, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const app = await applicationRepository.findOwnedById(applicationId, userId);
       if (!app) {
         return wrapUntrustedToolResult("propose_set_application_priority", {
@@ -1067,7 +1173,7 @@ export function createChatTools(defaultConfig = {}) {
         confirmationToken,
         requiresConfirmation: true,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "propose_set_application_priority",
         sourceLabel: TOOL_SOURCE_LABELS.propose_set_application_priority,
         proposedAction,
@@ -1098,8 +1204,8 @@ export function createChatTools(defaultConfig = {}) {
         applicationId: z.string().trim().max(100).nullable().optional(),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const resumes = await profileRepository.findResumesByUserId(userId);
       const primaryResume = resumes[0];
       if (!primaryResume) {
@@ -1141,7 +1247,7 @@ export function createChatTools(defaultConfig = {}) {
         confirmationToken,
         requiresConfirmation: true,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "propose_start_practice_interview",
         sourceLabel: TOOL_SOURCE_LABELS.propose_start_practice_interview,
         proposedAction,
@@ -1164,8 +1270,8 @@ export function createChatTools(defaultConfig = {}) {
         applicationId: z.string().trim().max(100).nullable().optional(),
       })
       .strict(),
-    func: async (args, callConfig) => {
-      const { userId } = resolveCtx(callConfig);
+    func: async (args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
       const resumes = await profileRepository.findResumesByUserId(userId);
       const primaryResume = resumes[0];
       if (!primaryResume) {
@@ -1195,8 +1301,8 @@ export function createChatTools(defaultConfig = {}) {
             message: "Application not found.",
           });
         }
-        targetTitle = app.role;
-        targetCompany = app.company;
+        targetTitle = app.role || "Selected Role";
+        targetCompany = app.company || "";
       } else {
         return wrapUntrustedToolResult("propose_open_resume_match", {
           error: "MISSING_TARGET",
@@ -1225,7 +1331,7 @@ export function createChatTools(defaultConfig = {}) {
         confirmationToken,
         requiresConfirmation: true,
       };
-      notifyComplete(callConfig, {
+      notifyComplete(runManager, callConfig, {
         toolName: "propose_open_resume_match",
         sourceLabel: TOOL_SOURCE_LABELS.propose_open_resume_match,
         proposedAction,
@@ -1258,6 +1364,14 @@ export function createChatTools(defaultConfig = {}) {
   ];
 }
 
+export interface ConfirmProposedActionParams {
+  user?: { _id?: unknown; id?: unknown; [key: string]: unknown } | null;
+  token: string;
+  idempotencyKey: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
 /**
  * Verifies a signed action confirmation token and executes the underlying service mutation
  * with idempotency and AuditLog persistence.
@@ -1268,20 +1382,14 @@ export async function confirmProposedAction({
   idempotencyKey,
   ipAddress = null,
   userAgent = null,
-}) {
+}: ConfirmProposedActionParams) {
   const userId = (user?._id || user?.id)?.toString();
   if (!userId) {
-    const err = new Error("Authentication required.");
-    err.statusCode = 401;
-    err.code = "UNAUTHORIZED";
-    throw err;
+    throw createHttpError("Authentication required.", 401, "UNAUTHORIZED");
   }
   const cleanIdempotencyKey = String(idempotencyKey || "").trim();
   if (!cleanIdempotencyKey || cleanIdempotencyKey.length < 8) {
-    const err = new Error("A valid idempotencyKey (min 8 chars) is required to confirm an action.");
-    err.statusCode = 400;
-    err.code = "INVALID_IDEMPOTENCY_KEY";
-    throw err;
+    throw createHttpError("A valid idempotencyKey (min 8 chars) is required to confirm an action.", 400, "INVALID_IDEMPOTENCY_KEY");
   }
 
   const envelope = verifyActionToken(token, userId);
@@ -1290,34 +1398,28 @@ export async function confirmProposedAction({
 
   // Check in-memory idempotency / replay store first
   if (inMemoryConsumedActions.has(idemKey)) {
-    return { ...inMemoryConsumedActions.get(idemKey), idempotentReplay: true };
+    return { ...(inMemoryConsumedActions.get(idemKey) as Record<string, unknown>), idempotentReplay: true };
   }
   if (inMemoryConsumedActions.has(nonceKey)) {
-    const err = new Error("This confirmation card has already been used.");
-    err.statusCode = 409;
-    err.code = "ACTION_ALREADY_CONFIRMED";
-    throw err;
+    throw createHttpError("This confirmation card has already been used.", 409, "ACTION_ALREADY_CONFIRMED");
   }
 
   if (isMongoReady() && mongoose.isValidObjectId(userId)) {
-    const existingByIdem = await AuditLog.findOne({
+    const existingByIdem = (await AuditLog.findOne({
       userId,
       action: "CHAT_ACTION_CONFIRMED",
       "metadata.idempotencyKey": cleanIdempotencyKey,
-    }).lean();
+    }).lean()) as { metadata?: { result?: Record<string, unknown>; nonce?: string } } | null;
     if (existingByIdem && existingByIdem.metadata?.result) {
       return { ...existingByIdem.metadata.result, idempotentReplay: true };
     }
-    const existingByNonce = await AuditLog.findOne({
+    const existingByNonce = (await AuditLog.findOne({
       userId,
       action: "CHAT_ACTION_CONFIRMED",
       "metadata.nonce": envelope.nonce,
-    }).lean();
+    }).lean()) as { metadata?: { result?: Record<string, unknown>; nonce?: string } } | null;
     if (existingByNonce) {
-      const err = new Error("This confirmation card has already been used.");
-      err.statusCode = 409;
-      err.code = "ACTION_ALREADY_CONFIRMED";
-      throw err;
+      throw createHttpError("This confirmation card has already been used.", 409, "ACTION_ALREADY_CONFIRMED");
     }
   }
 
@@ -1325,17 +1427,28 @@ export async function confirmProposedAction({
   let executionResult;
 
   if (actionType === "add_job_to_tracker") {
+    const p = payload as {
+      jobId?: string;
+      company?: string;
+      role?: string;
+      location?: string;
+      status?: string;
+      priority?: "high" | "medium" | "low";
+      notes?: string;
+      source?: string;
+      jobUrl?: string;
+    };
     const created = await applicationRepository.create({
       userId,
-      jobId: payload.jobId || `manual_${randomUUID()}`,
-      company: payload.company,
-      role: payload.role,
-      location: payload.location || "",
-      status: payload.status || "saved",
-      priority: payload.priority || "medium",
-      notes: payload.notes || "",
-      source: payload.source || "chat_assistant",
-      jobUrl: payload.jobUrl || "",
+      jobId: p.jobId || `manual_${randomUUID()}`,
+      company: p.company || "Unknown Company",
+      role: p.role || "Target Role",
+      location: p.location || "",
+      status: p.status || "saved",
+      priority: p.priority || "medium",
+      notes: p.notes || "",
+      source: p.source || "chat_assistant",
+      jobUrl: p.jobUrl || "",
       reminderEnabled: false,
       reminderStatus: "none",
     });
@@ -1356,19 +1469,23 @@ export async function confirmProposedAction({
       },
     };
   } else if (actionType === "set_follow_up") {
-    const app = await applicationRepository.findOwnedById(payload.applicationId, userId);
+    const p = payload as {
+      applicationId?: string;
+      nextFollowUpAt?: string;
+      reminderEnabled?: boolean;
+    };
+    const appId = String(p.applicationId || "");
+    const app = await applicationRepository.findOwnedById(appId, userId);
     if (!app) {
-      const err = new Error("Application not found.");
-      err.statusCode = 404;
-      err.code = "NOT_FOUND";
-      throw err;
+      throw createHttpError("Application not found.", 404, "NOT_FOUND");
     }
-    const nextFollowUpAt = new Date(payload.nextFollowUpAt);
-    const reminderEnabled = payload.reminderEnabled !== false;
+    const nextFollowUpAt = new Date(p.nextFollowUpAt || Date.now());
+    const reminderEnabled = p.reminderEnabled !== false;
     const transition = applicationReminderTransition({
       application: app,
       nextFollowUpAt,
       reminderEnabled,
+      status: app.status,
     });
     const updates = {
       nextFollowUpAt,
@@ -1379,8 +1496,9 @@ export async function confirmProposedAction({
     const updated = await applicationRepository.update(app._id, updates, { activity: true });
     if (transition.cancel) await cancelApplicationReminder(app).catch(() => {});
     if (transition.schedule) {
-      await scheduleApplicationReminder(updated).catch((err) => {
-        logger.warn({ appId: app._id, err: err.message }, "Follow-up reminder queue unavailable");
+      await scheduleApplicationReminder(updated).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn({ appId: app._id, err: msg }, "Follow-up reminder queue unavailable");
       });
     }
     await del(CacheKeys.response(userId, "kanban", 1));
@@ -1400,16 +1518,19 @@ export async function confirmProposedAction({
       },
     };
   } else if (actionType === "set_application_priority") {
-    const app = await applicationRepository.findOwnedById(payload.applicationId, userId);
+    const p = payload as {
+      applicationId?: string;
+      priority?: string;
+    };
+    const appId = String(p.applicationId || "");
+    const app = await applicationRepository.findOwnedById(appId, userId);
     if (!app) {
-      const err = new Error("Application not found.");
-      err.statusCode = 404;
-      err.code = "NOT_FOUND";
-      throw err;
+      throw createHttpError("Application not found.", 404, "NOT_FOUND");
     }
+    const priority = p.priority || "medium";
     const updated = await applicationRepository.update(
       app._id,
-      { priority: payload.priority },
+      { priority },
       { activity: true },
     );
     await del(CacheKeys.response(userId, "kanban", 1));
@@ -1417,26 +1538,34 @@ export async function confirmProposedAction({
     executionResult = {
       actionType,
       status: "confirmed",
-      message: `Updated priority for ${app.role} at ${app.company} to ${payload.priority}.`,
+      message: `Updated priority for ${app.role} at ${app.company} to ${priority}.`,
       resourceId: String(app._id),
       redirectUrl: `/app/applications?applicationId=${app._id}`,
       application: {
         id: String(app._id),
         company: app.company,
         role: app.role,
-        priority: updated?.priority || payload.priority,
+        priority: updated?.priority || priority,
       },
     };
   } else if (actionType === "start_practice_interview") {
+    const p = payload as {
+      resumeId?: string;
+      role?: string;
+      level?: string;
+      mode?: string;
+      durationMinutes?: number | string;
+      jobDescription?: string;
+    };
     const session = await interviewSessionService.create(
       user,
       {
-        resumeId: payload.resumeId,
-        role: payload.role,
-        level: payload.level || "mid",
-        mode: payload.mode || "behavioral",
-        durationMinutes: Number(payload.durationMinutes || 15),
-        jobDescription: payload.jobDescription || "",
+        resumeId: p.resumeId,
+        role: p.role,
+        level: p.level || "mid",
+        mode: p.mode || "behavioral",
+        durationMinutes: Number(p.durationMinutes || 15),
+        jobDescription: p.jobDescription || "",
       },
       { idempotencyKey: cleanIdempotencyKey },
     );
@@ -1449,37 +1578,49 @@ export async function confirmProposedAction({
       interviewSession: session,
     };
   } else if (actionType === "open_resume_match") {
-    const resume = await profileRepository.findResumeByIdAndUserId(payload.resumeId, userId);
+    const p = payload as {
+      resumeId?: string;
+      jobId?: string;
+      applicationId?: string;
+      title?: string;
+      company?: string;
+    };
+    const resumeId = String(p.resumeId || "");
+    const resume = await profileRepository.findResumeByIdAndUserId(resumeId, userId);
     const profile = await profileRepository.findByUserId(userId);
     if (!resume || !profile) {
-      const err = new Error("Resume or profile not found.");
-      err.statusCode = 404;
-      err.code = "NOT_FOUND";
-      throw err;
+      throw createHttpError("Resume or profile not found.", 404, "NOT_FOUND");
     }
-    let jobData = {
-      title: payload.title || "Target Role",
-      company: payload.company || "",
-      rawDescription: `${payload.title || ""} ${payload.company || ""}`,
+    let jobData: {
+      title: string;
+      company: string;
+      rawDescription?: string;
+      requirements?: string[];
+      tags?: string[];
+      [key: string]: unknown;
+    } = {
+      title: p.title || "Target Role",
+      company: p.company || "",
+      rawDescription: `${p.title || ""} ${p.company || ""}`,
       requirements: [],
       tags: [],
     };
     let sourceType = "pasted";
-    let sourceId = payload.jobId || payload.applicationId || "chat";
-    if (payload.jobId) {
-      const catalogJob = await loadCatalogJobById(payload.jobId);
+    let sourceId = p.jobId || p.applicationId || "chat";
+    if (p.jobId) {
+      const catalogJob = await loadCatalogJobById(p.jobId);
       if (catalogJob) {
         jobData = catalogJob;
         sourceType = "catalog";
         sourceId = String(catalogJob._id);
       }
-    } else if (payload.applicationId) {
-      const app = await applicationRepository.findOwnedById(payload.applicationId, userId);
+    } else if (p.applicationId) {
+      const app = await applicationRepository.findOwnedById(p.applicationId, userId);
       if (app) {
         jobData = {
-          title: app.role,
-          company: app.company,
-          rawDescription: app.notes || `${app.role} at ${app.company}`,
+          title: app.role || "Target Role",
+          company: app.company || "",
+          rawDescription: app.notes || `${app.role || ""} at ${app.company || ""}`,
           requirements: [],
           tags: [],
         };
@@ -1506,7 +1647,7 @@ export async function confirmProposedAction({
           },
         ],
       };
-      const savedReport = await JobMatchReport.findOneAndUpdate(
+      const savedReport = (await JobMatchReport.findOneAndUpdate(
         { userId, resumeId: resume._id, jobKey, scoreVersion: RESUME_MATCH_SCORE_VERSION },
         {
           $setOnInsert: {
@@ -1531,7 +1672,7 @@ export async function confirmProposedAction({
           },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true },
-      ).lean();
+      ).lean()) as { _id?: unknown } | null;
       if (savedReport?._id) reportId = String(savedReport._id);
     }
 
@@ -1552,16 +1693,13 @@ export async function confirmProposedAction({
       },
     };
   } else {
-    const err = new Error(`Unsupported action type: ${actionType}`);
-    err.statusCode = 400;
-    err.code = "UNSUPPORTED_ACTION_TYPE";
-    throw err;
+    throw createHttpError(`Unsupported action type: ${actionType}`, 400, "UNSUPPORTED_ACTION_TYPE");
   }
 
   inMemoryConsumedActions.set(nonceKey, executionResult);
   inMemoryConsumedActions.set(idemKey, executionResult);
 
-  const auditEntry = {
+  const auditEntry: AuditLogEntry = {
     userId,
     action: "CHAT_ACTION_CONFIRMED",
     ipAddress,
@@ -1579,21 +1717,22 @@ export async function confirmProposedAction({
   inMemoryAuditLogs.push(auditEntry);
 
   if (isMongoReady() && mongoose.isValidObjectId(userId)) {
-    await AuditLog.create(auditEntry).catch((err) => {
-      logger.warn({ err: err.message, userId, actionType }, "Failed to write chat action AuditLog");
+    await AuditLog.create(auditEntry).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ err: msg, userId, actionType }, "Failed to write chat action AuditLog");
     });
   }
 
   return { ...executionResult, idempotentReplay: false };
 }
 
-export async function listUserActionAuditLogs(userId) {
+export async function listUserActionAuditLogs(userId: string | unknown): Promise<AuditLogEntry[]> {
   const uid = String(userId || "");
   if (isMongoReady() && mongoose.isValidObjectId(uid)) {
-    return AuditLog.find({ userId: uid, action: "CHAT_ACTION_CONFIRMED" })
+    return (await AuditLog.find({ userId: uid, action: "CHAT_ACTION_CONFIRMED" })
       .sort({ createdAt: -1 })
       .limit(200)
-      .lean();
+      .lean()) as unknown as AuditLogEntry[];
   }
   return inMemoryAuditLogs.filter((entry) => String(entry.userId) === uid);
 }

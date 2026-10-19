@@ -4,13 +4,72 @@ import { isMongoReady } from "../../config/database.js";
 import { toNamespacedThreadId, purgeUserCheckpoints } from "../checkpointer.js";
 import { shortTermMemory } from "../memory/shortTerm.js";
 
-const inMemorySessions = new Map();
+export interface ChatMessageRecord {
+  id?: string;
+  role: string;
+  content: string;
+  sources?: string[];
+  toolStatus?: string[];
+  actions?: unknown[];
+  model?: string;
+  tier?: number;
+  status?: string;
+  createdAt?: Date;
+}
 
-function sessionKey(userId, threadId) {
+export interface ChatSessionPageContext {
+  kind: string;
+  id: string;
+  label: string;
+  [key: string]: unknown;
+}
+
+export interface ChatSessionRecord {
+  _id?: unknown;
+  userId: string;
+  threadId: string;
+  checkpointThreadId?: string;
+  title: string;
+  rollingSummary?: string;
+  messages: ChatMessageRecord[];
+  pageContext?: ChatSessionPageContext;
+  lastStreamStatus?: string;
+  retentionDays?: number;
+  retentionExpiresAt?: Date | null;
+  isDeleted?: boolean;
+  lastMessageAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+  [key: string]: unknown;
+}
+
+export interface SessionSummary {
+  id: string;
+  threadId: string;
+  title: string;
+  rollingSummary: string;
+  messageCount: number;
+  lastMessagePreview: string;
+  lastStreamStatus: string;
+  pageContext: ChatSessionPageContext;
+  retentionDays: number;
+  retentionExpiresAt: Date | null;
+  lastMessageAt: Date | string | undefined;
+  createdAt: Date | string | undefined;
+  updatedAt: Date | string | undefined;
+}
+
+export interface SessionDetail extends SessionSummary {
+  messages: ChatMessageRecord[];
+}
+
+const inMemorySessions = new Map<string, ChatSessionRecord>();
+
+function sessionKey(userId: string | unknown, threadId: string | unknown): string {
   return `${String(userId)}:${String(threadId)}`;
 }
 
-export function deriveSessionTitle(prompt = "") {
+export function deriveSessionTitle(prompt = ""): string {
   const clean = String(prompt || "")
     .replace(/\s+/g, " ")
     .replace(/[<>{}[\]]/g, "")
@@ -19,9 +78,12 @@ export function deriveSessionTitle(prompt = "") {
   return clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
 }
 
-export function buildIncrementalSummary(priorSummary = "", olderMessages = []) {
+export function buildIncrementalSummary(
+  priorSummary = "",
+  olderMessages: Array<{ role: string; content?: string }> = [],
+): string {
   if (!olderMessages || olderMessages.length === 0) return priorSummary || "";
-  const lines = [];
+  const lines: string[] = [];
   if (priorSummary) lines.push(priorSummary.trim());
   for (const msg of olderMessages) {
     const roleLabel = msg.role === "assistant" ? "Assistant" : "User";
@@ -35,10 +97,10 @@ export function buildIncrementalSummary(priorSummary = "", olderMessages = []) {
   return combined.length > 1600 ? combined.slice(combined.length - 1600) : combined;
 }
 
-function serializeSessionSummary(doc) {
+function serializeSessionSummary(doc?: ChatSessionRecord | null): SessionSummary | null {
   if (!doc) return null;
   const messages = Array.isArray(doc.messages) ? doc.messages : [];
-  const lastMsg = messages.at(-1);
+  const lastMsg = messages[messages.length - 1];
   return {
     id: doc.threadId,
     threadId: doc.threadId,
@@ -56,10 +118,12 @@ function serializeSessionSummary(doc) {
   };
 }
 
-function serializeSessionDetail(doc) {
+function serializeSessionDetail(doc?: ChatSessionRecord | null): SessionDetail | null {
   if (!doc) return null;
+  const summary = serializeSessionSummary(doc);
+  if (!summary) return null;
   return {
-    ...serializeSessionSummary(doc),
+    ...summary,
     messages: (doc.messages || []).map((msg) => ({
       id: msg.id,
       role: msg.role,
@@ -76,7 +140,15 @@ function serializeSessionDetail(doc) {
 }
 
 export const chatSessionService = {
-  async getOrCreateSession(userId, threadId, { title, retentionDays = 90, pageContext } = {}) {
+  async getOrCreateSession(
+    userId: string | unknown,
+    threadId?: string | unknown,
+    {
+      title,
+      retentionDays = 90,
+      pageContext,
+    }: { title?: string; retentionDays?: number; pageContext?: ChatSessionPageContext } = {},
+  ): Promise<ChatSessionRecord> {
     const uid = String(userId);
     const tid = String(threadId || `th_${Date.now()}`)
       .trim()
@@ -88,14 +160,14 @@ export const chatSessionService = {
     );
 
     if (isMongoReady()) {
-      const existing = await ChatSession.findOne({
+      const existing = (await ChatSession.findOne({
         userId: uid,
         threadId: tid,
         isDeleted: false,
-      }).lean();
+      }).lean()) as unknown as ChatSessionRecord | null;
       if (existing) return existing;
       try {
-        const created = await ChatSession.findOneAndUpdate(
+        const created = (await ChatSession.findOneAndUpdate(
           { userId: uid, threadId: tid },
           {
             $set: {
@@ -116,11 +188,11 @@ export const chatSessionService = {
             },
           },
           { upsert: true, new: true },
-        ).lean();
+        ).lean()) as unknown as ChatSessionRecord;
         return created;
-      } catch (err) {
-        if (err?.code === 11000) {
-          return ChatSession.findOne({ userId: uid, threadId: tid }).lean();
+      } catch (err: unknown) {
+        if ((err as { code?: number })?.code === 11000) {
+          return (await ChatSession.findOne({ userId: uid, threadId: tid }).lean()) as unknown as ChatSessionRecord;
         }
         throw err;
       }
@@ -162,15 +234,22 @@ export const chatSessionService = {
     retentionDays = 90,
     pageContext = null,
     isRetry = false,
-  }) {
+  }: {
+    userId: string | unknown;
+    threadId: string | unknown;
+    prompt: string;
+    retentionDays?: number;
+    pageContext?: ChatSessionPageContext | null;
+    isRetry?: boolean;
+  }): Promise<ChatSessionRecord> {
     const uid = String(userId);
     const session = await this.getOrCreateSession(uid, threadId, {
       title: prompt,
       retentionDays,
-      pageContext,
+      pageContext: pageContext || undefined,
     });
     const messages = [...(session.messages || [])];
-    const last = messages.at(-1);
+    const last = messages[messages.length - 1];
     const secondLast = messages.length >= 2 ? messages[messages.length - 2] : null;
 
     if (
@@ -181,14 +260,15 @@ export const chatSessionService = {
           (last.role === "assistant" && !last.content.trim())))
     ) {
       if (last?.role === "assistant") messages.pop();
-      if (messages.at(-1)?.role === "user" && messages.at(-1)?.content === prompt) {
+      const newLast = messages[messages.length - 1];
+      if (newLast?.role === "user" && newLast?.content === prompt) {
         messages.pop();
       }
     } else if (last?.role === "user" && last.content === prompt && !secondLast) {
       messages.pop();
     }
 
-    const userMsg = {
+    const userMsg: ChatMessageRecord = {
       id: `msg_${randomUUID()}`,
       role: "user",
       content: prompt,
@@ -219,7 +299,7 @@ export const chatSessionService = {
     );
 
     if (isMongoReady()) {
-      const updated = await ChatSession.findOneAndUpdate(
+      const updated = (await ChatSession.findOneAndUpdate(
         { userId: uid, threadId: session.threadId },
         {
           $set: {
@@ -234,7 +314,7 @@ export const chatSessionService = {
           },
         },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as ChatSessionRecord;
       await shortTermMemory.appendTurn(uid, session.threadId, "user", prompt);
       return updated;
     }
@@ -260,11 +340,21 @@ export const chatSessionService = {
     model = "",
     tier = 1,
     status = "completed",
-  }) {
+  }: {
+    userId: string | unknown;
+    threadId: string | unknown;
+    content?: string;
+    sources?: string[];
+    toolStatus?: string[];
+    actions?: unknown[];
+    model?: string;
+    tier?: number;
+    status?: string;
+  }): Promise<ChatSessionRecord> {
     const uid = String(userId);
     const session = await this.getOrCreateSession(uid, threadId);
     const messages = [...(session.messages || [])];
-    const assistantMsg = {
+    const assistantMsg: ChatMessageRecord = {
       id: `msg_${randomUUID()}`,
       role: "assistant",
       content: String(content || ""),
@@ -286,7 +376,7 @@ export const chatSessionService = {
 
     const now = new Date();
     if (isMongoReady()) {
-      const updated = await ChatSession.findOneAndUpdate(
+      const updated = (await ChatSession.findOneAndUpdate(
         { userId: uid, threadId: session.threadId },
         {
           $set: {
@@ -297,7 +387,7 @@ export const chatSessionService = {
           },
         },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as ChatSessionRecord;
       if (content) {
         await shortTermMemory.appendTurn(uid, session.threadId, "assistant", content);
       }
@@ -315,32 +405,32 @@ export const chatSessionService = {
     return session;
   },
 
-  async listSessions(userId, { limit = 30 } = {}) {
+  async listSessions(userId: string | unknown, { limit = 30 }: { limit?: number } = {}): Promise<SessionSummary[]> {
     const uid = String(userId);
     if (isMongoReady()) {
-      const docs = await ChatSession.find({ userId: uid, isDeleted: false })
+      const docs = (await ChatSession.find({ userId: uid, isDeleted: false })
         .sort({ lastMessageAt: -1 })
         .limit(Math.min(100, Math.max(1, limit)))
-        .lean();
-      return docs.map(serializeSessionSummary);
+        .lean()) as unknown as ChatSessionRecord[];
+      return docs.map(serializeSessionSummary).filter((s): s is SessionSummary => s !== null);
     }
     const items = [...inMemorySessions.values()]
       .filter((s) => s.userId === uid && !s.isDeleted)
-      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt))
+      .sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime())
       .slice(0, limit);
-    return items.map(serializeSessionSummary);
+    return items.map(serializeSessionSummary).filter((s): s is SessionSummary => s !== null);
   },
 
-  async getSession(userId, threadId) {
+  async getSession(userId: string | unknown, threadId: string | unknown): Promise<SessionDetail | null> {
     const uid = String(userId);
     const tid = String(threadId || "").trim();
     if (!tid) return null;
     if (isMongoReady()) {
-      const doc = await ChatSession.findOne({
+      const doc = (await ChatSession.findOne({
         userId: uid,
         threadId: tid,
         isDeleted: false,
-      }).lean();
+      }).lean()) as unknown as ChatSessionRecord | null;
       return serializeSessionDetail(doc);
     }
     const session = inMemorySessions.get(sessionKey(uid, tid));
@@ -348,16 +438,16 @@ export const chatSessionService = {
     return serializeSessionDetail(session);
   },
 
-  async renameSession(userId, threadId, title) {
+  async renameSession(userId: string | unknown, threadId: string | unknown, title: string): Promise<SessionSummary | null> {
     const uid = String(userId);
     const tid = String(threadId || "").trim();
     const cleanTitle = deriveSessionTitle(title);
     if (isMongoReady()) {
-      const updated = await ChatSession.findOneAndUpdate(
+      const updated = (await ChatSession.findOneAndUpdate(
         { userId: uid, threadId: tid, isDeleted: false },
         { $set: { title: cleanTitle } },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as ChatSessionRecord | null;
       return serializeSessionSummary(updated);
     }
     const session = inMemorySessions.get(sessionKey(uid, tid));
@@ -367,7 +457,7 @@ export const chatSessionService = {
     return serializeSessionSummary(session);
   },
 
-  async deleteSession(userId, threadId) {
+  async deleteSession(userId: string | unknown, threadId: string | unknown): Promise<boolean> {
     const uid = String(userId);
     const tid = String(threadId || "").trim();
     await shortTermMemory.clearSession(uid, tid);
@@ -382,7 +472,7 @@ export const chatSessionService = {
     return existed;
   },
 
-  async updateRetentionForUser(userId, retentionDays) {
+  async updateRetentionForUser(userId: string | unknown, retentionDays: number | string): Promise<number> {
     const uid = String(userId);
     const days = Math.max(1, Math.min(365, Number(retentionDays) || 90));
     const expiresAt = new Date(Date.now() + days * 86_400_000);
@@ -402,20 +492,21 @@ export const chatSessionService = {
     return days;
   },
 
-  async exportUserSessions(userId) {
+  async exportUserSessions(userId: string | unknown): Promise<SessionDetail[]> {
     const uid = String(userId);
     if (isMongoReady()) {
-      const docs = await ChatSession.find({ userId: uid, isDeleted: false })
+      const docs = (await ChatSession.find({ userId: uid, isDeleted: false })
         .sort({ lastMessageAt: -1 })
-        .lean();
-      return docs.map(serializeSessionDetail);
+        .lean()) as unknown as ChatSessionRecord[];
+      return docs.map(serializeSessionDetail).filter((s): s is SessionDetail => s !== null);
     }
     return [...inMemorySessions.values()]
       .filter((s) => s.userId === uid && !s.isDeleted)
-      .map(serializeSessionDetail);
+      .map(serializeSessionDetail)
+      .filter((s): s is SessionDetail => s !== null);
   },
 
-  async deleteAllUserSessions(userId) {
+  async deleteAllUserSessions(userId: string | unknown): Promise<boolean> {
     const uid = String(userId);
     await purgeUserCheckpoints(uid, null);
     for (const [key, session] of inMemorySessions.entries()) {

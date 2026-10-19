@@ -4,10 +4,10 @@ import mongoose from "mongoose";
 import { isMongoReady } from "../config/database.js";
 import { logger } from "../shared/utils/logger.js";
 
-let mongoCheckpointer = null;
+let mongoCheckpointer: MongoDBSaver | null = null;
 const memoryCheckpointer = new MemorySaver();
 
-export function toNamespacedThreadId(userId, threadId) {
+export function toNamespacedThreadId(userId: string | unknown, threadId?: string | null): string {
   const uid = String(userId || "").trim();
   const tid = String(threadId || "default").trim();
   if (!uid) throw new Error("userId is required to namespace threadId");
@@ -17,16 +17,17 @@ export function toNamespacedThreadId(userId, threadId) {
 /**
  * Get or create LangGraph checkpointer instance
  */
-export function getCheckpointer() {
+export function getCheckpointer(): MongoDBSaver | MemorySaver {
   if (isMongoReady()) {
     try {
       if (!mongoCheckpointer) {
-        const client = mongoose.connection.getClient();
+        const client = mongoose.connection.getClient() as unknown as ConstructorParameters<typeof MongoDBSaver>[0]["client"];
         mongoCheckpointer = new MongoDBSaver({ client });
       }
       return mongoCheckpointer;
-    } catch (err) {
-      logger.warn({ err: err.message }, "Failed to init Mongo checkpointer, using MemorySaver");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn({ err: message }, "Failed to init Mongo checkpointer, using MemorySaver");
       return memoryCheckpointer;
     }
   }
@@ -37,17 +38,18 @@ export function getCheckpointer() {
 /**
  * Purge LangGraph checkpoints for a specific user thread or all threads of a user
  */
-export async function purgeUserCheckpoints(userId, threadId = null) {
+export async function purgeUserCheckpoints(userId: string | unknown, threadId: string | null = null): Promise<number> {
   const uid = String(userId || "").trim();
   if (!uid) return 0;
   const prefix = threadId ? toNamespacedThreadId(uid, threadId) : `${uid}:`;
 
   // Clean in-memory saver storage if present
   try {
-    if (memoryCheckpointer?.storage) {
-      for (const key of Object.keys(memoryCheckpointer.storage)) {
+    const storageObj = (memoryCheckpointer as unknown as { storage?: Record<string, unknown> }).storage;
+    if (storageObj) {
+      for (const key of Object.keys(storageObj)) {
         if (threadId ? key === prefix : key.startsWith(prefix)) {
-          delete memoryCheckpointer.storage[key];
+          delete storageObj[key];
         }
       }
     }
@@ -73,8 +75,9 @@ export async function purgeUserCheckpoints(userId, threadId = null) {
         .catch(() => ({ deletedCount: 0 })),
     ]);
     return (cpResult?.deletedCount || 0) + (writesResult?.deletedCount || 0);
-  } catch (err) {
-    logger.warn({ err: err.message }, "Failed to purge MongoDB checkpoints");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: message }, "Failed to purge MongoDB checkpoints");
     return 0;
   }
 }

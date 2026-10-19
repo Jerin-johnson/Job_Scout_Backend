@@ -10,6 +10,15 @@ import { invokeLLM } from "../llm.js";
 import { z } from "zod";
 import { logger } from "../../shared/utils/logger.js";
 import { nanoid } from "nanoid";
+export interface UserLike {
+  _id?: unknown;
+  id?: string;
+  name?: string;
+  email?: string;
+  plan?: string;
+  profileVersion?: number;
+  [key: string]: unknown;
+}
 
 const InterviewPrepSchema = z.object({
   companyOverview: z.string(),
@@ -34,6 +43,8 @@ const InterviewPrepSchema = z.object({
   ),
 });
 
+export type InterviewPrepResult = z.infer<typeof InterviewPrepSchema>;
+
 const MockTurnEvaluationSchema = z.object({
   score: z.number().min(0).max(100),
   starScores: z.object({
@@ -48,20 +59,87 @@ const MockTurnEvaluationSchema = z.object({
   nextQuestion: z.string().optional().default(""),
 });
 
+export type MockTurnEvaluation = z.infer<typeof MockTurnEvaluationSchema>;
+
+export interface TurnEvaluationResult {
+  sessionId: string;
+  turnNumber: number;
+  maxTurns: number;
+  isComplete: boolean;
+  score: number;
+  starScores: {
+    situation: number;
+    task: number;
+    action: number;
+    result: number;
+  };
+  strengths: string[];
+  improvements: string[];
+  feedback: string;
+  nextQuestion: string | null;
+}
+
+export interface MockSessionTurn {
+  turnNumber: number;
+  questionId?: string;
+  question: string;
+  candidateAnswer: string;
+  evaluation: TurnEvaluationResult;
+}
+
+export interface MockSession {
+  sessionId: string;
+  userId: string;
+  turns: MockSessionTurn[];
+  currentTurn: number;
+}
+
+export interface MockSessionReport {
+  sessionId: string;
+  totalTurnsCompleted: number;
+  averageScore: number;
+  turns: MockSessionTurn[];
+  readinessAssessment: string;
+}
+
+export interface GeneratePrepParams {
+  user: UserLike;
+  jobTitle: string;
+  company: string;
+  jdText?: string;
+  profile?: {
+    roles?: Array<{
+      title?: string;
+      company?: string;
+      achievements?: Array<{ factId?: string; bullet?: string; description?: string }>;
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface RunMockTurnParams {
+  user: UserLike;
+  sessionId?: string;
+  questionId?: string;
+  question: string;
+  candidateAnswer: string;
+}
+
 // In-memory mock sessions for stateful mock interview turns
-const mockSessions = new Map();
-const MAX_MOCK_TURNS = 5;
+const mockSessions = new Map<string, MockSession>();
+export const MAX_MOCK_TURNS = 5;
 
 export const interviewGraph = {
   /**
    * Generate comprehensive interview preparation pack
    */
-  async generatePrep({ user, jobTitle, company, jdText, profile }) {
+  async generatePrep({ user, jobTitle, company, jdText, profile }: GeneratePrepParams): Promise<InterviewPrepResult> {
     const isDev =
       process.env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev" ||
       process.env.NODE_ENV === "test";
 
-    const userId = user._id ? user._id.toString() : user.id;
+    const userId = user._id ? String(user._id) : String(user.id || "dev_user");
 
     if (isDev) {
       logger.info({ userId, company, jobTitle }, "interviewGraph: mock prep pack");
@@ -128,10 +206,10 @@ export const interviewGraph = {
 
     const prompt = [
       {
-        role: "user",
+        role: "user" as const,
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `You are an executive technical interview coach. Prepare an interview preparation package for:
 Candidate: ${user.name || "Candidate"}
 Target Role: ${jobTitle}
@@ -152,7 +230,7 @@ Return a JSON object conforming to:
       },
     ];
 
-    return invokeLLM({
+    return invokeLLM<InterviewPrepResult>({
       user,
       tier: "strong",
       feature: "interview_prep",
@@ -165,20 +243,21 @@ Return a JSON object conforming to:
   /**
    * Execute stateful mock interview turn (hard-capped at 5 turns)
    */
-  async runMockTurn({ user, sessionId, questionId, question, candidateAnswer }) {
+  async runMockTurn({ user, sessionId, questionId, question, candidateAnswer }: RunMockTurnParams): Promise<TurnEvaluationResult> {
     const isDev =
       process.env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev" ||
       process.env.NODE_ENV === "test";
 
-    const userId = user._id ? user._id.toString() : user.id;
+    const userId = user._id ? String(user._id) : String(user.id || "dev_user");
     const sid = sessionId || `session_${userId}_${Date.now()}`;
 
     // Get or initialize session
     let session = mockSessions.get(sid);
     if (session && session.userId !== userId) {
-      const error = new Error("Mock interview session not found");
-      error.statusCode = 404;
-      error.code = "NOT_FOUND";
+      const error = Object.assign(new Error("Mock interview session not found"), {
+        statusCode: 404,
+        code: "NOT_FOUND",
+      });
       throw error;
     }
     if (!session) {
@@ -196,7 +275,7 @@ Return a JSON object conforming to:
     const isLastTurn = turnNumber >= MAX_MOCK_TURNS;
 
     if (isDev) {
-      const evaluation = {
+      const evaluation: TurnEvaluationResult = {
         sessionId: sid,
         turnNumber,
         maxTurns: MAX_MOCK_TURNS,
@@ -233,10 +312,10 @@ Return a JSON object conforming to:
 
     const prompt = [
       {
-        role: "user",
+        role: "user" as const,
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `You are a strict technical interviewer evaluating a mock interview turn.
 Turn Number: ${turnNumber} of ${MAX_MOCK_TURNS}
 Question: ${question}
@@ -255,7 +334,7 @@ Return JSON with:
       },
     ];
 
-    const result = await invokeLLM({
+    const result = await invokeLLM<MockTurnEvaluation>({
       user,
       tier: "strong",
       feature: "interview_prep",
@@ -264,7 +343,7 @@ Return JSON with:
       maxTokens: 1200,
     });
 
-    const evaluation = {
+    const evaluation: TurnEvaluationResult = {
       sessionId: sid,
       turnNumber,
       maxTurns: MAX_MOCK_TURNS,
@@ -274,7 +353,7 @@ Return JSON with:
       strengths: result.strengths,
       improvements: result.improvements,
       feedback: result.feedback,
-      nextQuestion: isLastTurn ? null : result.nextQuestion,
+      nextQuestion: isLastTurn ? null : result.nextQuestion || null,
     };
 
     session.turns.push({
@@ -291,9 +370,9 @@ Return JSON with:
   /**
    * Retrieve aggregate report for a mock interview session
    */
-  async getMockSessionReport(sessionId, userId) {
+  async getMockSessionReport(sessionId: string, userId: string | unknown): Promise<MockSessionReport | null> {
     const session = mockSessions.get(sessionId);
-    if (!session || session.userId !== userId?.toString()) return null;
+    if (!session || session.userId !== String(userId)) return null;
 
     const scores = session.turns.map((t) => t.evaluation.score);
     const avgScore =
@@ -311,9 +390,10 @@ Return JSON with:
     };
   },
 
-  deleteMockSessionsByUserId(userId) {
+  deleteMockSessionsByUserId(userId: string | unknown): void {
+    const uid = String(userId);
     for (const [sessionId, session] of mockSessions.entries()) {
-      if (session.userId === userId.toString()) mockSessions.delete(sessionId);
+      if (session.userId === uid) mockSessions.delete(sessionId);
     }
   },
 };

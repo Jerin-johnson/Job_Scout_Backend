@@ -13,6 +13,15 @@
 import { invokeLLM } from "../llm.js";
 import { z } from "zod";
 import { logger } from "../../shared/utils/logger.js";
+export interface UserLike {
+  _id?: unknown;
+  id?: string;
+  name?: string;
+  email?: string;
+  plan?: string;
+  profileVersion?: number;
+  [key: string]: unknown;
+}
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -25,16 +34,73 @@ const RequirementsSchema = z.object({
   seniorityLevel: z.string().default("mid"),
 });
 
+export type JobRequirements = z.infer<typeof RequirementsSchema>;
+
 const BulletSchema = z.object({
   factId: z.string(),
   tailoredBullet: z.string(),
   usedKeywords: z.array(z.string()).default([]),
 });
 
+export type TailoredBullet = z.infer<typeof BulletSchema>;
+
 const BulletsResponseSchema = z.object({
   bullets: z.array(BulletSchema),
   summary: z.string().default(""),
 });
+
+export type BulletsResponse = z.infer<typeof BulletsResponseSchema>;
+
+export interface FlatProfileFact {
+  factId: string;
+  content: string;
+  type: string;
+  skills?: string[];
+  relevantKeywords?: string[];
+}
+
+export interface NormalizedBullet {
+  factId: string;
+  originalBullet: string;
+  tailoredBullet: string;
+  isVerified: boolean;
+  usedKeywords: string[];
+}
+
+export interface AtsMatchResult {
+  score: number;
+  covered: string[];
+  missing: string[];
+}
+
+export interface TailoringResult {
+  status: string;
+  jobId?: string;
+  jobTitle: string;
+  company: string;
+  bullets: NormalizedBullet[];
+  validFactIds: string[];
+  summary: string;
+  atsMatch: AtsMatchResult;
+  requirements: JobRequirements;
+  retryCount: number;
+}
+
+export interface ProfileWithFacts {
+  roles?: Array<Record<string, unknown>> | unknown[];
+  skills?: Array<Record<string, unknown>> | unknown[];
+  education?: Array<Record<string, unknown>> | unknown[];
+  [key: string]: unknown;
+}
+
+export interface RunTailoringParams {
+  user: UserLike;
+  profile?: ProfileWithFacts | null;
+  jobId?: string;
+  jobTitle?: string;
+  company?: string;
+  jdText?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,24 +108,21 @@ const BulletsResponseSchema = z.object({
 
 /**
  * Parse JD text into structured requirements
- * @param {string} jdText
- * @param {object} user
- * @returns {Promise<object>}
  */
-async function parseJD(jdText, user) {
+async function parseJD(jdText: string, user: UserLike): Promise<JobRequirements> {
   const prompt = [
     {
-      role: "user",
+      role: "user" as const,
       content: [
         {
-          type: "text",
+          type: "text" as const,
           text: `Extract structured requirements from this job description:\n\n${jdText.slice(0, 4000)}`,
         },
       ],
     },
   ];
 
-  return invokeLLM({
+  return invokeLLM<JobRequirements>({
     user,
     tier: "small",
     feature: "extract",
@@ -71,11 +134,11 @@ async function parseJD(jdText, user) {
 
 /**
  * Map ATS keywords to profile factIds
- * @param {object[]} profileFacts - Flattened list of { factId, content, type }
- * @param {object} requirements
- * @returns {{ factId: string, content: string, relevantKeywords: string[] }[]}
  */
-function mapFactsToRequirements(profileFacts, requirements) {
+function mapFactsToRequirements(
+  profileFacts: FlatProfileFact[],
+  requirements: JobRequirements,
+): FlatProfileFact[] {
   const keywords = [
     ...(requirements.requiredSkills || []),
     ...(requirements.preferredSkills || []),
@@ -84,36 +147,36 @@ function mapFactsToRequirements(profileFacts, requirements) {
 
   return profileFacts
     .map((fact) => {
-      const text = (fact.content || fact.description || fact.name || "").toLowerCase();
+      const text = (fact.content || "").toLowerCase();
       const relevantKeywords = keywords.filter(
         (kw) => text.includes(kw) || (fact.skills || []).some((s) => s.toLowerCase().includes(kw)),
       );
       return { ...fact, relevantKeywords };
     })
-    .filter((f) => f.relevantKeywords.length > 0 || f.type === "achievement");
+    .filter((f) => (f.relevantKeywords && f.relevantKeywords.length > 0) || f.type === "achievement");
 }
 
 /**
  * Draft tailored bullets using mapped facts
- * @param {object[]} mappedFacts
- * @param {object} requirements
- * @param {string} jobTitle
- * @param {string} company
- * @param {object} user
- * @returns {Promise<object>}
  */
-async function draftBullets(mappedFacts, requirements, jobTitle, company, user) {
+async function draftBullets(
+  mappedFacts: FlatProfileFact[],
+  requirements: JobRequirements,
+  jobTitle: string,
+  company: string,
+  user: UserLike,
+): Promise<BulletsResponse> {
   const factsText = mappedFacts
     .slice(0, 15)
-    .map((f) => `factId: ${f.factId} | content: ${f.content || f.description || f.name}`)
+    .map((f) => `factId: ${f.factId} | content: ${f.content}`)
     .join("\n");
 
   const prompt = [
     {
-      role: "user",
+      role: "user" as const,
       content: [
         {
-          type: "text",
+          type: "text" as const,
           text: `You are a resume writer. Create tailored resume bullets for the role "${jobTitle}" at "${company}".
 STRICT RULES:
 1. Every bullet MUST use EXACTLY one factId from the provided facts. Never invent experience.
@@ -135,7 +198,7 @@ Return a JSON object with "bullets" array (each: factId, tailoredBullet, usedKey
     },
   ];
 
-  return invokeLLM({
+  return invokeLLM<BulletsResponse>({
     user,
     tier: "strong",
     feature: "tailor_resume",
@@ -147,11 +210,11 @@ Return a JSON object with "bullets" array (each: factId, tailoredBullet, usedKey
 
 /**
  * Verify that every bullet has a valid factId from the user's profile
- * @param {object[]} bullets
- * @param {Set<string>} validFactIds
- * @returns {{ valid: boolean, invalidBullets: object[] }}
  */
-function truthfulnessCheck(bullets, validFactIds) {
+function truthfulnessCheck(
+  bullets: TailoredBullet[],
+  validFactIds: Set<string>,
+): { valid: boolean; invalidBullets: TailoredBullet[] } {
   const invalidBullets = bullets.filter((b) => !b.factId || !validFactIds.has(b.factId));
   return {
     valid: invalidBullets.length === 0,
@@ -161,11 +224,11 @@ function truthfulnessCheck(bullets, validFactIds) {
 
 /**
  * Calculate ATS keyword coverage
- * @param {object[]} bullets
- * @param {string[]} atsKeywords
- * @returns {{ score: number, covered: string[], missing: string[] }}
  */
-function atsKeywordCheck(bullets, atsKeywords) {
+function atsKeywordCheck(
+  bullets: Array<{ tailoredBullet: string }>,
+  atsKeywords: string[],
+): AtsMatchResult {
   if (!atsKeywords || atsKeywords.length === 0) {
     return { score: 100, covered: [], missing: [] };
   }
@@ -178,49 +241,66 @@ function atsKeywordCheck(bullets, atsKeywords) {
 
 /**
  * Flatten profile facts into a uniform list
- * @param {object} profile
- * @returns {{ factId: string, content: string, type: string }[]}
  */
-function flattenProfileFacts(profile) {
-  const facts = [];
+function flattenProfileFacts(profile?: ProfileWithFacts | null): FlatProfileFact[] {
+  const facts: FlatProfileFact[] = [];
   if (!profile) return facts;
 
   // Roles + achievements
-  for (const role of profile.roles || []) {
-    facts.push({
-      factId: role.factId,
-      content: `${role.title} at ${role.company} (${role.startDate || ""}-${role.endDate || "present"})`,
-      type: "role",
-      skills: role.skills || [],
-    });
-    for (const ach of role.achievements || []) {
+  for (const rawRole of (profile.roles || []) as Array<Record<string, unknown>>) {
+    const role = rawRole as {
+      factId?: string;
+      title?: string;
+      company?: string;
+      startDate?: string;
+      endDate?: string;
+      skills?: string[];
+      achievements?: Array<{ factId?: string; bullet?: string; description?: string }>;
+    };
+    if (role.factId) {
       facts.push({
-        factId: ach.factId,
-        content: ach.bullet || ach.description || "",
-        type: "achievement",
-        skills: [],
+        factId: role.factId,
+        content: `${role.title || "Role"} at ${role.company || "Company"} (${role.startDate || ""}-${role.endDate || "present"})`,
+        type: "role",
+        skills: role.skills || [],
       });
+    }
+    for (const ach of role.achievements || []) {
+      if (ach.factId) {
+        facts.push({
+          factId: ach.factId,
+          content: ach.bullet || ach.description || "",
+          type: "achievement",
+          skills: [],
+        });
+      }
     }
   }
 
   // Skills
-  for (const skill of profile.skills || []) {
-    facts.push({
-      factId: skill.factId,
-      content: skill.name,
-      type: "skill",
-      skills: [skill.name],
-    });
+  for (const rawSkill of (profile.skills || []) as Array<Record<string, unknown>>) {
+    const skill = rawSkill as { factId?: string; name?: string };
+    if (skill.factId && skill.name) {
+      facts.push({
+        factId: skill.factId,
+        content: skill.name,
+        type: "skill",
+        skills: [skill.name],
+      });
+    }
   }
 
   // Education
-  for (const edu of profile.education || []) {
-    facts.push({
-      factId: edu.factId,
-      content: `${edu.degree} in ${edu.field} from ${edu.institution}`,
-      type: "education",
-      skills: [],
-    });
+  for (const rawEdu of (profile.education || []) as Array<Record<string, unknown>>) {
+    const edu = rawEdu as { factId?: string; degree?: string; field?: string; institution?: string };
+    if (edu.factId) {
+      facts.push({
+        factId: edu.factId,
+        content: `${edu.degree || "Degree"} in ${edu.field || "Field"} from ${edu.institution || "Institution"}`,
+        type: "education",
+        skills: [],
+      });
+    }
   }
 
   return facts;
@@ -229,12 +309,12 @@ function flattenProfileFacts(profile) {
 // ---------------------------------------------------------------------------
 // Mock tailoring for dev/test mode
 // ---------------------------------------------------------------------------
-function mockTailoring(profile, _jobId) {
+function mockTailoring(profile?: ProfileWithFacts | null, _jobId?: string) {
   const profileFacts = flattenProfileFacts(profile);
   const validFactIds = new Set(profileFacts.map((f) => f.factId));
   const topFacts = profileFacts.slice(0, 5);
 
-  const bullets = topFacts.map((f, i) => ({
+  const bullets: NormalizedBullet[] = topFacts.map((f, i) => ({
     factId: f.factId,
     originalBullet: f.content,
     tailoredBullet: `[Tailored] ${f.content} — Aligned with target role requirements.`,
@@ -267,20 +347,15 @@ function mockTailoring(profile, _jobId) {
 export const tailoringGraph = {
   /**
    * Run the resume tailoring graph
-   * @param {object} params
-   * @param {object} params.user
-   * @param {object} params.profile - structured profile with roles, skills, achievements
-   * @param {string} params.jobId
-   * @param {string} params.jobTitle
-   * @param {string} params.company
-   * @param {string} params.jdText - raw job description text
-   * @returns {Promise<object>} Draft tailoring result (awaiting human approval)
    */
-  async runTailoring({ user, profile, jobId, jobTitle, company, jdText }) {
-    const userId = user._id ? user._id.toString() : user.id || "anon";
+  async runTailoring({ user, profile, jobId, jobTitle, company, jdText }: RunTailoringParams): Promise<TailoringResult> {
+    const userId = user._id ? String(user._id) : String(user.id || "anon");
     const isDev =
       process.env.ANTHROPIC_API_KEY === "dummy_anthropic_key_for_dev" ||
       process.env.NODE_ENV === "test";
+
+    const title = jobTitle || "Software Engineer";
+    const comp = company || "Target Company";
 
     if (isDev) {
       logger.info({ userId, jobId }, "tailoringGraph: mock mode");
@@ -288,8 +363,8 @@ export const tailoringGraph = {
       return {
         status: "awaiting_approval",
         jobId,
-        jobTitle: jobTitle || "Software Engineer",
-        company: company || "Target Company",
+        jobTitle: title,
+        company: comp,
         bullets: mock.bullets,
         validFactIds: mock.validFactIds,
         summary: mock.summary,
@@ -312,9 +387,9 @@ export const tailoringGraph = {
 
     // --- Step 2: Parse JD ---
     logger.info({ userId, jobId }, "tailoringGraph: parsing JD");
-    let requirements;
+    let requirements: JobRequirements;
     try {
-      requirements = await parseJD(jdText || `${jobTitle} at ${company}`, user);
+      requirements = await parseJD(jdText || `${title} at ${comp}`, user);
     } catch {
       requirements = {
         requiredSkills: [],
@@ -330,14 +405,14 @@ export const tailoringGraph = {
     const factsForDraft = mappedFacts.length > 0 ? mappedFacts : profileFacts.slice(0, 10);
 
     // --- Step 4: Draft bullets (with retry on truthfulness failure) ---
-    let bullets = [];
+    let bullets: TailoredBullet[] = [];
     let summary = "";
     let retryCount = 0;
     const MAX_RETRIES = 2;
 
     while (retryCount <= MAX_RETRIES) {
       logger.info({ userId, jobId, retryCount }, "tailoringGraph: drafting bullets");
-      const draftResult = await draftBullets(factsForDraft, requirements, jobTitle, company, user);
+      const draftResult = await draftBullets(factsForDraft, requirements, title, comp, user);
       bullets = draftResult.bullets || [];
       summary = draftResult.summary || "";
 
@@ -359,7 +434,7 @@ export const tailoringGraph = {
     }
 
     // Normalize bullets to include originalBullet and isVerified
-    const normalizedBullets = bullets.map((b) => ({
+    const normalizedBullets: NormalizedBullet[] = bullets.map((b) => ({
       factId: b.factId,
       originalBullet: profileFacts.find((f) => f.factId === b.factId)?.content || "",
       tailoredBullet: b.tailoredBullet,
@@ -374,8 +449,8 @@ export const tailoringGraph = {
     return {
       status: "awaiting_approval",
       jobId,
-      jobTitle,
-      company,
+      jobTitle: title,
+      company: comp,
       bullets: normalizedBullets,
       validFactIds: [...validFactIds],
       summary,

@@ -388,7 +388,7 @@ export const applicationController = {
       }
       let updated = (await applicationGraph.handleStageChange({
         application: app,
-        user: req.user,
+        user: user as unknown as Parameters<typeof applicationGraph.handleStageChange>[0]["user"],
         newStatus: parsed.data.status,
         note: parsed.data.note,
       })) as ApplicationRecord;
@@ -457,7 +457,7 @@ export const applicationController = {
       }
       const sent = await applicationGraph.sendApprovedEmail({
         application: app,
-        user: req.user,
+        user: user as unknown as Parameters<typeof applicationGraph.sendApprovedEmail>[0]["user"],
       });
       await del(CacheKeys.response(userId, "kanban", 1));
       await invalidateCandidateContext(userId);

@@ -7,7 +7,7 @@ import {
   resolveChatModelForTier,
   resolveSelectableChatModel,
 } from "../ai/modelCatalog.js";
-import { getCandidateContext, invalidateCandidateContext } from "../ai/candidateContext.js";
+import { getCandidateContext, invalidateCandidateContext, UserLike } from "../ai/candidateContext.js";
 import { logger } from "../shared/utils/logger.js";
 import { classifyProviderError, providerStatusCode } from "../ai/providerErrors.js";
 import { z } from "zod";
@@ -90,10 +90,7 @@ export const aiController = {
 
   async getChatContext(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const context = (await getCandidateContext(req.user)) as {
-        card: { preferredName?: string; [key: string]: unknown };
-        suggestions: unknown;
-      };
+      const context = await getCandidateContext(req.user as unknown as UserLike);
       return res.status(200).json({
         data: {
           greeting: context.card.preferredName
@@ -135,9 +132,9 @@ export const aiController = {
       const user = req.user as UserRecord;
       const decision = await routeRequest({
         prompt,
-        user: req.user,
+        user: req.user as unknown as UserLike,
         contextVersion: user?.profileVersion || 1,
-        requestId: req.id,
+        requestId: req.id ? String(req.id) : undefined,
       });
       res.status(200).json({ data: { decision } });
     } catch (err) {
@@ -290,9 +287,9 @@ export const aiController = {
       await acceptRequestQuota(req, "chat");
       const decision = await routeRequest({
         prompt,
-        user: req.user,
+        user: req.user as unknown as UserLike,
         contextVersion: user?.profileVersion || 1,
-        requestId: req.id,
+        requestId: req.id ? String(req.id) : undefined,
       });
       const selectedModel =
         modelId === AUTO_CHAT_MODEL_ID

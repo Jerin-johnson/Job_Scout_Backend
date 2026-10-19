@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { isMongoReady } from "../config/database.js";
-import { getCandidateContext } from "./candidateContext.js";
-import { longTermMemory } from "./memory/longTerm.js";
+import { getCandidateContext, CandidateCard, CandidateContextResult } from "./candidateContext.js";
+import { longTermMemory, MemoryRecord } from "./memory/longTerm.js";
 import { applicationRepository } from "../repositories/applicationRepository.js";
 import { Job } from "../models/Job.js";
 import { JobDetail } from "../models/JobDetail.js";
@@ -21,7 +21,7 @@ Safety & Grounding Rules:
 6. Never claim that you have already mutated the database (e.g. added a job, changed priority, set a follow-up, or started an interview) when calling a propose_* tool — explain that you have prepared a confirmation card for the user to review and confirm.
 7. Keep responses concise, structured with clear headings or bullet points where helpful, and directly actionable.`;
 
-function escapeDelimiters(value = "", maxChars = 1400) {
+function escapeDelimiters(value: unknown = "", maxChars = 1400): string {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -32,16 +32,43 @@ function escapeDelimiters(value = "", maxChars = 1400) {
     .slice(0, maxChars);
 }
 
-export function estimateTokenCount(text = "") {
+export function estimateTokenCount(text: unknown = ""): number {
   if (!text) return 0;
   return Math.ceil(String(text).length / 4);
+}
+
+export interface ValidatedPageContextInput {
+  type?: string;
+  id?: string;
+  [key: string]: unknown;
+}
+
+export interface ValidatedPageContext {
+  type: string;
+  id: string;
+  sourceLabel: string;
+  formatted: string;
+  title?: string;
+  company?: string;
+  location?: string;
+  remoteType?: string;
+  requirements?: string[];
+  descriptionExcerpt?: string;
+  role?: string;
+  status?: string;
+  priority?: string;
+  nextFollowUpAt?: string;
+  notes?: string;
 }
 
 /**
  * Loads validated page context server-side by ID (jobId or applicationId).
  * Never trusts client-supplied object blobs.
  */
-export async function loadValidatedPageContext(userId, pageContext) {
+export async function loadValidatedPageContext(
+  userId: string | unknown,
+  pageContext?: ValidatedPageContextInput | null,
+): Promise<ValidatedPageContext | null> {
   if (!pageContext || !pageContext.type || !pageContext.id) {
     return null;
   }
@@ -54,14 +81,22 @@ export async function loadValidatedPageContext(userId, pageContext) {
     const query = mongoose.isValidObjectId(id)
       ? { _id: id, status: "active" }
       : { sourceJobId: id, status: "active" };
-    const job = await Job.findOne(query).lean();
+    const job = (await Job.findOne(query).lean()) as {
+      _id: unknown;
+      title: string;
+      company: string;
+      location?: string;
+      remoteType?: string;
+      requirements?: string[];
+      rawDescription?: string;
+    } | null;
     if (!job) return null;
-    const detail = await JobDetail.findOne({ jobId: job._id })
+    const detail = (await JobDetail.findOne({ jobId: job._id })
       .select("description requirements")
-      .lean();
+      .lean()) as { description?: string; requirements?: string[] } | null;
     const requirements = (detail?.requirements || job.requirements || [])
       .slice(0, 10)
-      .map((r) => escapeDelimiters(r, 120));
+      .map((r: string) => escapeDelimiters(r, 120));
     const descriptionExcerpt = escapeDelimiters(
       detail?.description || job.rawDescription || "",
       900,
@@ -90,7 +125,7 @@ export async function loadValidatedPageContext(userId, pageContext) {
   }
 
   if (type === "application") {
-    const app = await applicationRepository.findOwnedById(id, userId);
+    const app = await applicationRepository.findOwnedById(id, String(userId));
     if (!app) return null;
     return {
       type: "application",
@@ -120,6 +155,37 @@ export async function loadValidatedPageContext(userId, pageContext) {
   return null;
 }
 
+export interface AssembleChatContextParams {
+  user?: {
+    _id?: unknown;
+    id?: unknown;
+    memoriesPaused?: boolean;
+    [key: string]: unknown;
+  } | null;
+  prompt: string;
+  pageContext?: ValidatedPageContextInput | null;
+  rollingSummary?: string;
+  historyMessages?: Array<{ role: string; content?: string }>;
+  needsMemory?: boolean;
+  turnTokenBudget?: number;
+}
+
+export interface AssembleChatContextResult {
+  systemPrompt: string;
+  messages: Array<{ role: string; content: string }>;
+  candidateSnapshot: CandidateContextResult;
+  resolvedPageContext: ValidatedPageContext | null;
+  relevantMemories: MemoryRecord[];
+  initialSources: string[];
+  telemetry: {
+    promptVersion: string;
+    sectionTokens: Record<string, number>;
+    totalTokens: number;
+    turnTokenBudget: number;
+    trimmed: boolean;
+  };
+}
+
 /**
  * Assembles the cache-friendly ordered prompt and applies per-turn token budgeting.
  *
@@ -139,11 +205,23 @@ export async function assembleChatContext({
   historyMessages = [],
   needsMemory = true,
   turnTokenBudget = 4000,
-}) {
+}: AssembleChatContextParams): Promise<AssembleChatContextResult> {
   const userId = (user?._id || user?.id)?.toString();
   const [candidateSnapshot, resolvedPageContext] = await Promise.all([
     getCandidateContext(user).catch(() => ({
-      card: {},
+      card: {
+        preferredName: "",
+        currentRole: "",
+        targetRoles: [],
+        yearsExperience: null,
+        skills: [],
+        location: "",
+        plan: "free",
+        activeApplications: 0,
+        followUpsDue: 0,
+        hasResume: false,
+        lastInterviewScore: null,
+      },
       text: "",
       suggestions: [],
       cacheHit: false,
@@ -151,11 +229,11 @@ export async function assembleChatContext({
     loadValidatedPageContext(userId, pageContext).catch(() => null),
   ]);
 
-  let relevantMemories = [];
+  let relevantMemories: MemoryRecord[] = [];
   if (needsMemory && longTermMemory.hasMemoryConsent(user) && !user?.memoriesPaused) {
-    const rawMemories = await longTermMemory
-      .retrieveRelevant(userId, prompt, 5, { user })
-      .catch(() => []);
+    const rawMemories: MemoryRecord[] = await longTermMemory
+      .retrieveRelevant({ userId: userId || "", user, queryText: prompt, limit: 5 })
+      .catch(() => [] as MemoryRecord[]);
     relevantMemories = longTermMemory.resolveProfileMemoryConflicts(
       rawMemories,
       candidateSnapshot.card,
@@ -274,7 +352,7 @@ export async function assembleChatContext({
     { role: "user", content: userPromptText },
   ];
 
-  const initialSources = new Set();
+  const initialSources = new Set<string>();
   if (candidateSnapshot.text) initialSources.add("Profile");
   if (resolvedPageContext?.sourceLabel) initialSources.add(resolvedPageContext.sourceLabel);
   if (memoryLines.length > 0) initialSources.add("Memories");
@@ -310,3 +388,12 @@ export async function assembleChatContext({
     },
   };
 }
+
+export type PageContext = ValidatedPageContextInput;
+export interface HistoryMessage {
+  role: string;
+  content?: string;
+  [key: string]: unknown;
+}
+export type AssembledChatContext = Awaited<ReturnType<typeof assembleChatContext>>;
+
