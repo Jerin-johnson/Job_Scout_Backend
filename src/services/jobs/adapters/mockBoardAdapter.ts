@@ -1,11 +1,32 @@
 import { BaseJobAdapter } from "./baseAdapter.js";
 
+export interface MockBoardJob {
+  title: string;
+  company: string;
+  location: string;
+  remoteType: string;
+  salaryRange: { min: number; max: number; currency: string };
+  requirements: string[];
+  tags: string[];
+  rawDescription: string;
+  sourceUrl: string;
+  sourceJobId: string;
+  canonicalUrl: string;
+  contentHash: string;
+  sourceBoard: string;
+  postedAt: Date;
+}
+
 export class MockBoardAdapter extends BaseJobAdapter {
   constructor() {
-    super({ key: "mock_public_board", displayName: "Mock Public Board", capabilities: { paging: false } });
+    super({
+      key: "mock_public_board",
+      displayName: "Mock Public Board",
+      capabilities: { paging: false },
+    });
   }
 
-  async fetchJobs() {
+  async fetchJobs(): Promise<MockBoardJob[]> {
     const rawJobs = [
       {
         title: "Staff Backend Engineer",
@@ -66,3 +87,5 @@ export class MockBoardAdapter extends BaseJobAdapter {
     }));
   }
 }
+
+export default MockBoardAdapter;

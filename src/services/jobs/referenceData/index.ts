@@ -16,11 +16,40 @@
  */
 import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url);
-export const ONET_SUBSET = Object.freeze(require("./onetSubset.json"));
-export const GEONAMES_SUBSET = Object.freeze(require("./geonamesSubset.json"));
+export interface GeoNamesPlace {
+  geonameId: number;
+  name: string;
+  aliases?: string[];
+  region?: string;
+  subdivisionCode?: string;
+  countryCode: string;
+}
 
-const normalizePlaceText = (value = "") =>
+export interface GeoNamesSubset {
+  metadata: Record<string, unknown>;
+  places: GeoNamesPlace[];
+}
+
+export interface OnetSubset {
+  metadata: Record<string, unknown>;
+  occupations?: Array<Record<string, unknown>>;
+  skills?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+export interface ResolvedGeoNamesPlace {
+  geonameId: number;
+  city: string;
+  region?: string;
+  subdivisionCode?: string;
+  countryCode: string;
+}
+
+const require = createRequire(import.meta.url);
+export const ONET_SUBSET: OnetSubset = Object.freeze(require("./onetSubset.json"));
+export const GEONAMES_SUBSET: GeoNamesSubset = Object.freeze(require("./geonamesSubset.json"));
+
+const normalizePlaceText = (value: unknown = ""): string =>
   String(value)
     .normalize("NFKD")
     .toLowerCase()
@@ -29,7 +58,12 @@ const normalizePlaceText = (value = "") =>
     .trim()
     .replace(/\s+/g, " ");
 
-const GEONAMES_INDEX = GEONAMES_SUBSET.places
+interface GeoNamesIndexEntry {
+  alias: string;
+  place: GeoNamesPlace;
+}
+
+const GEONAMES_INDEX: GeoNamesIndexEntry[] = GEONAMES_SUBSET.places
   .flatMap((place) => {
     const terms = [place.name, ...(place.aliases || [])];
     return terms.map((term) => ({
@@ -40,11 +74,11 @@ const GEONAMES_INDEX = GEONAMES_SUBSET.places
   .filter((entry) => entry.alias.length >= 3)
   .sort((a, b) => b.alias.length - a.alias.length);
 
-export function getReferenceDataAttributions() {
+export function getReferenceDataAttributions(): Array<Record<string, unknown>> {
   return [ONET_SUBSET.metadata, GEONAMES_SUBSET.metadata];
 }
 
-export function lookupGeoNamesPlace(locationText = "") {
+export function lookupGeoNamesPlace(locationText = ""): ResolvedGeoNamesPlace | null {
   const normalized = normalizePlaceText(locationText);
   if (!normalized) return null;
   const padded = ` ${normalized} `;

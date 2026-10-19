@@ -1,7 +1,7 @@
 import { computeSha256 } from "../../../shared/utils/crypto.js";
 import { computeRetryBackoffMs } from "../ingestionResilience.js";
 
-export function sourceDescriptionText(value) {
+export function sourceDescriptionText(value: unknown): string {
   return String(value || "")
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<\/(p|div|li|h[1-6]|br)\s*>/gi, "\n")
@@ -18,7 +18,7 @@ export function sourceDescriptionText(value) {
     .slice(0, 24000);
 }
 
-export function normalizeCanonicalJobUrl(value) {
+export function normalizeCanonicalJobUrl(value: unknown): string {
   try {
     const url = new URL(String(value || ""));
     if (!["http:", "https:"].includes(url.protocol)) return "";
@@ -36,19 +36,92 @@ export function normalizeCanonicalJobUrl(value) {
   }
 }
 
+export interface BaseJobAdapterOptions {
+  key?: string;
+  displayName?: string;
+  capabilities?: Record<string, unknown>;
+  intervalMs?: number;
+  timeoutMs?: number;
+  maxRetries?: number;
+  retryBackoffBaseMs?: number;
+}
+
+export interface JobIdentityParams {
+  source?: string;
+  sourceJobId?: string | number;
+  canonicalUrl?: string;
+  title?: string;
+  company?: string;
+  location?: string;
+}
+
+export interface JobGroupKeyParams {
+  canonicalUrl?: string;
+  company?: string;
+  title?: string;
+  location?: string;
+  employmentType?: string;
+  postedAt?: Date | string | number | null;
+}
+
+export interface JobRecordLike {
+  identityKey?: string;
+  title?: string;
+  company?: string;
+  location?: string;
+  structuredLocation?: Record<string, unknown>;
+  remoteType?: string;
+  salaryRange?: unknown;
+  compensation?: unknown;
+  requirements?: string[];
+  tags?: string[];
+  occupationCodes?: string[];
+  rawDescription?: string;
+  sourceUrl?: string;
+  canonicalUrl?: string;
+  postedAt?: Date | string;
+  sourceExpiresAt?: Date | string;
+  [key: string]: unknown;
+}
+
+export interface RequestJsonOptions {
+  headers?: Record<string, string>;
+  acceptNotModified?: boolean;
+  method?: string;
+  body?: string;
+}
+
+export interface RequestJsonResponse<T = unknown> {
+  data?: T;
+  notModified?: boolean;
+  jobs?: unknown[];
+  etag?: string | null;
+  lastModified?: string | null;
+}
+
 export class BaseJobAdapter {
+  name: string;
+  displayName: string;
+  capabilities: Readonly<Record<string, unknown>>;
+  intervalMs: number;
+  timeoutMs: number;
+  maxRetries: number;
+  retryBackoffBaseMs: number;
+  enabled: boolean;
+  consumeQuota: (() => Promise<void>) | null;
+
   constructor({
-    key,
-    displayName,
-    capabilities,
+    key = "",
+    displayName = "",
+    capabilities = {},
     intervalMs = 86400000,
     timeoutMs = 10000,
     maxRetries = 2,
     retryBackoffBaseMs = 300,
-  } = {}) {
+  }: BaseJobAdapterOptions = {}) {
     this.name = key;
     this.displayName = displayName || key;
-    this.capabilities = Object.freeze(capabilities || {});
+    this.capabilities = Object.freeze(capabilities);
     this.intervalMs = intervalMs;
     this.timeoutMs = timeoutMs;
     this.maxRetries = maxRetries;
@@ -57,10 +130,10 @@ export class BaseJobAdapter {
     this.consumeQuota = null;
   }
 
-  generateIdentity({ source = this.name, sourceJobId, canonicalUrl, title, company, location }) {
+  generateIdentity({ source = this.name, sourceJobId, canonicalUrl, title, company, location }: JobIdentityParams): string {
     const sourceId = String(sourceJobId || "").trim();
     const url = normalizeCanonicalJobUrl(canonicalUrl);
-    const normalize = (value) =>
+    const normalize = (value: unknown) =>
       String(value || "")
         .normalize("NFKC")
         .toLowerCase()
@@ -79,10 +152,10 @@ export class BaseJobAdapter {
     location,
     employmentType = "",
     postedAt = null,
-  }) {
+  }: JobGroupKeyParams): string {
     const url = normalizeCanonicalJobUrl(canonicalUrl);
     if (url) return computeSha256(`canonical:${url}`);
-    const normalize = (value) =>
+    const normalize = (value: unknown) =>
       String(value || "")
         .normalize("NFKC")
         .toLowerCase()
@@ -94,12 +167,12 @@ export class BaseJobAdapter {
     return entity.replaceAll("|", "") ? computeSha256(`entity:${entity}`) : "";
   }
 
-  generateContentHash(job) {
+  generateContentHash(job: JobRecordLike): string {
     const embeddingText = `${job.title} at ${job.company}. Requirements: ${(job.requirements || []).join(", ")}. ${String(job.rawDescription || "").slice(0, 500)}`;
     return computeSha256(`${job.identityKey || this.name}:${embeddingText}`);
   }
 
-  generateRecordHash(job) {
+  generateRecordHash(job: JobRecordLike): string {
     const relevant = {
       title: job.title,
       company: job.company,
@@ -120,7 +193,7 @@ export class BaseJobAdapter {
     return computeSha256(`${job.identityKey || this.name}:${JSON.stringify(relevant)}`);
   }
 
-  generateLegacyContentHash(job) {
+  generateLegacyContentHash(job: JobRecordLike): string {
     const relevant = {
       title: job.title,
       company: job.company,
@@ -132,13 +205,16 @@ export class BaseJobAdapter {
     return computeSha256(`${job.identityKey || this.name}:${JSON.stringify(relevant)}`);
   }
 
-  async requestJson(url, { headers = {}, acceptNotModified = false, method = "GET", body } = {}) {
-    let lastError;
+  async requestJson<T = unknown>(
+    url: string,
+    { headers = {}, acceptNotModified = false, method = "GET", body }: RequestJsonOptions = {},
+  ): Promise<RequestJsonResponse<T>> {
+    let lastError: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       if (this.consumeQuota) await this.consumeQuota();
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
-      let response;
+      let response: Response;
       try {
         response = await fetch(url, {
           method,
@@ -146,10 +222,10 @@ export class BaseJobAdapter {
           ...(body === undefined ? {} : { body }),
           signal: controller.signal,
         });
-      } catch (error) {
+      } catch (error: unknown) {
         lastError = error;
         // Abort timeouts are not retried; other network failures get bounded retries.
-        if (error.name === "AbortError" || attempt >= this.maxRetries) throw error;
+        if ((error as Error).name === "AbortError" || attempt >= this.maxRetries) throw error;
         await new Promise((resolve) =>
           setTimeout(resolve, computeRetryBackoffMs(attempt, { baseMs: this.retryBackoffBaseMs })),
         );
@@ -166,7 +242,7 @@ export class BaseJobAdapter {
         };
       }
       if (!response.ok) {
-        const error = new Error(`Source returned HTTP ${response.status}`);
+        const error = new Error(`Source returned HTTP ${response.status}`) as Error & { status?: number };
         error.status = response.status;
         if (!(response.status === 429 || response.status >= 500) || attempt >= this.maxRetries)
           throw error;
@@ -177,7 +253,7 @@ export class BaseJobAdapter {
         continue;
       }
       return {
-        data: await response.json(),
+        data: (await response.json()) as T,
         etag: response.headers.get("etag"),
         lastModified: response.headers.get("last-modified"),
       };
@@ -185,7 +261,7 @@ export class BaseJobAdapter {
     throw lastError;
   }
 
-  async fetchPage() {
+  async fetchPage(_cursor?: unknown): Promise<unknown> {
     throw new Error("fetchPage must be implemented by a source adapter");
   }
 }
