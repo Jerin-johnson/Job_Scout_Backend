@@ -107,3 +107,18 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
   - Relevance cursors encode `{ sort: "relevance", relevanceScore, asOfDay, postedAt, id }` and apply `isAfterRelevanceCursor` (`score < cursor.relevanceScore` or tie-broken by `postedAt DESC`, `_id ASC`) so paging never drifts or duplicates rows across pages.
 - **Approximate count & facet caching**:
   - `CacheKeys.catalogTotal(catalogVersion, filterHash)` and `CacheKeys.catalogFacets(catalogVersion, filterHash)` cache counts and facet aggregations in Redis for 120 seconds, automatically invalidated whenever `bumpCatalogVersion` increments `catalogVersion`.
+
+---
+
+## 3. Storage split & hot-document compaction (`src/services/jobs/jobStorage.js`, `scripts/compact-job-hot-documents.js`)
+
+- **Provenance in split collections (`Job`, `JobDetail`, `JobVector`)**:
+  - `JobDetail.provenance` uses `_id: false` subdocuments and `normalizeProvenanceList` so `JobDetail` and `Job` provenance arrays compare deterministically without subdocument `_id` drift.
+  - `scripts/migrate-job-storage-split.js --apply` (checkpoint version 2) synced all 570 local records (`detailsWritten: 570`, `detailMissing: 0`, `detailMismatch: 0`, `detailFieldMismatches: { description: 0, requirements: 0, provenance: 0 }`, `safeToRemoveLegacyFields: true`).
+- **Hot document compaction (`<= 2 KB`)**:
+  - `compactHotFeatures` and `compactHotJobFields` strip `rawDescription`, `requirements`, `provenance`, `embedding`, and `embeddingMetadata` from the hot `Job` document, omit `responsibilities`, `salaryText`, and empty nested arrays from hot `features`, bound token arrays (`skills <= 8`, `titleTokens <= 6`, `searchTokens <= 6`, `tags <= 4`), and strip null/empty sub-keys in `compensation`, `eligibility`, and `structuredLocation`.
+- **Measured before vs. after on local 570-job catalog**:
+  - **Mean BSON size**: `29,262 B` (all 570 docs) / `28,160 B` (sample) -> **`2,047 B` (all 570 docs) / `1,960 B` (sample)** (`< 2,048 B` target met).
+  - **Logical `jobs` collection size**: `16,679,594 B` (15.91 MiB) -> **`1,167,046 B` (1.11 MiB, -93.0%)**.
+  - **Discovery `explain("executionStats")` latency**: `231 ms` -> **`9 ms` (25.6x faster)**.
+  - **Rollback & re-apply**: `JOB_HOT_DOCUMENT_COMPACTION_ENABLED=true node scripts/compact-job-hot-documents.js --rollback` restored inline `rawDescription`, `requirements`, `provenance`, `features`, and `embedding` from `JobDetail` and `JobVector` (`verify-job-storage-split.js` reported `detailMismatch: 0, safeToRemoveLegacyFields: true`), and re-running `--apply` returned the hot collection to `1,960 B` sample mean (`2,047 B` full-catalog mean).

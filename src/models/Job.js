@@ -100,14 +100,17 @@ const JobSchema = new mongoose.Schema(
       normalizedAt: { type: Date, default: null },
     },
     provenance: [
-      {
-        source: { type: String, required: true },
-        sourceJobId: { type: String, default: "" },
-        canonicalUrl: { type: String, default: "" },
-        attributionText: { type: String, default: "" },
-        attributionUrl: { type: String, default: "" },
-        seenAt: { type: Date, default: Date.now },
-      },
+      new mongoose.Schema(
+        {
+          source: { type: String, required: true },
+          sourceJobId: { type: String, default: "" },
+          canonicalUrl: { type: String, default: "" },
+          attributionText: { type: String, default: "" },
+          attributionUrl: { type: String, default: "" },
+          seenAt: { type: Date, default: Date.now },
+        },
+        { _id: false },
+      ),
     ],
     status: { type: String, enum: ["active", "stale", "closed"], default: "active", index: true },
     firstSeenAt: { type: Date, default: Date.now, index: true },
@@ -118,7 +121,7 @@ const JobSchema = new mongoose.Schema(
     tags: [{ type: String }],
     rawDescription: {
       type: String,
-      required: true,
+      default: "",
     },
     sourceBoard: {
       type: String,

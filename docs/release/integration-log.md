@@ -131,3 +131,8 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added `src/services/jobs/jobSearch.js` with `tokenizeSearchText`, `buildSearchTokens`, `boundedEditDistance`, `expandQueryTokensWithTypos`, `scoreCatalogSearchRelevance`, `compareJobsByRelevance`, and `isAfterRelevanceCursor`.
 - Added `searchTokens` field and `job_search_tokens_recent` compound multikey index on `Job`; wired indexed token search, typo-tolerant query expansion, weighted title/skill/company + recency ranking, stable relevance cursor pagination, and `catalogVersion`-keyed Redis caching for totals and facets into `jobIngestionService.js` and `jobController.js`.
 - Verified with 27/27 passing tests across `tests/jobs-search-relevance.test.js`, `tests/job-storage.test.js`, and `tests/jobs-catalog.mongo.integration.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 3 Storage split & hot-document compaction — 2026-10-19
+
+- Normalized `provenance` subdocuments (`_id: false` + `normalizeProvenanceList`) across `Job`, `JobDetail`, `migrate-job-storage-split.js`, `verify-job-storage-split.js`, and `compact-job-hot-documents.js`, resolving all 570 provenance mismatches (`detailMismatch: 0`, `safeToRemoveLegacyFields: true`).
+- Added `compactHotFeatures` and `compactHotJobFields` in `src/services/jobs/jobStorage.js` and updated `scripts/compact-job-hot-documents.js` to compact hot `Job` documents below 2 KB (`29,262 B` -> `2,047 B` across all 570 docs, `1,960 B` sample mean; logical collection size reduced 93.0% from 16.68 MB to 1.17 MB; discovery `explain()` latency reduced from 231 ms to 9 ms). Verified dry-run, `--apply`, `--rollback`, and re-apply on local loopback MongoDB.

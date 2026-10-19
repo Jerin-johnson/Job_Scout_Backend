@@ -1,12 +1,24 @@
 import mongoose from "mongoose";
 
+const JobDetailProvenanceSchema = new mongoose.Schema(
+  {
+    source: { type: String, default: "" },
+    sourceJobId: { type: String, default: "" },
+    canonicalUrl: { type: String, default: "" },
+    attributionText: { type: String, default: "" },
+    attributionUrl: { type: String, default: "" },
+    seenAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
 const JobDetailSchema = new mongoose.Schema(
   {
     jobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", required: true, unique: true },
     description: { type: String, default: "", maxlength: 24000 },
     requirements: { type: [String], default: [] },
     provenance: {
-      type: [{ source: String, sourceJobId: String, canonicalUrl: String, attributionText: String, attributionUrl: String, seenAt: Date }],
+      type: [JobDetailProvenanceSchema],
       default: [],
     },
     // Only normalized, display-safe detail fields belong here. Provider payloads
