@@ -388,7 +388,7 @@ async function processResumeFile({
     fileBuffer,
     originalFilename,
     rawText,
-    mimeType: validation.mimeType,
+    mimeType: validation.mimeType || "application/pdf",
     storedS3Key: s3Key,
   })) as { profile: unknown; factsSummary: unknown; resume: unknown };
   await invalidateCandidateContext(userId);

@@ -129,7 +129,7 @@ export interface UserLike {
   _id?: unknown;
   id?: unknown;
   plan?: string;
-  planVersion?: string;
+  planVersion?: string | number;
   preferredName?: string;
   name?: string;
 }

@@ -1,16 +1,16 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { env } from "../config/env.js";
-import { invokeLLM } from "../ai/llm.js";
+import { invokeLLM, type UserLike } from "../ai/llm.js";
 import { getLLMProvider } from "../ai/providers/index.js";
 import { get, set, CacheKeys, TTL } from "../shared/cache.js";
 import { computeSha256, encryptText } from "../shared/utils/crypto.js";
-import { profileRepository } from "../repositories/profileRepository.js";
+import { profileRepository, type ProfileRecord } from "../repositories/profileRepository.js";
 import { userRepository } from "../repositories/userRepository.js";
 import { enqueueMatchRefreshForUser } from "./matchRefreshService.js";
 import { storageService } from "./storageService.js";
 import { logger } from "../shared/utils/logger.js";
-import { getExperienceSectionMetrics, parseExperienceRoles } from "./resumeRoleParser.js";
+import { getExperienceSectionMetrics, parseExperienceRoles, type ParsedRole } from "./resumeRoleParser.js";
 
 export const extractedFactsSchema = z.object({
   // Strict structured output requires every object property. Represent unknown
@@ -45,7 +45,76 @@ export const extractedFactsSchema = z.object({
   ),
 }).strict();
 
-function comparableText(value) {
+export type ExtractedFacts = z.infer<typeof extractedFactsSchema>;
+
+export interface GroundedAchievement {
+  bullet: string;
+  metrics: string | null;
+  factId?: string;
+}
+
+export interface GroundedRole {
+  title: string;
+  company: string;
+  startDate: string;
+  endDate: string | null;
+  isCurrent: boolean;
+  achievements: GroundedAchievement[];
+  factId?: string;
+}
+
+export interface GroundedSkill {
+  name: string;
+  category: string;
+  factId?: string;
+}
+
+export interface GroundedEducation {
+  degree: string;
+  institution: string;
+  graduationYear: number | null;
+  factId?: string;
+}
+
+export interface GroundedFacts {
+  roles: GroundedRole[];
+  skills: GroundedSkill[];
+  education: GroundedEducation[];
+}
+
+export interface GroundFactsResult {
+  facts: GroundedFacts;
+  rejected: {
+    roles: number;
+    achievements: number;
+    skills: number;
+    education: number;
+  };
+  stageCounts: {
+    modelRoles: number;
+    groundedModelRoles: number;
+    deterministicRoles: number;
+    combinedRoles: number;
+  };
+}
+
+export interface ParseResumeOptions {
+  user?: UserLike | null;
+  userId: string;
+  fileBuffer: Buffer;
+  originalFilename: string;
+  rawText: string;
+  mimeType: string;
+  storedS3Key?: string;
+}
+
+interface CustomHttpError extends Error {
+  statusCode?: number;
+  code?: string;
+  groundingRejected?: GroundFactsResult["rejected"];
+}
+
+function comparableText(value?: string | null): string {
   return String(value || "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -54,14 +123,18 @@ function comparableText(value) {
     .trim();
 }
 
-function isGrounded(value, sourceText) {
-  const phrase = comparableText(value);
+function isGrounded(value: unknown, sourceText?: string | null): boolean {
+  const phrase = comparableText(String(value || ""));
   const source = ` ${comparableText(sourceText)} `;
   return phrase.length > 0 && source.includes(` ${phrase} `);
 }
 
-export function groundFacts(extracted, sourceText, deterministicRoles = parseExperienceRoles(sourceText)) {
-  const modelRoles = extracted.roles
+export function groundFacts(
+  extracted: ExtractedFacts,
+  sourceText?: string | null,
+  deterministicRoles: ParsedRole[] = parseExperienceRoles(sourceText),
+): GroundFactsResult {
+  const modelRoles: GroundedRole[] = extracted.roles
     .filter((role) => isGrounded(role.title, sourceText) && isGrounded(role.company, sourceText)
       && (!role.startDate || isGrounded(role.startDate, sourceText))
       && (!role.endDate || isGrounded(role.endDate, sourceText)))
@@ -79,14 +152,14 @@ export function groundFacts(extracted, sourceText, deterministicRoles = parseExp
     }));
   // Deterministic layout parsing supplements model output. Every title,
   // employer, and date is copied from the source, so it needs no LLM call.
-  const parsedRoles = deterministicRoles.map((role) => ({
+  const parsedRoles: GroundedRole[] = deterministicRoles.map((role) => ({
     ...role,
     achievements: [],
   }));
   const roleKeys = new Set(modelRoles.map((role) =>
     [role.title, role.company, role.startDate, role.endDate].map(comparableText).join("|"),
   ));
-  const roles = [...modelRoles];
+  const roles: GroundedRole[] = [...modelRoles];
   for (const role of parsedRoles) {
     const key = [role.title, role.company, role.startDate, role.endDate].map(comparableText).join("|");
     if (!roleKeys.has(key)) {
@@ -95,14 +168,14 @@ export function groundFacts(extracted, sourceText, deterministicRoles = parseExp
     }
   }
 
-  const skills = extracted.skills
+  const skills: GroundedSkill[] = extracted.skills
     .filter((skill) => isGrounded(skill.name, sourceText))
     .map((skill) => ({ ...skill, category: skill.category || "general" }));
-  const education = extracted.education
+  const education: GroundedEducation[] = extracted.education
     .filter((item) => isGrounded(item.degree, sourceText))
     .map((item) => ({
       ...item,
-      institution: isGrounded(item.institution, sourceText) ? item.institution : "",
+      institution: isGrounded(item.institution, sourceText) ? (item.institution || "") : "",
       graduationYear:
         item.graduationYear && isGrounded(String(item.graduationYear), sourceText)
           ? item.graduationYear
@@ -118,7 +191,7 @@ export function groundFacts(extracted, sourceText, deterministicRoles = parseExp
   return { facts: { roles, skills, education }, rejected, stageCounts: { modelRoles: extracted.roles.length, groundedModelRoles: modelRoles.length, deterministicRoles: deterministicRoles.length, combinedRoles: roles.length } };
 }
 
-function factCount(facts) {
+function factCount(facts: GroundedFacts): number {
   return (
     facts.roles.length +
     facts.roles.reduce((count, role) => count + role.achievements.length, 0) +
@@ -127,7 +200,7 @@ function factCount(facts) {
   );
 }
 
-export function resumeExtractionPrompt(rawText) {
+export function resumeExtractionPrompt(rawText: string): Array<{ role: string; content: string }> {
   return [
     {
       role: "system",
@@ -141,7 +214,7 @@ export function resumeExtractionPrompt(rawText) {
   ];
 }
 
-function assignFactIds(facts) {
+function assignFactIds(facts: GroundedFacts): GroundedFacts {
   return {
     ...facts,
     roles: facts.roles.map((role) => ({
@@ -167,22 +240,22 @@ export const resumeParserService = {
     rawText,
     mimeType,
     storedS3Key,
-  }) {
+  }: ParseResumeOptions) {
     const fileHash = computeSha256(fileBuffer);
     const deterministicRoles = parseExperienceRoles(rawText);
     // Versioning the key bypasses legacy cached parses from the demo extractor,
     // which could contain facts that were never present in the uploaded resume.
     const cacheKey = CacheKeys.resumeParse(`${fileHash}:facts-v4`);
-    let extracted = await get(cacheKey);
+    let extracted = (await get(cacheKey)) as ExtractedFacts | null;
     const cacheHit = Boolean(extracted);
-    let usage = null;
+    let usage: { provider?: string; model?: string; inputTokens?: number; outputTokens?: number; costUsd?: number; usageIsEstimated?: boolean } | null = null;
 
     if (extracted) {
       logger.info("Resume parse cache hit");
     } else {
       const provider = getLLMProvider(env.LLM_PROVIDER);
       if (!provider.isConfigured()) {
-        const err = new Error(
+        const err: CustomHttpError = new Error(
           `Resume extraction requires a configured ${env.LLM_PROVIDER} API key. Configure it on the backend and upload the resume again.`,
         );
         err.statusCode = 503;
@@ -190,7 +263,7 @@ export const resumeParserService = {
         throw err;
       }
 
-      extracted = await invokeLLM({
+      extracted = (await invokeLLM({
         user,
         tier: "small",
         feature: "resume_parse",
@@ -198,8 +271,8 @@ export const resumeParserService = {
         temperature: 0,
         schema: extractedFactsSchema,
         prompt: resumeExtractionPrompt(rawText),
-        onUsage: (event) => { usage = event; },
-      });
+        onUsage: (event) => { usage = event as typeof usage; },
+      })) as ExtractedFacts;
 
       // Cache validated provider output, including an empty extraction, to make
       // completion retries idempotent and prevent a second billable call.
@@ -207,9 +280,10 @@ export const resumeParserService = {
     }
     const grounded = groundFacts(extracted, rawText, deterministicRoles);
     let facts = grounded.facts;
-    logger.info({ cacheHit, textCharacters: rawText.length, sections: getExperienceSectionMetrics(rawText), ...grounded.stageCounts, rejected: grounded.rejected, ...(usage ? { provider: usage.provider, model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd, usageIsEstimated: usage.usageIsEstimated } : {}) }, "Resume extraction stage counts");
+    const usageData = usage as { provider?: string; model?: string; inputTokens?: number; outputTokens?: number; costUsd?: number; usageIsEstimated?: boolean } | null;
+    logger.info({ cacheHit, textCharacters: rawText.length, sections: getExperienceSectionMetrics(rawText), ...grounded.stageCounts, rejected: grounded.rejected, ...(usageData ? { provider: usageData.provider, model: usageData.model, inputTokens: usageData.inputTokens, outputTokens: usageData.outputTokens, costUsd: usageData.costUsd, usageIsEstimated: usageData.usageIsEstimated } : {}) }, "Resume extraction stage counts");
     if (factCount(facts) === 0) {
-        const err = new Error(
+        const err: CustomHttpError = new Error(
           "We could not find verifiable work, skills, or education details in this file. Use a text-based PDF or DOCX and try again.",
         );
         err.statusCode = 422;
@@ -248,7 +322,7 @@ export const resumeParserService = {
       },
     });
 
-    const profile = await profileRepository.upsertProfile(userId, facts);
+    const profile = await profileRepository.upsertProfile(userId, facts as unknown as Partial<ProfileRecord>);
     logger.info({ savedRoleCount: Array.isArray(profile.roles) ? profile.roles.length : facts.roles.length, savedSkillCount: Array.isArray(profile.skills) ? profile.skills.length : facts.skills.length, savedEducationCount: Array.isArray(profile.education) ? profile.education.length : facts.education.length }, "Resume facts saved");
     const updatedUser = await userRepository.bumpProfileVersion(userId);
     if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);
@@ -263,7 +337,7 @@ export const resumeParserService = {
         totalFacts,
       },
       resume: {
-        id: resume._id.toString(),
+        id: (resume._id as { toString(): string }).toString(),
         originalFilename: resume.originalFilename,
         mimeType: resume.mimeType,
         createdAt: resume.createdAt,

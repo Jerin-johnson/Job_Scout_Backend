@@ -8,7 +8,13 @@ import { invalidateCandidateContext } from "../ai/candidateContext.js";
 import { userRepository } from "../repositories/userRepository.js";
 import { isMongoReady } from "../config/database.js";
 
-export async function deleteResumeForUser({ resumeId, userId }) {
+export async function deleteResumeForUser({
+  resumeId,
+  userId,
+}: {
+  resumeId: string;
+  userId: string;
+}): Promise<boolean> {
   if (!isMongoReady()) return false;
   const resume = await Resume.findOne({ _id: resumeId, userId }).lean();
   if (!resume) return false;
@@ -25,9 +31,13 @@ export async function deleteResumeForUser({ resumeId, userId }) {
   return true;
 }
 
-export async function deleteAllUserResumeData(userId) {
+export async function deleteAllUserResumeData(userId: string): Promise<number> {
   if (!isMongoReady()) return 0;
-  const resumes = await Resume.find({ userId }).select("_id s3Key fileHash").lean();
+  const resumes = (await Resume.find({ userId }).select("_id s3Key fileHash").lean()) as Array<{
+    _id: unknown;
+    s3Key: string;
+    fileHash: string;
+  }>;
   for (let offset = 0; offset < resumes.length; offset += 10) {
     await Promise.all(resumes.slice(offset, offset + 10).map((resume) => storageService.deleteFile({ key: resume.s3Key })));
   }

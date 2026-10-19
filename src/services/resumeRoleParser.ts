@@ -42,7 +42,24 @@ const DATE_RANGE = new RegExp(
 );
 const SINGLE_DATE = new RegExp(`\\b${DATE_PART}\\b`, "i");
 
-function normalizeHeading(value) {
+export interface ExperienceSectionMetrics {
+  sectionLineCount: number;
+  dateLineCount: number;
+  roleCueLineCount: number;
+  employerCueLineCount: number;
+  companyLikeLineCount: number;
+}
+
+export interface ParsedRole {
+  title: string;
+  company: string;
+  startDate: string;
+  endDate: string | null;
+  isCurrent: boolean;
+  achievements: string[];
+}
+
+function normalizeHeading(value?: string | null): string {
   return String(value || "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -52,20 +69,20 @@ function normalizeHeading(value) {
     .trim();
 }
 
-function cleanLine(value) {
+function cleanLine(value?: string | null): string {
   return String(value || "")
     .replace(/^\s*(?:[•●▪◦*-]|\d+[.)])\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function isExperienceHeading(value) {
+function isExperienceHeading(value?: string | null): boolean {
   const normalized = normalizeHeading(value);
   return EXPERIENCE_HEADINGS.has(normalized) ||
     (String(value || "").length <= 80 && /\b(?:work|professional|clinical|employment|internship)?\s*experiences?\b/i.test(normalized));
 }
 
-function findExperienceLines(text) {
+function findExperienceLines(text?: string | null): string[] {
   const lines = String(text || "").replace(/\r/g, "").split("\n");
   const start = lines.findIndex(isExperienceHeading);
   if (start < 0) return [];
@@ -79,7 +96,7 @@ function findExperienceLines(text) {
   return lines.slice(start + 1, end).map(cleanLine);
 }
 
-export function getExperienceSectionMetrics(rawText) {
+export function getExperienceSectionMetrics(rawText?: string | null): ExperienceSectionMetrics {
   const lines = findExperienceLines(rawText);
   return {
     sectionLineCount: lines.length,
@@ -90,7 +107,7 @@ export function getExperienceSectionMetrics(rawText) {
   };
 }
 
-function parseDateRange(line) {
+function parseDateRange(line: string): { startDate: string; endDate: string | null; isCurrent: boolean } | null {
   const range = line.match(DATE_RANGE);
   if (range) {
     return {
@@ -104,7 +121,7 @@ function parseDateRange(line) {
   return { startDate: single[0], endDate: null, isCurrent: false };
 }
 
-function parseInlineTitleEmployer(line) {
+function parseInlineTitleEmployer(line: string): { title: string; company: string } | null {
   const cleaned = cleanLine(line);
   const at = cleaned.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
   if (at && ROLE_CUES.test(at[1]) && EMPLOYER_CUES.test(at[2]))
@@ -116,17 +133,17 @@ function parseInlineTitleEmployer(line) {
   return null;
 }
 
-function isRoleLine(line) {
+function isRoleLine(line: string): boolean {
   return line.length >= 3 && line.length <= 120 && ROLE_CUES.test(line) && !DATE_RANGE.test(line) &&
     !(/\b(ward|department|unit)\b/i.test(line) && !/\b(nurse|nursing|officer)\b/i.test(line));
 }
 
-function isEmployerLine(line) {
+function isEmployerLine(line: string): boolean {
   return line.length >= 3 && line.length <= 160 && EMPLOYER_CUES.test(line) && !DATE_RANGE.test(line) &&
     !/\b(managed|built|provided|worked|assisted|developed|created|delivered|supported|led|implemented|designed|maintained|improved)\b/i.test(line);
 }
 
-function isCompanyLikeLine(line) {
+function isCompanyLikeLine(line: string): boolean {
   return line.length >= 3 && line.length <= 140 && !DATE_RANGE.test(line) &&
     /(?:\b[A-Z][a-z]{2,}|\b[A-Z]{2,}\b)/.test(line) &&
     !/\b(ward|department|unit|responsibilities|duties|patients|skills|experience|present|current|managed|built|provided|responsible|worked|assisted|project|developed|created|delivered|supported|led|implemented|designed|maintained|improved)\b/i.test(line);
@@ -136,7 +153,7 @@ function isCompanyLikeLine(line) {
  * Conservatively parse source-grounded role facts from a labeled experience section.
  * It only returns exact title/company text already present in the source.
  */
-export function parseExperienceRoles(rawText) {
+export function parseExperienceRoles(rawText?: string | null): ParsedRole[] {
   const lines = findExperienceLines(rawText);
   if (!lines.length) return [];
   const dateIndices = lines.map((line, index) => parseDateRange(line) ? index : -1).filter((index) => index >= 0);
@@ -149,8 +166,8 @@ export function parseExperienceRoles(rawText) {
   const datesPrecedeDetails = firstDate >= 0 &&
     !(firstBefore.some(isRoleLine) && firstBefore.some(isEmployerLine)) &&
     firstAfter.some(isRoleLine) && firstAfter.some(isEmployerLine);
-  const roles = [];
-  const seen = new Set();
+  const roles: ParsedRole[] = [];
+  const seen = new Set<string>();
 
   for (let index = 0; index < lines.length; index += 1) {
     const dates = parseDateRange(lines[index]);
@@ -163,7 +180,7 @@ export function parseExperienceRoles(rawText) {
     const segment = lines.slice(lowerBound, upperBound).filter(Boolean);
     const nearby = datesPrecedeDetails ? segment : [...segment].reverse();
 
-    let parsed = null;
+    let parsed: { title: string; company: string } | null = null;
     for (const line of nearby) {
       parsed = parseInlineTitleEmployer(line);
       if (parsed) break;
@@ -213,7 +230,7 @@ export function parseExperienceRoles(rawText) {
       normalizeHeading(role.company) === normalizeHeading(company))) continue;
     const nearbyDates = lines.slice(Math.max(0, index - 3), Math.min(lines.length, index + 4))
       .map(parseDateRange).find(Boolean);
-    const role = {
+    const role: ParsedRole = {
       title,
       company,
       startDate: nearbyDates?.startDate || "",

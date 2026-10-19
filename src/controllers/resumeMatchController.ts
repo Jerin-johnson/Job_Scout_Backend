@@ -455,9 +455,9 @@ export const resumeMatchController = {
       const normalizedIgnoredKeywords = [...ignoredKeywords];
       report.ignoredKeywords = normalizedIgnoredKeywords;
       report.deterministicResult.match = applyIgnoredKeywords(
-        report.deterministicResult.match,
+        report.deterministicResult.match as unknown as Parameters<typeof applyIgnoredKeywords>[0],
         normalizedIgnoredKeywords,
-      );
+      ) as unknown as typeof report.deterministicResult.match;
       report.updatedAt = new Date();
       await report.save();
       return res.status(200).json({ data: { report: reportDTO(report.toObject() as Record<string, unknown>) } });
