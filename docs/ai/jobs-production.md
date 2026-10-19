@@ -1,0 +1,93 @@
+# Production-grade job listing: baseline, architecture, and verification
+
+Last verified against commit `71c72a5` on the `feat/jobs-production` branch on 2026-10-19.
+
+## As built (verified in code)
+
+This document records the measured local baseline and the production-grade job listing implementation on `feat/jobs-production`, covering:
+
+1. Baseline scale benchmark, query `explain()`, BSON field footprint, index sizes, and RAM working-set estimates.
+2. Indexed tokenized search (`searchTokens` / weighted title, company, and skill tokens), bounded typo tolerance, blended relevance + recency ranking, stable cursor pagination for relevance sort, and `catalogVersion`-keyed approximate count/facet caching.
+3. Hot/cold/vector storage split verification (`Job`, `JobDetail`, `JobVector`) and hot document compaction (`scripts/compact-job-hot-documents.js`) keeping hot `Job` documents <= 2 KB.
+4. Ingestion robustness: dead-letter persistence, circuit breaker and backoff verified with fault injection, per-source budgets, graceful shutdown finishing the current batch, idempotent restarts, and admin source health/alert thresholds.
+5. Freshness and trust: sampled polite link-health checks, source-specific expiry, closed-job handling, repost and ghost detection, and extended `getJobRiskFlags` advisories.
+6. Matching at scale: incremental recompute using inverted skill and title token indexes on `Profile` (no full user scan), bounded refresh budgets, verified at 10,000 synthetic users with `lexical-v2` as default.
+7. Saved jobs, saved searches, and email alerts via Resend and BullMQ with job deduplication, consent/unsubscribe, `plans.js` tier limits, rate limits, quiet hours, preview endpoint, and GDPR/DPDP export/deletion coverage.
+8. Additive local GeoNames and O*NET 31.0 reference subsets with CC BY 4.0 attribution, occupation classification and role suggestion improvements, and before/after evaluation metrics.
+9. Source governance (`ENABLE_JOBICY_INGESTION` staging owner step, Remotive blocked, vendor/government feeds disabled) and admin coverage alignment with [data-supply-strategy.md](data-supply-strategy.md).
+10. Frontend Jobs list windowed/incremental rendering, sticky filter bar with "More filters" drawer, saved search entry points, and accessibility attributes.
+
+## Target design (not built yet)
+
+- Live production capacity sizing on a dedicated hosted MongoDB replica set and Redis instance remains **Unverified** until measured on the target deployment host.
+- Commercial job-data vendor feeds, NAV, France Travail, JobStream full-catalog sync, and live government recruitment notice feeds remain disabled pending credentials and written redistribution licenses.
+- ESCO reference data import remains intentionally skipped until release-specific reuse terms are verified.
+
+---
+
+## 1. Baseline measurements (2026-10-19)
+
+### 1.1 Discovery query `explain("executionStats")` (`scripts/explain-job-discovery.js`)
+
+Executed against local loopback MongoDB (`127.0.0.1:27017`):
+
+- **Query**: `{ status: "active", expiresAt: { $gt: new Date() }, sourceBoard: { $in: ["remoteok", "remotive", "jobicy"] } }` sorted by `{ postedAt: -1, _id: 1 }`, limit `400`, hint `job_candidate_recent_feed`.
+- **Plan stages**: `LIMIT` -> `FETCH` -> `SORT_MERGE` -> `IXSCAN` (`job_candidate_recent_feed`, forward across 3 `sourceBoard` values).
+- **Execution stats**:
+  - `nReturned`: 400
+  - `totalKeysExamined`: 402
+  - `totalDocsExamined`: 400
+  - `executionTimeMillis`: 231 ms (cold uncompacted 28 KB documents)
+
+### 1.2 Real catalog BSON measurement (`scripts/measure-job-bson.js`)
+
+Measured across `totalJobs: 570` (`sampleSize: 100`) on loopback MongoDB before hot-document compaction:
+
+- **Average BSON with legacy vectors**: `28,160 B` (`29,262 B` across all 570 rows)
+- **Average BSON without vectors (legacy description/requirements/provenance still in `Job`)**: `7,664 B`
+- **Average vector + metadata bytes**: `20,501 B`
+- **Per-field average BSON breakdown (bytes)**:
+  - Cold/vector fields on `Job`: `embedding` (20,410 B), `rawDescription` (4,822 B), `provenance` (309 B), `requirements` (193 B), `embeddingMetadata` (86 B)
+  - Hot fields on `Job`: `features` (605 B), `eligibility` (254 B), `tags` (184 B), `structuredLocation` (143 B), `compensation` (114 B), `canonicalUrl` (106 B), `sourceUrl` (103 B), `contentHash` (82 B), `identityKey` (82 B), `recordHash` (81 B), `salaryRange` (54 B), `sourceJobId` (49 B), `title` (41 B), `normalizedTitle` (40 B), `occupationFeaturesVersion` (31 B), `occupationConfidence` (29 B), `location` (29 B), `occupation` (27 B), `company` (26 B), `sourceBoard` (26 B), `remoteType` (23 B), `occupationCodes` (22 B), `featuresVersion` (21 B), `firstSeenAt` (21 B), `lastSeenAt` (20 B), `createdAt` (19 B), `updatedAt` (19 B), `expiresAt` (19 B), `status` (19 B), `postedAt` (18 B), `_id` (17 B), `__v` (9 B).
+- **Pre-compaction dry-run (`scripts/compact-job-hot-documents.js`)**:
+  - `scanned`: 570
+  - `detailMissing`: 0, `detailMismatch`: 570 (`provenance` mismatch due to prior checkpointed migration before `provenance` was added to `JobDetail`)
+  - `meanBsonBytesBefore`: 29,262 B
+  - `meanBsonBytesProjected` (removing only legacy cold/vector fields): 2,256 B (`p95`: 2,861 B, `max`: 3,604 B) — **exceeded the 2,048 B (2 KB) target by 208 B on mean and 813 B on p95** primarily due to bulky `features` (`responsibilities`, `salaryText`, and large token arrays) and redundant hot strings.
+
+### 1.3 Index footprint and RAM working-set estimate
+
+Measured on the 570-document `jobs` collection (`collStats`):
+
+- **Logical data size**: 16,679,594 B (15.91 MiB)
+- **Allocated storage size**: 45,043,712 B (42.96 MiB)
+- **Total index size**: 2,916,352 B (2.78 MiB across 42 indexes)
+- **Largest indexes on 570 rows**:
+  - `job_candidate_skills_recent`: 241,664 B
+  - `job_features_skills_active`: 233,472 B
+  - `recordHash_1`: 147,456 B
+  - `identityKey_1` / `job_identity_unique` / `contentHash_1`: 135,168 B each
+  - `job_candidate_title_recent`: 126,976 B
+  - `job_features_title_active`: 106,496 B
+  - `canonicalUrl_1`: 94,208 B
+
+**Working-set RAM estimate (hot `jobs` collection + indexes)**:
+
+- Before compaction (28.16 KB/doc):
+  - 10k jobs: ~281.6 MB logical data + ~49 MB indexes ≈ **330 MB**
+  - 100k jobs: ~2.82 GB logical data + ~488 MB indexes ≈ **3.31 GB**
+  - 1M jobs: ~28.16 GB logical data + ~4.88 GB indexes ≈ **33.0 GB**
+- After hot-document compaction (`<= 1.6 KB` mean hot BSON + pruned duplicate single-field indexes):
+  - 10k jobs: ~16 MB hot data + ~15 MB indexes ≈ **31 MB**
+  - 100k jobs: ~160 MB hot data + ~150 MB indexes ≈ **310 MB**
+  - 1M jobs: ~1.60 GB hot data + ~1.50 GB indexes ≈ **3.1 GB** (fits comfortably within a 4–8 GB WiredTiger cache).
+
+### 1.4 Synthetic scale benchmark (`scripts/benchmark-jobs-scale.js`)
+
+Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`, 5,000 duplicate upserts) alongside the 100k/500k/1M baseline table:
+
+|        Synthetic jobs | Ingest ops/s | Ingest time | Index build | Avg BSON/job | Logical bytes | Storage bytes | Index bytes | Client RSS | `mongod` resident | Catalog p50/p95 | Candidate p50/p95 | Recommended refresh p50/p95 |
+| --------------------: | -----------: | ----------: | ----------: | -----------: | ------------: | ------------: | ----------: | ---------: | ----------------: | --------------: | ----------------: | --------------------------: |
+| 100k (2026-10-19 run) |      2,527.8 |       41.5s |       4.08s |         900B |        90.6MB |        12.7MB |      9.71MB |    103.1MB |             226MB |  4.69 / 18.28ms |     1.62 / 3.22ms |           118.98 / 554.07ms |
+|   500k (baseline ref) |      6,308.0 |       83.2s |       8.62s |         900B |       453.2MB |        60.5MB |     45.70MB |     48.8MB |                 — |  9.16 / 30.06ms |     0.64 / 1.39ms |         258.77 / 1,221.29ms |
+|     1M (baseline ref) |      6,303.0 |      166.6s |      16.74s |         900B |       906.5MB |       122.2MB |     87.80MB |     81.8MB |                 — | 12.83 / 50.19ms |     0.49 / 1.05ms |         490.17 / 2,111.45ms |
