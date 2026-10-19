@@ -4,31 +4,57 @@ import { Resume } from "../models/Resume.js";
 import { isMongoReady } from "../config/database.js";
 import { buildProfileMatchIndex } from "../services/jobs/incrementalMatching.js";
 
-const inMemoryProfiles = new Map();
-const inMemoryResumes = [];
+export interface ProfileRecord {
+  _id?: string | mongoose.Types.ObjectId;
+  userId: string | mongoose.Types.ObjectId;
+  roles?: unknown[];
+  skills?: string[];
+  preferences?: Record<string, unknown>;
+  careerProfile?: Record<string, unknown>;
+  matchTokens?: string[];
+  matchCountryCodes?: string[];
+  version?: number;
+  updatedAt?: Date;
+  [key: string]: unknown;
+}
+
+export interface ResumeRecord {
+  _id?: string | mongoose.Types.ObjectId;
+  userId: string | mongoose.Types.ObjectId;
+  s3Key?: string;
+  fileHash?: string;
+  extractedText?: string;
+  parsedData?: Record<string, unknown>;
+  createdAt?: Date;
+  updatedAt?: Date;
+  [key: string]: unknown;
+}
+
+const inMemoryProfiles = new Map<string, ProfileRecord>();
+const inMemoryResumes: ResumeRecord[] = [];
 
 export const profileRepository = {
-  async findByUserId(userId) {
+  async findByUserId(userId: string | mongoose.Types.ObjectId): Promise<ProfileRecord | null> {
     const uid = userId.toString();
     if (isMongoReady()) {
-      return Profile.findOne({ userId }).lean();
+      return (await Profile.findOne({ userId }).lean()) as unknown as ProfileRecord | null;
     }
     return inMemoryProfiles.get(uid) || null;
   },
 
-  async upsertProfile(userId, profileData) {
+  async upsertProfile(userId: string | mongoose.Types.ObjectId, profileData: Partial<ProfileRecord>): Promise<ProfileRecord> {
     const uid = userId.toString();
-    const updateData = { ...profileData };
+    const updateData: Partial<ProfileRecord> = { ...profileData };
     // An extractor that finds no role entries must not erase previously
     // source-grounded role history. Explicit profile editing can still clear it.
     if (Array.isArray(updateData.roles) && updateData.roles.length === 0) delete updateData.roles;
     if (isMongoReady()) {
-      const existingDoc = await Profile.findOne({ userId })
+      const existingDoc = (await Profile.findOne({ userId })
         .select("skills roles preferences careerProfile")
-        .lean();
+        .lean()) as unknown as Partial<ProfileRecord> | null;
       const mergedForIndex = { ...(existingDoc || {}), ...updateData };
       const { matchTokens, matchCountryCodes } = buildProfileMatchIndex(mergedForIndex);
-      return Profile.findOneAndUpdate(
+      return (await Profile.findOneAndUpdate(
         { userId },
         {
           $set: {
@@ -40,13 +66,13 @@ export const profileRepository = {
           $inc: { version: 1 },
         },
         { upsert: true, new: true },
-      ).lean();
+      ).lean()) as unknown as ProfileRecord;
     }
 
     const existing = inMemoryProfiles.get(uid);
     const merged = { ...(existing || {}), ...updateData };
     const { matchTokens, matchCountryCodes } = buildProfileMatchIndex(merged);
-    const updated = {
+    const updated: ProfileRecord = {
       _id: existing?._id || new mongoose.Types.ObjectId().toString(),
       userId: uid,
       ...merged,
@@ -59,17 +85,18 @@ export const profileRepository = {
     return updated;
   },
 
-  async createResume(resumeData) {
+  async createResume(resumeData: Partial<ResumeRecord> & { userId: string | mongoose.Types.ObjectId }): Promise<ResumeRecord> {
     if (isMongoReady()) {
       try {
         const resume = new Resume(resumeData);
-        return (await resume.save()).toObject();
-      } catch (error) {
-        if (error?.code !== 11000 || !resumeData.s3Key) throw error;
-        const existing = await Resume.findOne({
+        return (await resume.save()).toObject() as unknown as ResumeRecord;
+      } catch (error: unknown) {
+        const mongoError = error as { code?: number };
+        if (mongoError?.code !== 11000 || !resumeData.s3Key) throw error;
+        const existing = (await Resume.findOne({
           userId: resumeData.userId,
           s3Key: resumeData.s3Key,
-        }).lean();
+        }).lean()) as unknown as ResumeRecord | null;
         if (!existing) throw error;
         return existing;
       }
@@ -80,7 +107,7 @@ export const profileRepository = {
         resume.s3Key === resumeData.s3Key,
     );
     if (existing) return existing;
-    const newResume = {
+    const newResume: ResumeRecord = {
       _id: new mongoose.Types.ObjectId().toString(),
       ...resumeData,
       createdAt: new Date(),
@@ -89,30 +116,36 @@ export const profileRepository = {
     return newResume;
   },
 
-  async findResumesByUserId(userId) {
+  async findResumesByUserId(userId: string | mongoose.Types.ObjectId): Promise<ResumeRecord[]> {
     const uid = userId.toString();
     if (isMongoReady()) {
-      return Resume.find({ userId }).sort({ createdAt: -1 }).lean();
+      return (await Resume.find({ userId }).sort({ createdAt: -1 }).lean()) as unknown as ResumeRecord[];
     }
     return inMemoryResumes.filter((r) => r.userId.toString() === uid);
   },
 
-  async findResumeByIdAndUserId(resumeId, userId) {
+  async findResumeByIdAndUserId(
+    resumeId: string | mongoose.Types.ObjectId,
+    userId: string | mongoose.Types.ObjectId,
+  ): Promise<ResumeRecord | null> {
     if (isMongoReady()) {
-      return Resume.findOne({ _id: resumeId, userId }).lean();
+      return (await Resume.findOne({ _id: resumeId, userId }).lean()) as unknown as ResumeRecord | null;
     }
     return (
       inMemoryResumes.find(
         (resume) =>
-          resume._id.toString() === resumeId.toString() &&
+          resume._id?.toString() === resumeId.toString() &&
           resume.userId.toString() === userId.toString(),
       ) || null
     );
   },
 
-  async findResumeByS3KeyAndUserId(s3Key, userId) {
+  async findResumeByS3KeyAndUserId(
+    s3Key: string,
+    userId: string | mongoose.Types.ObjectId,
+  ): Promise<ResumeRecord | null> {
     if (isMongoReady()) {
-      return Resume.findOne({ s3Key, userId }).lean();
+      return (await Resume.findOne({ s3Key, userId }).lean()) as unknown as ResumeRecord | null;
     }
     return (
       inMemoryResumes.find(

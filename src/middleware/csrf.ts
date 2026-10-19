@@ -1,9 +1,10 @@
+import { Request, Response, NextFunction } from "express";
 import { env } from "../config/env.js";
 import { isTrustedWebOrigin } from "../shared/utils/webOrigin.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export function csrfProtection(req, res, next) {
+export function csrfProtection(req: Request, res: Response, next: NextFunction): Response | void {
   // Safe HTTP methods do not alter state
   if (SAFE_METHODS.has(req.method)) {
     return next();
@@ -31,7 +32,7 @@ export function csrfProtection(req, res, next) {
       error: {
         code: "CSRF_DETECTED",
         message: "Cross-site request origin is not allowed.",
-        requestId: req.id || req.headers["x-request-id"] || "req_unknown",
+        requestId: req.id || (req.headers["x-request-id"] as string) || "req_unknown",
       },
     });
   }

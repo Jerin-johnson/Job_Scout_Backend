@@ -1,10 +1,73 @@
+import mongoose from "mongoose";
 import { Application } from "../models/Application.js";
 import { isMongoReady } from "../config/database.js";
 
-const inMemoryApplications = new Map();
+export interface TimelineEntry {
+  status: string;
+  changedAt: Date;
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface ApplicationRecord {
+  _id: string | mongoose.Types.ObjectId;
+  userId: string | mongoose.Types.ObjectId;
+  company?: string;
+  role?: string;
+  status?: string;
+  priority?: string;
+  pinnedAt?: Date | null;
+  archivedAt?: Date | null;
+  archiveReason?: string;
+  source?: string;
+  location?: string;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  notes?: string;
+  lastActivityAt?: Date;
+  nextFollowUpAt?: Date | null;
+  followUpDraft?: {
+    subject?: string;
+    body?: string;
+    status?: string;
+    sentAt?: Date | null;
+    [key: string]: unknown;
+  };
+  reminderEnabled?: boolean;
+  reminderStatus?: string;
+  reminderClaimId?: string;
+  timeline?: TimelineEntry[];
+  createdAt?: Date;
+  updatedAt?: Date;
+  [key: string]: unknown;
+}
+
+export interface ApplicationFilters {
+  stages?: string[];
+  priority?: string;
+  pinned?: boolean;
+  followUp?: "overdue" | "due-soon" | string;
+  stale?: boolean;
+  staleDays?: number;
+  appliedSinceDays?: number;
+  search?: string;
+  sort?: "recent" | "follow-up" | "priority" | "recommended" | string;
+  [key: string]: unknown;
+}
+
+export interface BoardStats {
+  totalActive: number;
+  appliedThisWeek: number;
+  interviews: number;
+  offers: number;
+  responseRate: number;
+  followUpsDue: number;
+}
+
+const inMemoryApplications = new Map<string, ApplicationRecord>();
 let appCounter = 1;
 
-function withApplicationDefaults(application) {
+function withApplicationDefaults(application: ApplicationRecord | null): ApplicationRecord | null {
   if (!application) return application;
   return {
     ...application,
@@ -19,24 +82,48 @@ function withApplicationDefaults(application) {
   };
 }
 
+function sortApplications(applications: ApplicationRecord[], sort: string = "recommended"): ApplicationRecord[] {
+  const weights: Record<string, number> = { high: 3, medium: 2, low: 1 };
+  const activity = (app: ApplicationRecord) =>
+    new Date((app.lastActivityAt || app.updatedAt || app.createdAt || 0) as string | number | Date).getTime();
+  return applications.sort((a, b) => {
+    if (sort === "recent") return activity(b) - activity(a);
+    if (sort === "follow-up")
+      return new Date(a.nextFollowUpAt || Infinity).getTime() - new Date(b.nextFollowUpAt || Infinity).getTime();
+    if (sort === "priority")
+      return (weights[b.priority || "medium"] || 2) - (weights[a.priority || "medium"] || 2);
+    const pin = Number(Boolean(b.pinnedAt)) - Number(Boolean(a.pinnedAt));
+    if (pin) return pin;
+    const priority =
+      (weights[b.priority || "medium"] || 2) - (weights[a.priority || "medium"] || 2);
+    if (priority) return priority;
+    const dueA = a.nextFollowUpAt ? new Date(a.nextFollowUpAt).getTime() : Infinity;
+    const dueB = b.nextFollowUpAt ? new Date(b.nextFollowUpAt).getTime() : Infinity;
+    const due = dueA - dueB;
+    return due || activity(b) - activity(a);
+  });
+}
+
 export const applicationRepository = {
-  async findById(id) {
+  async findById(id: string | mongoose.Types.ObjectId): Promise<ApplicationRecord | null> {
     if (isMongoReady()) {
-      return Application.findById(id).lean();
+      return (await Application.findById(id).lean()) as unknown as ApplicationRecord | null;
     }
-    return inMemoryApplications.get(id) || null;
+    return inMemoryApplications.get(id.toString()) || null;
   },
 
-  async findOwnedById(id, userId) {
-    if (isMongoReady())
-      return withApplicationDefaults(await Application.findOne({ _id: id, userId }).lean());
-    const app = inMemoryApplications.get(id);
+  async findOwnedById(id: string | mongoose.Types.ObjectId, userId: string | mongoose.Types.ObjectId): Promise<ApplicationRecord | null> {
+    if (isMongoReady()) {
+      const doc = (await Application.findOne({ _id: id, userId }).lean()) as unknown as ApplicationRecord | null;
+      return withApplicationDefaults(doc);
+    }
+    const app = inMemoryApplications.get(id.toString());
     return app && app.userId.toString() === userId.toString() ? app : null;
   },
 
-  async findByUserId(userId, filters = {}) {
+  async findByUserId(userId: string | mongoose.Types.ObjectId, filters: ApplicationFilters = {}): Promise<ApplicationRecord[]> {
     const uid = userId.toString();
-    const query = { userId, archivedAt: null };
+    const query: Record<string, unknown> = { userId, archivedAt: null };
     if (filters.stages?.length) query.status = { $in: filters.stages };
     if (filters.priority) query.priority = filters.priority;
     if (filters.pinned === true) query.pinnedAt = { $ne: null };
@@ -46,15 +133,16 @@ export const applicationRepository = {
     if (filters.followUp === "due-soon")
       query.nextFollowUpAt = { $gte: now, $lte: new Date(now.getTime() + 7 * 86400000) };
     if (filters.stale) {
+      const staleDays = filters.staleDays || 14;
       query.$and = [
-        ...(query.$and || []),
+        ...((query.$and as Record<string, unknown>[]) || []),
         { status: "applied" },
         {
           $or: [
-            { lastActivityAt: { $lte: new Date(now.getTime() - filters.staleDays * 86400000) } },
+            { lastActivityAt: { $lte: new Date(now.getTime() - staleDays * 86400000) } },
             {
               lastActivityAt: null,
-              updatedAt: { $lte: new Date(now.getTime() - filters.staleDays * 86400000) },
+              updatedAt: { $lte: new Date(now.getTime() - staleDays * 86400000) },
             },
           ],
         },
@@ -62,7 +150,7 @@ export const applicationRepository = {
     }
     if (filters.appliedSinceDays) {
       query.$and = [
-        ...(query.$and || []),
+        ...((query.$and as Record<string, unknown>[]) || []),
         { status: "applied" },
         {
           timeline: {
@@ -77,7 +165,7 @@ export const applicationRepository = {
     if (filters.search) {
       const escaped = filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       query.$and = [
-        ...(query.$and || []),
+        ...((query.$and as Record<string, unknown>[]) || []),
         {
           $or: [
             { company: { $regex: escaped, $options: "i" } },
@@ -87,7 +175,8 @@ export const applicationRepository = {
       ];
     }
     if (isMongoReady()) {
-      const applications = (await Application.find(query).lean()).map(withApplicationDefaults);
+      const docs = (await Application.find(query).lean()) as unknown as ApplicationRecord[];
+      const applications = docs.map((d) => withApplicationDefaults(d)!);
       return sortApplications(applications, filters.sort);
     }
     let applications = [...inMemoryApplications.values()]
@@ -96,11 +185,11 @@ export const applicationRepository = {
     if (filters.search) {
       const value = filters.search.toLocaleLowerCase();
       applications = applications.filter((app) =>
-        `${app.company} ${app.role}`.toLocaleLowerCase().includes(value),
+        `${app.company || ""} ${app.role || ""}`.toLocaleLowerCase().includes(value),
       );
     }
     if (filters.stages?.length)
-      applications = applications.filter((app) => filters.stages.includes(app.status));
+      applications = applications.filter((app) => filters.stages!.includes(app.status || ""));
     if (filters.priority)
       applications = applications.filter((app) => app.priority === filters.priority);
     if (filters.pinned !== undefined)
@@ -126,19 +215,21 @@ export const applicationRepository = {
           ),
       );
     }
-    if (filters.stale)
+    if (filters.stale) {
+      const staleDays = filters.staleDays || 14;
       applications = applications.filter(
         (app) =>
           app.status === "applied" &&
-          new Date(app.lastActivityAt || app.updatedAt) <=
-            new Date(now.getTime() - filters.staleDays * 86400000),
+          new Date((app.lastActivityAt || app.updatedAt) as string | number | Date) <=
+            new Date(now.getTime() - staleDays * 86400000),
       );
+    }
     return sortApplications(applications, filters.sort);
   },
 
-  async getBoardStats(userId) {
+  async getBoardStats(userId: string | mongoose.Types.ObjectId): Promise<BoardStats> {
     const applications = isMongoReady()
-      ? await Application.find({ userId, archivedAt: null }).lean()
+      ? ((await Application.find({ userId, archivedAt: null }).lean()) as unknown as ApplicationRecord[])
       : [...inMemoryApplications.values()].filter(
           (app) => app.userId.toString() === userId.toString() && !app.archivedAt,
         );
@@ -147,7 +238,7 @@ export const applicationRepository = {
     weekStart.setDate(now.getDate() - 7);
     const applied = applications.filter((app) => app.status === "applied");
     const responses = applications.filter((app) =>
-      ["screening", "interviewing", "offer", "rejected"].includes(app.status),
+      ["screening", "interviewing", "offer", "rejected"].includes(app.status || ""),
     ).length;
     const total = applications.length;
     return {
@@ -166,7 +257,7 @@ export const applicationRepository = {
     };
   },
 
-  async create(data) {
+  async create(data: Partial<ApplicationRecord> & { userId: string | mongoose.Types.ObjectId }): Promise<ApplicationRecord> {
     const uid = data.userId.toString();
     if (isMongoReady()) {
       const app = new Application({
@@ -176,11 +267,11 @@ export const applicationRepository = {
           { status: data.status || "saved", changedAt: new Date(), note: "Application created" },
         ],
       });
-      return (await app.save()).toObject();
+      return (await app.save()).toObject() as unknown as ApplicationRecord;
     }
 
     const id = `app_${appCounter++}_${Date.now()}`;
-    const newApp = {
+    const newApp: ApplicationRecord = {
       _id: id,
       ...data,
       userId: uid,
@@ -213,29 +304,38 @@ export const applicationRepository = {
     return newApp;
   },
 
-  async update(id, updates, { activity = false } = {}) {
+  async update(
+    id: string | mongoose.Types.ObjectId,
+    updates: Partial<ApplicationRecord>,
+    { activity = false }: { activity?: boolean } = {},
+  ): Promise<ApplicationRecord | null> {
     const changes = activity ? { ...updates, lastActivityAt: new Date() } : updates;
+    const idStr = id.toString();
     if (isMongoReady()) {
-      return withApplicationDefaults(
-        await Application.findByIdAndUpdate(id, { $set: changes }, { new: true }).lean(),
-      );
+      const doc = (await Application.findByIdAndUpdate(id, { $set: changes }, { new: true }).lean()) as unknown as ApplicationRecord | null;
+      return withApplicationDefaults(doc);
     }
-    const existing = inMemoryApplications.get(id);
+    const existing = inMemoryApplications.get(idStr);
     if (!existing) return null;
-    const updated = {
+    const updated: ApplicationRecord = {
       ...existing,
       ...changes,
       updatedAt: new Date(),
     };
-    inMemoryApplications.set(id, updated);
+    inMemoryApplications.set(idStr, updated);
     return updated;
   },
 
-  async claimDueReminder(id, dueAt, claimId) {
+  async claimDueReminder(
+    id: string | mongoose.Types.ObjectId,
+    dueAt: Date | string,
+    claimId: string,
+  ): Promise<ApplicationRecord | null> {
     const now = new Date();
     if (new Date(dueAt) > now) return null;
+    const idStr = id.toString();
     if (isMongoReady()) {
-      return Application.findOneAndUpdate(
+      return (await Application.findOneAndUpdate(
         {
           _id: id,
           reminderEnabled: true,
@@ -247,85 +347,65 @@ export const applicationRepository = {
         },
         { $set: { reminderStatus: "processing", reminderClaimId: claimId } },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as ApplicationRecord | null;
     }
-    const app = inMemoryApplications.get(id);
+    const app = inMemoryApplications.get(idStr);
     if (
       !app ||
       !app.reminderEnabled ||
-      !["scheduled", "processing"].includes(app.reminderStatus) ||
+      !["scheduled", "processing"].includes(app.reminderStatus || "") ||
       (app.reminderStatus === "processing" && app.reminderClaimId !== claimId) ||
-      new Date(app.nextFollowUpAt).getTime() !== new Date(dueAt).getTime() ||
+      new Date(app.nextFollowUpAt || 0).getTime() !== new Date(dueAt).getTime() ||
       new Date(dueAt) > now
     )
       return null;
-    const claimed = {
+    const claimed: ApplicationRecord = {
       ...app,
       reminderStatus: "processing",
       reminderClaimId: claimId,
       updatedAt: now,
     };
-    inMemoryApplications.set(id, claimed);
+    inMemoryApplications.set(idStr, claimed);
     return claimed;
   },
 
-  async addTimelineEntry(id, status, note = "") {
+  async addTimelineEntry(id: string | mongoose.Types.ObjectId, status: string, note: string = ""): Promise<ApplicationRecord | null> {
     const activityAt = new Date();
-    const entry = { status, changedAt: activityAt, note };
+    const entry: TimelineEntry = { status, changedAt: activityAt, note };
+    const idStr = id.toString();
     if (isMongoReady()) {
-      return Application.findByIdAndUpdate(
+      return (await Application.findByIdAndUpdate(
         id,
         {
           $set: { status, lastActivityAt: activityAt },
           $push: { timeline: entry },
         },
         { new: true },
-      ).lean();
+      ).lean()) as unknown as ApplicationRecord | null;
     }
-    const existing = inMemoryApplications.get(id);
+    const existing = inMemoryApplications.get(idStr);
     if (!existing) return null;
-    const updated = {
+    const updated: ApplicationRecord = {
       ...existing,
       status,
       lastActivityAt: activityAt,
       timeline: [...(existing.timeline || []), entry],
       updatedAt: new Date(),
     };
-    inMemoryApplications.set(id, updated);
+    inMemoryApplications.set(idStr, updated);
     return updated;
   },
 
-  async delete(id) {
+  async delete(id: string | mongoose.Types.ObjectId): Promise<ApplicationRecord | null> {
+    const idStr = id.toString();
     if (isMongoReady()) {
-      return Application.findByIdAndDelete(id).lean();
+      return (await Application.findByIdAndDelete(id).lean()) as unknown as ApplicationRecord | null;
     }
-    const existing = inMemoryApplications.get(id);
+    const existing = inMemoryApplications.get(idStr);
     if (existing) {
-      inMemoryApplications.delete(id);
+      inMemoryApplications.delete(idStr);
       return existing;
     }
     return null;
   },
 };
-
-function sortApplications(applications, sort = "recommended") {
-  const weights = { high: 3, medium: 2, low: 1 };
-  const activity = (app) =>
-    new Date(app.lastActivityAt || app.updatedAt || app.createdAt || 0).getTime();
-  return applications.sort((a, b) => {
-    if (sort === "recent") return activity(b) - activity(a);
-    if (sort === "follow-up")
-      return new Date(a.nextFollowUpAt || Infinity) - new Date(b.nextFollowUpAt || Infinity);
-    if (sort === "priority")
-      return (weights[b.priority || "medium"] || 2) - (weights[a.priority || "medium"] || 2);
-    const pin = Number(Boolean(b.pinnedAt)) - Number(Boolean(a.pinnedAt));
-    if (pin) return pin;
-    const priority =
-      (weights[b.priority || "medium"] || 2) - (weights[a.priority || "medium"] || 2);
-    if (priority) return priority;
-    const dueA = a.nextFollowUpAt ? new Date(a.nextFollowUpAt).getTime() : Infinity;
-    const dueB = b.nextFollowUpAt ? new Date(b.nextFollowUpAt).getTime() : Infinity;
-    const due = dueA - dueB;
-    return due || activity(b) - activity(a);
-  });
-}

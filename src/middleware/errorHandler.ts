@@ -1,10 +1,21 @@
+import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import * as Sentry from "@sentry/node";
 import { logger } from "../shared/utils/logger.js";
 import { env } from "../config/env.js";
 
-export function errorHandler(err, req, res, _next) {
-  const requestId = req.id || req.headers["x-request-id"] || "req_unknown";
+interface CustomHttpError extends Error {
+  statusCode?: number;
+  code?: string;
+}
+
+export function errorHandler(
+  err: CustomHttpError,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+): Response | void {
+  const requestId = req.id || (req.headers["x-request-id"] as string) || "req_unknown";
   const isInterviewRequest = req.originalUrl?.startsWith("/api/v1/interview/sessions");
 
   // Capture unexpected 5xx errors to Sentry
