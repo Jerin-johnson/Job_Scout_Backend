@@ -6,8 +6,19 @@ Node.js/Express API and BullMQ worker for the JobScout career workspace. The fro
 
 1. Install Node.js 22, MongoDB, and Redis. Copy `.env.example` to `.env` and replace required local placeholders.
 2. Run `npm ci` in this directory and `npm ci` in `../Ai_resume_frontend`.
-3. Run `npm run dev:stack` here to start API (`localhost:4001`), worker, and web (`localhost:3000`).
-4. Run `npm run lint` and `npm test` for static checks and the unit/MongoDB-memory-server test suite.
+3. Development mode (TypeScript via `tsx`):
+   - API Server: `npm run dev` (starts `src/main/server.ts` on `http://localhost:4001`)
+   - Worker Service: `npm run worker:dev` (starts `src/main/worker.ts`)
+   - Full Stack: `npm run dev:stack` (starts API, worker, and frontend)
+4. Production build:
+   - Compile: `npm run build` (compiles to `./dist`)
+   - Run API: `npm start` (runs `dist/src/main/server.js`)
+   - Run Worker: `npm run worker` (runs `dist/src/main/worker.js`)
+5. Verification:
+   - Typecheck: `npm run typecheck`
+   - Test suite: `npm test`
+   - Linting: `npm run lint`
+   - Docs check: `npm run docs:check`
 
 See [AI system documentation](docs/ai/README.md) for implementation details, limits, failure behavior, and target designs. See [local setup](docs/operations/local-setup.md) and [environment variables](docs/operations/environment-variables.md) before configuring integrations. Existing detailed documents under `docs/` are retained; the AI index identifies current verified sources.
 
