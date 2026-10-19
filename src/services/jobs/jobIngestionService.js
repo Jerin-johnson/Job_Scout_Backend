@@ -41,6 +41,11 @@ import {
   resetIngestionShutdown,
   validateRawIngestJob,
 } from "./ingestionResilience.js";
+import {
+  computeSourceTermExpiry,
+  detectRepostSignal,
+  sampleJobsForPoliteLinkCheck,
+} from "./jobRisk.js";
 
 const MAX_DESCRIPTION_CHARS = 24000;
 const MAX_CANDIDATES = 400;
@@ -223,18 +228,21 @@ function cleanNormalizedJob(job, source) {
     job.sourceExpiresAt instanceof Date && !Number.isNaN(job.sourceExpiresAt.getTime())
       ? job.sourceExpiresAt
       : null;
-  const policyExpiry = new Date(
-    (postedAt?.getTime() || now.getTime()) + source.retentionDays * 86400000,
-  );
+  const policyExpiry = computeSourceTermExpiry({
+    postedAt,
+    now,
+    sourceExpiresAt,
+    retentionDays: source.retentionDays,
+  });
   normalized.postedAt = postedAt;
   normalized.postedDateKnown = Boolean(postedAt);
   normalized.firstSeenAt = now;
   normalized.lastSeenAt = now;
   normalized.contentUpdatedAt = now;
   normalized.status = "active";
+  normalized.repostCount = Number(job.repostCount) || 0;
   normalized.sourceExpiresAt = sourceExpiresAt;
-  normalized.expiresAt =
-    sourceExpiresAt && sourceExpiresAt < policyExpiry ? sourceExpiresAt : policyExpiry;
+  normalized.expiresAt = policyExpiry;
   if (
     normalized.compensation?.currency === "USD" &&
     normalized.compensation?.payPeriod === "year"
@@ -795,14 +803,15 @@ export const jobIngestionService = {
         (!source.lastLinkCheckAt ||
           Date.now() - new Date(source.lastLinkCheckAt).getTime() >= 86400000)
       ) {
-        const sample = await Job.find({
+        const rawSample = await Job.find({
           sourceBoard: sourceKey,
           status: { $in: ["active", "stale"] },
         })
           .sort({ sourceCheckedAt: 1, lastSeenAt: 1 })
-          .limit(100)
-          .select("sourceJobId")
+          .limit(150)
+          .select("sourceJobId sourceUrl canonicalUrl sourceCheckedAt lastSeenAt")
           .lean();
+        const sample = sampleJobsForPoliteLinkCheck(rawSample, { maxTotal: 50, maxPerHost: 5 });
         if (!sample.length) {
           await JobSource.updateOne({ key: sourceKey }, { $set: { lastLinkCheckAt: new Date() } });
         } else {
@@ -933,9 +942,29 @@ export const jobIngestionService = {
           const existingDocs =
             isMongoReady() && uniqueJobs.length
               ? await Job.find({ identityKey: { $in: uniqueJobs.map((job) => job.identityKey) } })
-                  .select("identityKey contentHash recordHash firstSeenAt")
+                  .select(
+                    "identityKey groupKey contentHash recordHash firstSeenAt postedAt repostCount",
+                  )
                   .lean()
               : [];
+          const groupKeys = [
+            ...new Set(uniqueJobs.map((job) => job.groupKey).filter(Boolean)),
+          ].slice(0, 500);
+          const groupHistoryDocs =
+            isMongoReady() && groupKeys.length
+              ? await Job.find({
+                  groupKey: { $in: groupKeys },
+                  identityKey: { $nin: uniqueJobs.map((job) => job.identityKey) },
+                })
+                  .select("groupKey firstSeenAt postedAt repostCount")
+                  .sort({ firstSeenAt: -1 })
+                  .limit(500)
+                  .lean()
+              : [];
+          const groupHistoryByKey = new Map();
+          for (const doc of groupHistoryDocs) {
+            if (!groupHistoryByKey.has(doc.groupKey)) groupHistoryByKey.set(doc.groupKey, doc);
+          }
           if (existingDocs.length) {
             const vectors = await JobVector.find({
               jobId: { $in: existingDocs.map((job) => job._id) },
@@ -981,6 +1010,9 @@ export const jobIngestionService = {
             if (existing) updated += 1;
             else created += 1;
             if (existing) job.firstSeenAt = existing.firstSeenAt || job.firstSeenAt;
+            const priorDoc = existing || groupHistoryByKey.get(job.groupKey) || null;
+            const repostSignal = detectRepostSignal(priorDoc, job);
+            job.repostCount = repostSignal.repostCount;
             if (existing?.contentHash === job.contentHash && existing.embedding?.length) {
               job.embedding = existing.embedding;
               job.embeddingMetadata = existing.embeddingMetadata;
@@ -1479,9 +1511,9 @@ export const jobIngestionService = {
         ),
       ].slice(0, 64);
       const safeSelect =
-        "title company location remoteType salaryRange compensation tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt expiresAt structuredLocation eligibility occupationCodes occupation occupationConfidence contentHash features featuresVersion";
+        "title company location remoteType salaryRange compensation tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown firstSeenAt lastSeenAt sourceCheckedAt sourceExpiresAt expiresAt status repostCount structuredLocation eligibility occupationCodes occupation occupationConfidence contentHash features featuresVersion";
       const recentFallbackSelect =
-        "title company location remoteType salaryRange compensation tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown expiresAt structuredLocation eligibility occupation occupationConfidence occupationCodes contentHash features featuresVersion";
+        "title company location remoteType salaryRange compensation tags sourceBoard sourceUrl canonicalUrl sourceJobId postedAt postedDateKnown firstSeenAt lastSeenAt sourceCheckedAt sourceExpiresAt expiresAt status repostCount structuredLocation eligibility occupation occupationConfidence occupationCodes contentHash features featuresVersion";
       const base = { ...filter };
       const existingAnd = Array.isArray(base.$and) ? base.$and : [];
       delete base.$and;
@@ -2128,12 +2160,26 @@ export const jobIngestionService = {
         byRemoteScope: [],
         bySource: [],
         freshness: [],
+        trustAndFreshness: {
+          staleCount: 0,
+          closedCount: 0,
+          olderThan30dCount: 0,
+          olderThan30dShare: 0,
+          possibleRepostCount: 0,
+          possibleRepostShare: 0,
+          ghostRiskCount: 0,
+          ghostRiskShare: 0,
+        },
         unknownEligibilityCount: 0,
         unknownEligibilityShare: 0,
         targetLocations: [],
         targetGaps: [],
       };
-    const active = { status: "active", expiresAt: { $gt: new Date() }, canonicalJobId: null };
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+    const fortyFiveDaysAgo = new Date(now.getTime() - 45 * 86400000);
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 86400000);
+    const active = { status: "active", expiresAt: { $gt: now }, canonicalJobId: null };
     const groupBy = async (field) =>
       Job.aggregate([
         { $match: active },
@@ -2151,9 +2197,14 @@ export const jobIngestionService = {
       byOccupationCountry,
       unclassifiedBySource,
       freshness,
+      staleCount,
+      closedCount,
+      olderThan30dCount,
+      possibleRepostCount,
+      ghostRiskCount,
     ] = await Promise.all([
       Job.countDocuments(active),
-      Job.countDocuments({ status: "active", expiresAt: { $gt: new Date() } }),
+      Job.countDocuments({ status: "active", expiresAt: { $gt: now } }),
       groupBy("occupation"),
       groupBy("structuredLocation.countryCode"),
       groupBy("eligibility.remoteScope"),
@@ -2205,7 +2256,7 @@ export const jobIngestionService = {
             {
               $project: {
                 lastSeenAt: 1,
-                ageMs: { $subtract: [new Date(), { $ifNull: ["$lastSeenAt", new Date(0)] }] },
+                ageMs: { $subtract: [now, { $ifNull: ["$lastSeenAt", new Date(0)] }] },
               },
             },
             {
@@ -2225,6 +2276,40 @@ export const jobIngestionService = {
             },
             { $sort: { _id: 1 } },
           ]).option({ maxTimeMS: 2000 }),
+      Job.countDocuments({ status: "stale" }),
+      Job.countDocuments({ status: "closed" }),
+      Job.countDocuments({ ...active, postedAt: { $lte: thirtyDaysAgo } }),
+      Job.countDocuments({
+        ...active,
+        $or: [
+          { repostCount: { $gte: 1 } },
+          {
+            $expr: {
+              $gte: [
+                {
+                  $subtract: [
+                    { $ifNull: ["$postedAt", new Date(0)] },
+                    { $ifNull: ["$firstSeenAt", new Date()] },
+                  ],
+                },
+                7 * 86400000,
+              ],
+            },
+          },
+        ],
+      }),
+      Job.countDocuments({
+        ...active,
+        $or: [
+          { postedAt: { $lte: fortyFiveDaysAgo } },
+          { firstSeenAt: { $lte: fortyFiveDaysAgo } },
+          { repostCount: { $gte: 2 } },
+          {
+            repostCount: { $gte: 1 },
+            lastSeenAt: { $lte: fourteenDaysAgo },
+          },
+        ],
+      }),
     ]);
     const targetGaps = profile
       ? []
@@ -2273,6 +2358,8 @@ export const jobIngestionService = {
         }),
       })),
     );
+    const shareOfActive = (count) =>
+      totalActive ? Number((Number(count || 0) / totalActive).toFixed(4)) : 0;
     return {
       totalActive,
       rawActive,
@@ -2281,10 +2368,18 @@ export const jobIngestionService = {
       byRemoteScope,
       bySource,
       freshness,
+      trustAndFreshness: {
+        staleCount,
+        closedCount,
+        olderThan30dCount,
+        olderThan30dShare: shareOfActive(olderThan30dCount),
+        possibleRepostCount,
+        possibleRepostShare: shareOfActive(possibleRepostCount),
+        ghostRiskCount,
+        ghostRiskShare: shareOfActive(ghostRiskCount),
+      },
       unknownEligibilityCount,
-      unknownEligibilityShare: totalActive
-        ? Number((unknownEligibilityCount / totalActive).toFixed(4))
-        : 0,
+      unknownEligibilityShare: shareOfActive(unknownEligibilityCount),
       byOccupationCountry,
       unclassifiedBySource: unclassifiedBySource.map((item) => ({
         ...item,

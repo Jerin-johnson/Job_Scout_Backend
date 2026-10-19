@@ -142,3 +142,9 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Added `src/services/jobs/ingestionResilience.js` (`INGESTION_ALERT_THRESHOLDS`, `computeRetryBackoffMs`, `computeCircuitOpenUntil`, `validateRawIngestJob`, `buildDeadLetterEntry`, `appendDeadLetters`, `evaluateSourceHealthAlerts`, `requestIngestionShutdown`, `resetIngestionShutdown`, `isIngestionShuttingDown`).
 - Wired per-record dead-letter isolation (`JobSource.deadLetters` and `metrics.deadLettered`), exponential circuit breaker cooldown, batch-completing graceful shutdown with checkpoint persistence and idempotent restart, and admin health/alert reporting into `jobIngestionService.js`, `baseAdapter.js`, `JobSource.js`, and `src/worker.js`.
 - Verified with 27/27 passing tests in `tests/jobs-ingestion-resilience.test.js` and `tests/jobs-catalog.mongo.integration.test.js`.
+
+## Task A (`feat/jobs-production`) — Item 5 Freshness and trust — 2026-10-19
+
+- Extended `src/services/jobs/jobRisk.js` with `detectRepostSignal`, `classifyLinkHealthStatus`, `sampleJobsForPoliteLinkCheck`, `computeSourceTermExpiry`, and non-defamatory risk flags (`ghost_listing_risk`, `broken_or_expired_link`, `possible_repost`, `older_listing`).
+- Added `repostCount` to `Job`, wired polite host-bounded link check sampling (`maxTotal: 50, maxPerHost: 5`), repost detection, source-term expiry, and `trustAndFreshness` coverage metrics into `jobIngestionService.js`.
+- Measured local catalog (570 active jobs): `staleCount: 0`, `closedCount: 0`, `olderThan30dCount: 61` (`10.70%`), `possibleRepostCount: 0` (`0%`), `ghostRiskCount: 46` (`8.07%`). Verified with 11/11 passing tests in `tests/jobs-presentation-services.test.js`.

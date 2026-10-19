@@ -113,6 +113,7 @@ const JobSchema = new mongoose.Schema(
       ),
     ],
     status: { type: String, enum: ["active", "stale", "closed"], default: "active", index: true },
+    repostCount: { type: Number, default: 0, min: 0 },
     firstSeenAt: { type: Date, default: Date.now, index: true },
     lastSeenAt: { type: Date, default: Date.now, index: true },
     sourceExpiresAt: { type: Date, default: null },

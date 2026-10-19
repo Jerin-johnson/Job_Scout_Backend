@@ -143,3 +143,17 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
     - `QUOTA_NEAR_EXHAUSTION` (`warning` at >= 90% of daily request budget)
     - `DEAD_LETTER_SPIKE` (`warning` at >= 10 dead-lettered records)
     - `STALE_LAST_SUCCESS` (`warning` when `now - lastSuccessAt > max(48h, 2 * intervalMs)`)
+
+## 6. Freshness, Trust & Ghost/Repost Detection (`src/services/jobs/jobRisk.js`)
+
+- **Source-Term Expiry**: `computeSourceTermExpiry({ postedAt, firstSeenAt, now, retentionDays, sourceExpiresAt })` enforces the earlier of `sourceExpiresAt` and `anchor + retentionDays` so stale postings never outlive source policy retention windows.
+- **Polite Host-Bounded Link Health Sampling**: `sampleJobsForPoliteLinkCheck(jobs, { maxTotal: 50, maxPerHost: 5 })` orders active/stale listings by oldest `sourceCheckedAt` (then `lastSeenAt`) while capping per-host checks so no employer domain or ATS host is hammered during link health sweeps. `classifyLinkHealthStatus` maps HTTP `404`/`410` and explicit closed-job page markers to `closed`.
+- **Repost & Ghost Listing Detection**:
+  - `detectRepostSignal(existingJob, incomingJob)` increments `Job.repostCount` when a closed/stale listing reactivates or when `postedAt` jumps forward by `>= 7 days` for the same identity or `groupKey`.
+  - `getJobRiskFlags(job)` emits explainable, non-defamatory reason codes (`older_listing`, `possible_repost`, `ghost_listing_risk`, `broken_or_expired_link`, `fees_requested`, `messaging_app_only`, `free_email_contact`, `salary_unusually_high`, `company_unclear`).
+- **Measured Local Catalog Trust & Freshness Audit (`coverageReport().trustAndFreshness`, 570 active jobs)**:
+  - `staleCount`: `0` (`0.00%`)
+  - `closedCount`: `0` (`0.00%`)
+  - `olderThan30dCount`: `61` (`10.70%` of active catalog)
+  - `possibleRepostCount`: `0` (`0.00%` of active catalog)
+  - `ghostRiskCount`: `46` (`8.07%` of active catalog; listings older than 45 days or reposted across multiple cycles)
