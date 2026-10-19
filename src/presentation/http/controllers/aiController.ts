@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import { routeRequest } from "../../../ai/router.js";
 import {
   userRepository,
@@ -17,48 +17,22 @@ import {
 } from "../../../ai/candidateContext.js";
 import { logger } from "../../../shared/utils/logger.js";
 import { classifyProviderError, providerStatusCode } from "../../../ai/providerErrors.js";
-import { z } from "zod";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import { chatSessionService } from "../../../ai/memory/chatSessionService.js";
 import { confirmChatAction } from "../../../ai/tools/chatTools.js";
 import { runChatAgentTurn } from "../../../ai/graphs/chatGraph.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
+import {
+  chatRequestSchema,
+  streamChatRequestSchema,
+  preferredNameSchema,
+  renameSessionSchema,
+  confirmActionSchema,
+  historyTurnSchema,
+} from "../../../shared/schemas/aiSchemas.js";
 
-export const historyTurnSchema = z
-  .object({
-    role: z.enum(["user", "assistant"]),
-    content: z.string().max(2000),
-  })
-  .strict();
-
-const pageContextSchema = z
-  .object({
-    type: z.string().max(40).optional(),
-    kind: z.string().max(40).optional(),
-    id: z.string().max(120).optional(),
-    label: z.string().max(120).optional(),
-  })
-  .optional();
-
-const chatRequestSchema = z.object({
-  prompt: z.string().trim().min(1, "Prompt cannot be empty").max(2000),
-  threadId: z.string().max(120).optional(),
-  history: z.array(historyTurnSchema).max(6).optional().default([]),
-  pageContext: pageContextSchema,
-  isRetry: z.boolean().optional(),
-});
-
-export const streamChatRequestSchema = chatRequestSchema.extend({
-  modelId: z.string().min(1).max(100).optional(),
-});
-
-const preferredNameSchema = z.object({ preferredName: z.string().trim().max(80) }).strict();
-const renameSessionSchema = z.object({ title: z.string().trim().min(1).max(120) }).strict();
-const confirmActionSchema = z
-  .object({
-    token: z.string().min(10),
-    idempotencyKey: z.string().min(8).max(128),
-  })
-  .strict();
+export { historyTurnSchema, streamChatRequestSchema };
 
 export const CHAT_SYSTEM_PROMPT = `You are JobScout, a warm, direct, concise career copilot. Help the user take practical next steps.
 Use the candidate context below as the user's own profile data. Use their name sparingly. Never claim you cannot access personal data that appears in the context. If a field is missing, say what is missing and give a useful next step. Never invent personal facts, scores, counts, or history.
@@ -97,157 +71,141 @@ interface CustomActionError extends Error {
 }
 
 export const aiController = {
-  async listChatModels(_req: Request, res: Response): Promise<void> {
-    res.status(200).json({ data: { models: listChatModelOptions() } });
-  },
+  listChatModels: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    res.status(200).json(successResponse({ models: listChatModelOptions() }));
+  }),
 
-  async getChatContext(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const context = await getCandidateContext(req.user as unknown as UserLike);
-      return res.status(200).json({
-        data: {
-          greeting: context.card.preferredName
-            ? `Welcome back, ${context.card.preferredName}.`
-            : "Welcome to your career workspace.",
-          card: context.card,
-          suggestions: context.suggestions,
-        },
-      });
-    } catch (err) {
-      return next(err);
+  getChatContext: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const context = await getCandidateContext(req.user as unknown as UserLike);
+    res.status(200).json(
+      successResponse({
+        greeting: context.card.preferredName
+          ? `Welcome back, ${context.card.preferredName}.`
+          : "Welcome to your career workspace.",
+        card: context.card,
+        suggestions: context.suggestions,
+      }),
+    );
+  }),
+
+  updatePreferredName: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const parsed = preferredNameSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json(
+          errorResponse(
+            "VALIDATION_ERROR",
+            "Preferred name must be 80 characters or fewer",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
     }
-  },
+    const user = req.user as UserRecord;
+    const userId = userIdOf(user);
+    await userRepository.update(userId, { preferredName: parsed.data.preferredName });
+    await invalidateCandidateContext(userId);
+    res.status(200).json(successResponse({ preferredName: parsed.data.preferredName }));
+  }),
 
-  async updatePreferredName(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<Response | void> {
-    try {
-      const parsed = preferredNameSchema.safeParse(req.body);
-      if (!parsed.success)
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Preferred name must be 80 characters or fewer",
-            requestId: req.id,
-          },
-        });
-      const user = req.user as UserRecord;
-      const userId = userIdOf(user);
-      await userRepository.update(userId, { preferredName: parsed.data.preferredName });
-      await invalidateCandidateContext(userId);
-      return res.status(200).json({ data: { preferredName: parsed.data.preferredName } });
-    } catch (err) {
-      return next(err);
+  route: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { prompt } = chatRequestSchema.parse(req.body);
+    const user = req.user as UserRecord;
+    const decision = await routeRequest({
+      prompt,
+      user: req.user as unknown as UserLike,
+      contextVersion: user?.profileVersion || 1,
+      requestId: req.id ? String(req.id) : undefined,
+    });
+    res.status(200).json(successResponse({ decision }));
+  }),
+
+  listSessions: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.user as UserRecord;
+    const userId = userIdOf(user);
+    const limit = parseInt(String(req.query.limit || ""), 10) || 30;
+    const sessions = await chatSessionService.listSessions(userId, { limit });
+    res.status(200).json(successResponse({ sessions }));
+  }),
+
+  getSession: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.user as UserRecord;
+    const userId = userIdOf(user);
+    const session = await chatSessionService.getSession(userId, String(req.params.id));
+    if (!session) {
+      res
+        .status(404)
+        .json(
+          errorResponse(
+            "SESSION_NOT_FOUND",
+            "Chat session not found.",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
     }
-  },
+    res.status(200).json(successResponse({ session }));
+  }),
 
-  async route(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const { prompt } = chatRequestSchema.parse(req.body);
-      const user = req.user as UserRecord;
-      const decision = await routeRequest({
-        prompt,
-        user: req.user as unknown as UserLike,
-        contextVersion: user?.profileVersion || 1,
-        requestId: req.id ? String(req.id) : undefined,
-      });
-      res.status(200).json({ data: { decision } });
-    } catch (err) {
-      next(err);
+  renameSession: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const parsed = renameSessionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json(
+          errorResponse(
+            "VALIDATION_ERROR",
+            "Title must be between 1 and 120 characters",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
     }
-  },
-
-  async listSessions(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const user = req.user as UserRecord;
-      const userId = userIdOf(user);
-      const limit = parseInt(String(req.query.limit || ""), 10) || 30;
-      const sessions = await chatSessionService.listSessions(userId, { limit });
-      res.status(200).json({ data: { sessions } });
-    } catch (err) {
-      next(err);
+    const user = req.user as UserRecord;
+    const userId = userIdOf(user);
+    const session = await chatSessionService.renameSession(
+      userId,
+      String(req.params.id),
+      parsed.data.title,
+    );
+    if (!session) {
+      res
+        .status(404)
+        .json(
+          errorResponse(
+            "SESSION_NOT_FOUND",
+            "Chat session not found.",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
     }
-  },
+    res.status(200).json(successResponse({ session }));
+  }),
 
-  async getSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const user = req.user as UserRecord;
-      const userId = userIdOf(user);
-      const session = await chatSessionService.getSession(userId, req.params.id);
-      if (!session) {
-        return res.status(404).json({
-          error: {
-            code: "SESSION_NOT_FOUND",
-            message: "Chat session not found.",
-            requestId: req.id,
-          },
-        });
-      }
-      res.status(200).json({ data: { session } });
-    } catch (err) {
-      next(err);
+  deleteSession: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.user as UserRecord;
+    const userId = userIdOf(user);
+    await chatSessionService.deleteSession(userId, String(req.params.id));
+    res.status(200).json(successResponse({ deleted: true, threadId: req.params.id }));
+  }),
+
+  confirmAction: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const parsed = confirmActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json(
+          errorResponse(
+            "VALIDATION_ERROR",
+            "Token and idempotencyKey (min 8 chars) are required",
+            req.id ? String(req.id) : undefined,
+          ),
+        );
+      return;
     }
-  },
-
-  async renameSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const parsed = renameSessionSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Title must be between 1 and 120 characters",
-            requestId: req.id,
-          },
-        });
-      }
-      const user = req.user as UserRecord;
-      const userId = userIdOf(user);
-      const session = await chatSessionService.renameSession(
-        userId,
-        req.params.id,
-        parsed.data.title,
-      );
-      if (!session) {
-        return res.status(404).json({
-          error: {
-            code: "SESSION_NOT_FOUND",
-            message: "Chat session not found.",
-            requestId: req.id,
-          },
-        });
-      }
-      res.status(200).json({ data: { session } });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async deleteSession(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const user = req.user as UserRecord;
-      const userId = userIdOf(user);
-      await chatSessionService.deleteSession(userId, req.params.id);
-      res.status(200).json({ data: { deleted: true, threadId: req.params.id } });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async confirmAction(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const parsed = confirmActionSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Token and idempotencyKey (min 8 chars) are required",
-            requestId: req.id,
-          },
-        });
-      }
       const result = await (confirmChatAction as (opts: unknown) => Promise<unknown>)({
         user: req.user,
         token: parsed.data.token,
@@ -255,33 +213,43 @@ export const aiController = {
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"] as string | undefined,
       });
-      res.status(200).json({ data: result });
+      res.status(200).json(successResponse(result));
     } catch (err: unknown) {
       const error = err as CustomActionError;
       if (error.statusCode) {
-        return res.status(error.statusCode).json({
-          error: { code: error.code || "ACTION_ERROR", message: error.message, requestId: req.id },
-        });
+        res
+          .status(error.statusCode)
+          .json(
+            errorResponse(
+              error.code || "ACTION_ERROR",
+              error.message,
+              req.id ? String(req.id) : undefined,
+            ),
+          );
+        return;
       }
-      next(err);
+      throw err;
     }
-  },
+  }),
 
-  async streamChat(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+  streamChat: asyncHandler(async (req: Request, res: Response): Promise<void> => {
     let abortController: AbortController | undefined;
     const user = req.user as UserRecord;
     const userId = userIdOf(user);
     try {
       const parsed = streamChatRequestSchema.safeParse(req.body);
-      if (!parsed.success)
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message:
+      if (!parsed.success) {
+        res
+          .status(400)
+          .json(
+            errorResponse(
+              "VALIDATION_ERROR",
               "Invalid chat request. Include a prompt up to 2,000 characters and at most 6 history turns (2,000 characters each).",
-            requestId: req.id,
-          },
-        });
+              req.id ? String(req.id) : undefined,
+            ),
+          );
+        return;
+      }
       const {
         prompt,
         history = [],
@@ -291,13 +259,16 @@ export const aiController = {
         isRetry = false,
       } = parsed.data;
       if (modelId !== AUTO_CHAT_MODEL_ID && !resolveSelectableChatModel(modelId)) {
-        return res.status(400).json({
-          error: {
-            code: "CHAT_MODEL_UNAVAILABLE",
-            message: "That model is unavailable. Choose Auto or an enabled model.",
-            requestId: req.id || "req_unknown",
-          },
-        });
+        res
+          .status(400)
+          .json(
+            errorResponse(
+              "CHAT_MODEL_UNAVAILABLE",
+              "That model is unavailable. Choose Auto or an enabled model.",
+              req.id ? String(req.id) : undefined,
+            ),
+          );
+        return;
       }
       await acceptRequestQuota(req, "chat");
       const decision = await routeRequest({
@@ -311,13 +282,16 @@ export const aiController = {
           ? resolveChatModelForTier(decision?.tier === 2 ? "strong" : "small")
           : resolveSelectableChatModel(modelId);
       if (!selectedModel) {
-        return res.status(400).json({
-          error: {
-            code: "CHAT_MODEL_UNAVAILABLE",
-            message: "That model is unavailable. Choose Auto or an enabled model.",
-            requestId: req.id || "req_unknown",
-          },
-        });
+        res
+          .status(400)
+          .json(
+            errorResponse(
+              "CHAT_MODEL_UNAVAILABLE",
+              "That model is unavailable. Choose Auto or an enabled model.",
+              req.id ? String(req.id) : undefined,
+            ),
+          );
+        return;
       }
       (req as unknown as { chatProvider?: string }).chatProvider = selectedModel.provider;
 
@@ -460,6 +434,7 @@ export const aiController = {
       );
 
       res.end();
+      return;
     } catch (err: unknown) {
       const chatProvider = (req as unknown as { chatProvider?: string }).chatProvider || "";
       const providerFailure = classifyProviderError(err, chatProvider);
@@ -491,13 +466,16 @@ export const aiController = {
           .catch(() => {});
       }
 
-      if (!res.headersSent) return next(err);
+      if (!res.headersSent) {
+        throw err;
+      }
       if (!res.writableEnded) {
         res.write(
-          `event: error\ndata: ${JSON.stringify({ ...providerFailure, requestId: req.id })}\n\n`,
+          `event: error\ndata: ${JSON.stringify({ ...providerFailure, requestId: req.id ? String(req.id) : undefined })}\n\n`,
         );
         res.end();
       }
+      return;
     }
-  },
+  }),
 };

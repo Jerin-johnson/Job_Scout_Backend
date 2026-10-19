@@ -34,3 +34,26 @@ export interface ApiErrorResponse {
 }
 
 export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
+
+export function successResponse<T>(data: T, meta?: ApiPaginationMeta): ApiSuccessResponse<T> {
+  if (meta) {
+    return { data, meta };
+  }
+  return { data };
+}
+
+export function errorResponse(
+  code: string,
+  message: string,
+  requestId: string = "req_unknown",
+  details?: unknown,
+): ApiErrorResponse {
+  return {
+    error: {
+      code,
+      message,
+      requestId,
+      ...(details !== undefined ? { details } : {}),
+    },
+  };
+}

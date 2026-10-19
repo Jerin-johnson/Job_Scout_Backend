@@ -209,6 +209,30 @@ export async function enqueueIncrementalMatchesForNewJobs(
   };
 }
 
+export async function recordLocalMatchRefreshDone(
+  userId: string | mongoose.Types.ObjectId,
+  profileVersion: number,
+  resultCount: number,
+  emptyReason: string = "",
+): Promise<MatchRefreshRecordLike | null> {
+  const refresh = await MatchRefresh.findOneAndUpdate(
+    { userId, profileVersion },
+    {
+      $set: {
+        status: "done",
+        resultCount,
+        emptyReason,
+        completedAt: new Date(),
+        nextAllowedAt: new Date(Date.now() + 30_000),
+        attemptId: `local-${Date.now()}`,
+      },
+      $setOnInsert: { userId, profileVersion },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  ).lean();
+  return refresh as MatchRefreshRecordLike | null;
+}
+
 export async function closeMatchRefreshQueue(): Promise<void> {
   if (queue) {
     await queue.close();
