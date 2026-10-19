@@ -3,7 +3,7 @@ import { logger } from "./shared/utils/logger.js";
 import { initSentry } from "./config/sentry.js";
 import { connectMongo } from "./config/database.js";
 import { getRedisClient, isRedisReady } from "./config/redis.js";
-import { setupGracefulShutdown } from "./config/shutdown.js";
+import { registerShutdownHandler, setupGracefulShutdown } from "./config/shutdown.js";
 import { jobIngestionService } from "./services/jobs/jobIngestionService.js";
 import { emailDigestService } from "./services/emailDigestService.js";
 import { Queue, Worker } from "bullmq";
@@ -221,7 +221,7 @@ async function startWorker() {
 
   logger.info(`JobScout background worker service initialized [${env.NODE_ENV}]`);
 
-  setupGracefulShutdown(null, async () => {
+  registerShutdownHandler(async () => {
     clearInterval(heartbeatTimer);
     if (isRedisReady()) await getRedisClient().del("jobscout:worker:heartbeat").catch(() => {});
     for (const w of activeWorkers) {
@@ -230,6 +230,7 @@ async function startWorker() {
     if (ingestionQueue) await ingestionQueue.close();
     logger.info("All BullMQ workers shut down gracefully");
   });
+  setupGracefulShutdown();
 }
 
 startWorker().catch((err) => {

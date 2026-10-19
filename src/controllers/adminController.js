@@ -47,8 +47,12 @@ export const adminController = {
           { $sort: { "_id.event": 1, count: -1 } },
         ]).option({ maxTimeMS: 1500 }),
       ]);
-      const profiles = await User.countDocuments({ isDeleted: false });
-      return res.json({ data: { ...coverage, interactions: { windowDays: 30, totalUsers: profiles, usersWithZeroEligibleJobs: null, eligibleUserMeasurement: "Not stored; no per-user eligibility counter is currently available.", groups: interactions } } });
+      const [profiles, consentedActorKeys, zeroResultActorKeys] = await Promise.all([
+        User.countDocuments({ isDeleted: false }),
+        InteractionEvent.distinct("actorKey", { createdAt: { $gte: since } }),
+        InteractionEvent.distinct("actorKey", { event: "zero_result", createdAt: { $gte: since } }),
+      ]);
+      return res.json({ data: { ...coverage, interactions: { windowDays: 30, totalUsers: profiles, consentedAnalyticsUsers: consentedActorKeys.length, usersWithZeroEligibleJobs: zeroResultActorKeys.length, eligibleUserMeasurement: "Count of consented pseudonymous users with at least one zero-result event in the 30-day window; not an all-user eligibility census.", groups: interactions } } });
     }
     catch (error) { return next(error); }
   },

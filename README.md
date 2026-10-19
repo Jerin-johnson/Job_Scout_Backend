@@ -14,3 +14,5 @@ See [AI system documentation](docs/ai/README.md) for implementation details, lim
 Git branch and commit conventions: [engineering standards](docs/engineering/standards.md). Hooks are unverified until the owner installs them; see [hooks](docs/engineering/hooks.md) and [local setup](docs/operations/local-setup.md).
 
 Engineering standards and local hooks: [standards](docs/engineering/standards.md), [hooks](docs/engineering/hooks.md), [branch protection](docs/engineering/branch-protection.md).
+
+Beta operations: [production config checklist](docs/operations/production-config-checklist.md), [backup and restore](docs/operations/backup-restore.md), and [hosting options](docs/decisions/hosting.md).

@@ -18,6 +18,8 @@ This is a guarded runbook. Do not point these commands at production until the o
 - Keep source enablement flags off except for approved feeds. ATS company records must be individually admin-approved; Adzuna remains blocked on license.
 - Jobicy and Remotive are disabled by default; never enable Remotive without written redistribution permission. Jobicy's 24/day request ceiling is an application budget (not a published provider quota) and its sync starts must remain at least one hour apart.
 - Job interaction analytics are opt-in only. Verify the UI consent/version, export and account-deletion behavior, and 180-day TTL before enabling event reports.
+- Review [production config](./production-config-checklist.md), verify `/health/live` and `/health/ready`, confirm Sentry redaction, and rehearse [backup/restore](./backup-restore.md) on an isolated local/staging stack.
+- Review feedback retention/export/deletion and admin analytics caveats. Feedback text is not included in admin views.
 
 ## Catalog rollout and guarded database steps
 

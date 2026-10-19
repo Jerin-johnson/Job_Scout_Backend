@@ -20,6 +20,7 @@ import { adminRouter } from "./routes/admin.js";
 import { privacyRouter } from "./routes/privacy.js";
 import { resumeMatchRouter } from "./routes/resumeMatch.js";
 import { isTrustedWebOrigin } from "./shared/utils/webOrigin.js";
+import { feedbackRouter } from "./routes/feedback.js";
 
 export function createApp() {
   const app = express();
@@ -123,6 +124,7 @@ export function createApp() {
   // GDPR / DPDP Privacy & Right-to-be-forgotten routes
   app.use("/api/v1/privacy", privacyRouter);
   app.use("/api/v1/resume-match", resumeMatchRouter);
+  app.use("/api/v1/feedback", feedbackRouter);
 
   // Fallback 404 handler for unknown routes
   app.use((req, res) => {

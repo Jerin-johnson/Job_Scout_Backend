@@ -3,7 +3,8 @@ import { spawnSync } from "node:child_process";
 const mode = process.argv[2] === "release" ? "release" : "push";
 function run(command, args, env = process.env) {
   console.log(`\n> ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { stdio: "inherit", env, shell: process.platform === "win32" });
+  const useShell = process.platform === "win32" && command !== process.execPath;
+  const result = spawnSync(command, args, { stdio: "inherit", env, shell: useShell });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 run("npm", ["run", "lint"]);

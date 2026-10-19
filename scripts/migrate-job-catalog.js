@@ -4,6 +4,7 @@ import { Job } from "../src/models/Job.js";
 import { JobSource } from "../src/models/JobSource.js";
 import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
 import { SOURCE_POLICIES } from "../src/services/jobs/sourcePolicies.js";
+import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 
 const mode = process.argv[2] || "--report";
 const adapter = new BaseJobAdapter({ key: "migration" });
@@ -131,6 +132,7 @@ export async function migrateJobCatalog({ jobModel = Job, batchSize = 500 } = {}
   await ensureCatalogIndex(jobModel, { status: 1, "features.titleTokens": 1, postedAt: -1 }, { name: "job_candidate_title_recent" });
   await ensureCatalogIndex(jobModel, { status: 1, occupationCodes: 1, postedAt: -1 }, { name: "job_candidate_occupation_recent" });
   await ensureCatalogIndex(jobModel, { status: 1, "structuredLocation.eligibleCountryCodes": 1, postedAt: -1 }, { name: "job_candidate_eligible_country_recent" });
+  await bumpCatalogVersion();
   return report;
 }
 

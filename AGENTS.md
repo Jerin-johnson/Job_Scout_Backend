@@ -2,6 +2,16 @@
 
 JobScout is a Node.js 22 / Express backend with a sibling Next.js frontend. The API runs on port 4001, the web app on 3000, and BullMQ background work uses Redis and MongoDB.
 
+## Operating mode (Antigravity single source of truth; do not create GEMINI.md)
+
+- Plan first: produce an implementation plan artifact and a task list; update the task list as you work; end with a walkthrough artifact listing evidence (commands, test output). Proceed without asking unless a stop condition occurs.
+- Hard limits: never run `git push` to any remote; no force operations, no history rewrite, no deploy or publish; databases and Redis must be loopback only; never read, print or copy values from `.env` files; no paid services or signups; no new dependency except the pre-approved ones below (otherwise log the need in `docs/decisions/pending-approvals.md` and use a non-dependency fallback).
+- Pre-approved devDependencies: `husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`.
+- Stop and ask only if: a real secret appears in the repo or history, a non-local write or destructive migration is required, a source's terms forbid a planned use, or a command would reach a hosted service.
+- Commits: Conventional Commits, small, on feature branches. Keep `docs/release/integration-log.md` updated after every step so another agent can resume.
+- UI changes: verify responsive behavior at 375, 768 and 1280px in light and dark themes plus accessibility checks (skip screenshots when instructed by the user for fast execution).
+- Testing standard (`chore/test-foundation` transition): Until `chore/test-foundation` (Vitest, Supertest, MSW, React Testing Library, Playwright) merges, do not write source-text regex tests; write behavior tests; keep pure logic in small functions that are easy to port. After it merges to `development`, rebase and write ALL new tests in the new stack (Supertest with real MongoDB for routes, table-driven Vitest for logic, React Testing Library for components, Playwright for flows, contract tests for every API shape the frontend consumes). Report which test files should be ported first.
+
 ## Directory map
 
 - `src/controllers`, `src/routes`, `src/services`, `src/repositories`: HTTP, validation, business rules, data access.
@@ -36,23 +46,20 @@ JobScout is a Node.js 22 / Express backend with a sibling Next.js frontend. The 
 
 - Tests and lint pass; an AI prompt/scoring change includes evaluation results.
 - Update documentation in the same change. Use “Unverified” where repository evidence is missing.
-- UI changes include responsive screenshots at 375/768/1280px in light and dark themes plus accessibility checks.
+- UI changes include responsive checks at 375/768/1280px in light and dark themes plus accessibility checks.
 - Work in approved phases, pause at review gates, and ask before adding dependencies or infrastructure.
 - If unsure, mark the claim Unverified and ask; do not present target designs as built behavior.
 
-## Graphify-assisted codebase exploration
+## Graphify-assisted codebase exploration (Antigravity workflow)
 
-- For the reusable Graphify-guided exploration, implementation, validation, and review workflow, use `.agents/skills/graphify-development/SKILL.md` when applicable.
-- Before exploring an unfamiliar feature or planning a change across multiple modules, check for the existing Graphify report and query the graph when it is available. Use the installed Graphify skill or commands confirmed by `graphify --help`; do not invent commands or query results.
-- Use graph results to locate relevant files, modules, functions, classes, dependencies, and callers. Treat the graph as a navigation aid, not as authoritative evidence of runtime behavior.
-- Inspect the actual source, configuration, and tests for the relevant components before changing them. Prefer focused graph queries and file searches over repository-wide reading; reuse current summaries instead of repeatedly reading large docs.
-- Use judgment for small isolated changes; do not run an expensive graph operation when it adds no value.
-- Reuse a readable, current graph. If it is missing, unreadable, or clearly stale, use the installed Graphify workflow to update or rebuild it. In Codex, `$graphify .` runs the full workflow and `$graphify . --update` requests an incremental update. The installed CLI also documents `graphify query "<question>" --graph graphify-out/graph.json`, `graphify update .`, and `graphify extract .`; verify syntax with `graphify --help` before use.
-- If Graphify is unavailable, say so and continue with targeted source exploration. Never claim to have consulted a graph that was not usable.
+- For the reusable Graphify-guided exploration, implementation, validation, and review workflow, use `.agents/skills/graphify-development/SKILL.md` and `.agents/rules/graphify.md` (installed via `graphify antigravity install`).
+- Query the graph first: before exploring an unfamiliar feature or planning a change across multiple modules, check `graphify-out/GRAPH_REPORT.md` and query `graphify-out/graph.json` (or the parent `../graphify-out/merged-graph.json` for cross-repo questions) using `graphify query "<question>" --graph graphify-out/graph.json`, `graphify explain "<node>"`, or `graphify path "<A>" "<B>"`.
+- Verify against source: treat graph results as a navigation aid, not authoritative proof of runtime behavior. Inspect actual source files, configuration, OpenAPI contracts, and tests before modifying code.
+- Update after changes: after modifying code or docs, update the repository graph (`graphify update .` or `graphify extract . --code-only`) and refresh the merged parent graph (`graphify merge-graphs AiJob_search_backend/graphify-out/graph.json Ai_resume_frontend/graphify-out/graph.json --out graphify-out/merged-graph.json`). Keep `graphify-out/` ignored and uncommitted.
 
 ## Non-trivial implementation workflow
 
-For non-trivial changes, understand the request, consult Graphify when useful, inspect relevant source and tests, explain the current behavior, identify dependencies and regression risks, and propose a minimal plan. Implement only the approved scope, run relevant tests and quality checks, review the final diff, and report results and remaining risks. Keep this workflow proportionate for simple isolated changes.
+For non-trivial changes, understand the request, consult Graphify first, inspect relevant source and tests, explain the current behavior, identify dependencies and regression risks, and propose a minimal plan. Implement only the approved scope, run relevant tests and quality checks, review the final diff, and report results and remaining risks. Keep this workflow proportionate for simple isolated changes.
 
 ## Token-efficient development
 
@@ -61,12 +68,12 @@ For non-trivial changes, understand the request, consult Graphify when useful, i
 
 ## Git and commit safety
 
-- Never commit automatically unless explicitly requested. Never amend, reset, or rewrite history without explicit authorization.
+- Never amend, reset, or rewrite history without explicit authorization.
 - Inspect Git status before staging and stage only intended files. Exclude credentials, secrets, local environment files, generated caches, and unintended Graphify artifacts from commits.
-- Review the staged diff before committing. Run relevant tests and checks before recommending a commit, and report failed or skipped checks honestly. Never claim an unrun test passed.
+- Review the staged diff before committing. Run relevant tests and checks before committing, and report failed or skipped checks honestly. Never claim an unrun test passed.
 
 ## Git and engineering standards
 
-- Follow `docs/engineering/standards.md`; use conventional commit messages and merge branches with the documented branch model.
+- Follow `docs/engineering/standards.md` and `docs/engineering/parallel-work.md`; use conventional commit messages and merge branches with the documented branch model.
 - Tests and smoke are loopback-only; use `tests/test-env.js` and never load hosted MongoDB or Redis URLs for tests.
-- Hooks are unverified until installed by the repository owner. CI and GitHub rulesets are the actual enforcement layer.
+- Husky hooks (`pre-commit`, `commit-msg`, `pre-push`), lint-staged, and commitlint are installed and enforced alongside CI and GitHub rulesets.
