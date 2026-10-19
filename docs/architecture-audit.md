@@ -141,3 +141,24 @@ The backend operates on Node.js (>=22.0.0) with Express, MongoDB/Mongoose, Redis
   - **Mitigation:** Run worker unit/integration tests and repeat schedule reconciliation tests.
 - **Risk:** Pre-commit hook failures on Windows.
   - **Mitigation:** Test `npx lint-staged` directly using cross-platform syntax.
+
+---
+
+## 8. Audit & Refactoring Execution Outcomes
+
+1. **Presentation Route Consolidation:**
+   - `src/presentation/http/routes/authRoutes.ts` now mounts all auth endpoints (`register`, `login`, `google`, `refresh`, `logout`, `me`).
+   - `src/presentation/http/routes/applicationRoutes.ts` now mounts all application endpoints (`list`, `create`, `getById`, `update`, `updateStatus`, `archive`, `approveFollowUp`, `delete`).
+   - `src/presentation/http/routes/profileRoutes.ts` now mounts all profile & resume endpoints (`resume-upload-url`, `resume-ai-consent`, `career-profile`, `resumes`, `preferences`, `facts`, etc.).
+   - Removed 4 redundant/orphaned route files (`src/routes/auth.ts`, `src/routes/applications.ts`, `src/routes/profile.ts`, `src/routes/index.ts`) after verifying zero external consumers.
+2. **`src/models/` Verification & Disposition:**
+   - Verified that all 32 canonical Mongoose models reside in `src/infrastructure/database/mongoose/models/*Model.ts`.
+   - Audited 109 consumer files across the repository (68 src, 16 tests, 25 operational scripts).
+   - Preserved `src/models/*.ts` as clean 1-line forwarder facades to prevent breaking operational scripts (`compact-job-hot-documents.js`, `ensure-indexes.js`, etc.) and background workers.
+3. **Husky & Lint-Staged Configuration:**
+   - Updated `lint-staged.config.mjs` to include `*.{ts,tsx}`.
+   - Enhanced `.husky/pre-commit` to execute `lint-staged`, `npm run typecheck`, `node scripts/check-architecture.mjs`, and secret scanning.
+4. **Automated Architecture Boundaries & Tests:**
+   - Created `scripts/check-architecture.mjs` to programmatically enforce domain independence, use case abstraction, and zero `any` annotations.
+   - Created `tests/architecture-boundaries.test.js` containing 5 boundary enforcement tests.
+   - Test suite expanded from 260 to 265 tests: **264 passed, 1 skipped, 0 failed**.

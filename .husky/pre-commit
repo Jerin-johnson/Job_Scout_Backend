@@ -1,3 +1,5 @@
 set -e
 npx --no-install lint-staged
+npm run typecheck
+node scripts/check-architecture.mjs
 node scripts/scan-secrets.mjs staged
