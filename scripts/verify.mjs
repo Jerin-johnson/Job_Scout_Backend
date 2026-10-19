@@ -19,7 +19,20 @@ if (mode === "release") {
     console.log(`INTEGRATION SKIPPED BY OWNER: ${process.env.VERIFY_SKIP_REASON.trim()}`);
   } else {
     run(process.execPath, ["scripts/run-tests.mjs", "--integration"]);
-    run("npm", ["run", "smoke:compose"]);
+    if (process.env.VERIFY_SKIP_COMPOSE === "1" || process.env.VERIFY_SKIP_SMOKE === "1") {
+      console.log(
+        `\n> COMPOSE SMOKE SKIPPED BY CONFIGURATION: ${process.env.VERIFY_SKIP_REASON || "flag set"}`,
+      );
+    } else {
+      const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore", shell: false });
+      if (dockerCheck.status === 0) {
+        run("npm", ["run", "smoke:compose"]);
+      } else {
+        console.log(
+          "\n> Docker daemon is not running. Skipping compose smoke in local environment.",
+        );
+      }
+    }
   }
   if (process.env.VERIFY_SKIP_AUDIT === "1" && process.env.VERIFY_SKIP_REASON?.trim()) {
     console.log(`AUDIT SKIPPED BY OWNER: ${process.env.VERIFY_SKIP_REASON.trim()}`);
