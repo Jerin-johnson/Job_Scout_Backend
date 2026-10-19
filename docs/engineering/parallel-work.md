@@ -1,17 +1,17 @@
-# Parallel Workstreams & Worktree Ownership
+# Parallel Workstreams & Branch Ownership
 
-To support concurrent feature development without cross-workstream merge conflicts, JobScout uses dedicated Git worktrees per workstream across both `AiJob_search_backend` and `Ai_resume_frontend`.
+To support feature development without cross-workstream merge conflicts, JobScout uses dedicated Git feature branches inside `AiJob_search_backend` and `Ai_resume_frontend` (no external sibling worktree folders).
 
-## 1. Worktrees and Branches
+## 1. Feature Branches
 
-All workstreams branch from `development` and live in sibling folders next to the primary repositories:
+All workstreams branch from `development` inside `AiJob_search_backend` and `Ai_resume_frontend`:
 
-| Workstream              | Branch                  | Backend Worktree                          | Frontend Worktree                       |
-| ----------------------- | ----------------------- | ----------------------------------------- | --------------------------------------- |
-| Task A: Jobs Production | `feat/jobs-production`  | `../AiJob_search_backend-jobs-production` | `../Ai_resume_frontend-jobs-production` |
-| Task B: Chat Agent      | `feat/chat-agent`       | `../AiJob_search_backend-chat-agent`      | `../Ai_resume_frontend-chat-agent`      |
-| Task C: Product Loop    | `feat/product-loop`     | `../AiJob_search_backend-product-loop`    | `../Ai_resume_frontend-product-loop`    |
-| Test Foundation         | `chore/test-foundation` | Managed on dedicated branch               | Managed on dedicated branch             |
+| Workstream              | Branch                  | Backend Repository                              | Frontend Repository                           |
+| ----------------------- | ----------------------- | ----------------------------------------------- | --------------------------------------------- |
+| Task A: Jobs Production | `feat/jobs-production`  | `AiJob_search_backend` (`feat/jobs-production`) | `Ai_resume_frontend` (`feat/jobs-production`) |
+| Task B: Chat Agent      | `feat/chat-agent`       | `AiJob_search_backend` (`feat/chat-agent`)      | `Ai_resume_frontend` (`feat/chat-agent`)      |
+| Task C: Product Loop    | `feat/product-loop`     | `AiJob_search_backend` (`feat/product-loop`)    | `Ai_resume_frontend` (`feat/product-loop`)    |
+| Test Foundation         | `chore/test-foundation` | Managed on dedicated branch                     | Managed on dedicated branch                   |
 
 ## 2. File-Ownership Rules
 
