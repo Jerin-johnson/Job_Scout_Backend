@@ -144,13 +144,30 @@ graph TD
 - **Tokens:** Centralized injection tokens defined in `src/shared/constants/injectionTokens.ts`:
   ```typescript
   export const TOKENS = {
-    UserRepository: Symbol("IUserRepository"),
-    ProfileRepository: Symbol("IProfileRepository"),
-    ApplicationRepository: Symbol("IApplicationRepository"),
-    PasswordHasher: Symbol("IPasswordHasher"),
-    TokenService: Symbol("ITokenService"),
-    StorageService: Symbol("IStorageService"),
-    EmailService: Symbol("IEmailService"),
+    UserRepository: Symbol.for("IUserRepository"),
+    ProfileRepository: Symbol.for("IProfileRepository"),
+    ResumeRepository: Symbol.for("IResumeRepository"),
+    JobRepository: Symbol.for("IJobRepository"),
+    ApplicationRepository: Symbol.for("IApplicationRepository"),
+    InterviewRepository: Symbol.for("IInterviewRepository"),
+    FeedbackRepository: Symbol.for("IFeedbackRepository"),
+    CatalogVersionRepository: Symbol.for("ICatalogVersionRepository"),
+    SavedSearchRepository: Symbol.for("ISavedSearchRepository"),
+    JobMatchReportRepository: Symbol.for("IJobMatchReportRepository"),
+    AdminRepository: Symbol.for("IAdminRepository"),
+    InteractionEventRepository: Symbol.for("IInteractionEventRepository"),
+    FxRateRepository: Symbol.for("IFxRateRepository"),
+    UsageEventRepository: Symbol.for("IUsageEventRepository"),
+    MatchRefreshRepository: Symbol.for("IMatchRefreshRepository"),
+    TrackedCompanyRepository: Symbol.for("ITrackedCompanyRepository"),
+    DocumentRepository: Symbol.for("IDocumentRepository"),
+    PrivacyRepository: Symbol.for("IPrivacyRepository"),
+    InterviewSessionRepository: Symbol.for("IInterviewSessionRepository"),
+    ResumeMatchReportService: Symbol.for("IResumeMatchReportService"),
+    PasswordHasher: Symbol.for("IPasswordHasher"),
+    TokenService: Symbol.for("ITokenService"),
+    StorageService: Symbol.for("IStorageService"),
+    EmailService: Symbol.for("IEmailService"),
   } as const;
   ```
 - **Constructor Injection:**

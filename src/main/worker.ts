@@ -8,7 +8,7 @@ import {
   registerShutdownHandler,
   setupGracefulShutdown,
 } from "../infrastructure/lifecycle/shutdown.js";
-import { jobIngestionService } from "../infrastructure/database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { emailDigestService } from "../infrastructure/email/emailDigestService.js";
 import { Queue, Worker, Job } from "bullmq";
 import { applicationRepository } from "../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
@@ -21,7 +21,7 @@ import { Profile } from "../infrastructure/database/mongoose/models/ProfileModel
 import {
   enqueueMatchRefreshForUser,
   markMatchRefresh,
-} from "../infrastructure/database/mongoose/services/matchRefreshService.js";
+} from "../infrastructure/database/mongoose/repositories/MongooseMatchRefreshRepository.js";
 import { MATCH_SCORE_VERSION } from "../domain/services/jobs/matching.js";
 import {
   reconcileJobIngestionSchedules,
@@ -29,8 +29,8 @@ import {
   type BullQueueLike,
   type RedisLike,
   type ScheduledSource,
-} from "../infrastructure/database/mongoose/services/repeatScheduleService.js";
-import { refreshReferenceRates } from "../infrastructure/database/mongoose/services/fxRates.js";
+} from "../infrastructure/queue/repeatScheduleService.js";
+import { refreshReferenceRates } from "../infrastructure/database/mongoose/repositories/MongooseFxRateRepository.js";
 
 interface IngestionJobData {
   sourceKey?: string;

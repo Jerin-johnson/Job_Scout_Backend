@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   reconcileJobIngestionSchedules,
   writeWorkerHeartbeat,
-} from "../src/infrastructure/database/mongoose/services/repeatScheduleService.js";
+} from "../src/infrastructure/queue/repeatScheduleService.js";
 
 test("repeat schedule reconciliation upserts enabled sources and removes disabled or stale schedules", async () => {
   const adds = [];

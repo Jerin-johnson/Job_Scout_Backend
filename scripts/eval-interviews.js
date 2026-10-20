@@ -9,7 +9,7 @@ import {
 import {
   InterviewReportContentSchema,
   interviewPromptBlock,
-} from "../src/infrastructure/database/mongoose/services/interviewSessionService.js";
+} from "../src/infrastructure/interview/interviewSessionService.js";
 
 const tier = process.env.MOCK_INTERVIEW_REPORT_TIER || "strong";
 const output = [];

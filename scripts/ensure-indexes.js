@@ -10,7 +10,7 @@ import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js"
 import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
 import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
 import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
-import { dropObsoleteUniqueContentHashIndex } from "../src/infrastructure/database/mongoose/services/jobIndexes.js";
+import { dropObsoleteUniqueContentHashIndex } from "../src/infrastructure/database/mongoose/indexes/jobIndexes.js";
 
 const INDEXED_MODELS = [
   InterviewSession,

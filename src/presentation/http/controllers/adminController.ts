@@ -2,11 +2,11 @@ import { Request, Response } from "express";
 import { getCacheMetrics } from "../../../shared/cache.js";
 import { isMongoReady } from "../../../infrastructure/database/database.js";
 import { isRedisReady } from "../../../infrastructure/cache/redis.js";
-import { jobIngestionService } from "../../../infrastructure/database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../../../infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { PLANS, ROLES } from "../../../shared/constants/plans.js";
 import mongoose from "mongoose";
-import { billingService } from "../../../infrastructure/database/mongoose/services/billingService.js";
-import { adminPersistenceService } from "../../../infrastructure/database/mongoose/services/adminPersistenceService.js";
+import { billingService } from "../../../infrastructure/external-services/billing/billingService.js";
+import { adminPersistenceService } from "../../../infrastructure/database/mongoose/repositories/MongooseAdminRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 import {

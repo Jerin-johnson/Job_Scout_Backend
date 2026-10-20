@@ -9,7 +9,7 @@ import {
   appendBoundedSentJobIds,
   canSendSavedSearchAlert,
   savedSearchService,
-} from "../src/infrastructure/database/mongoose/services/savedSearchService.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseSavedSearchRepository.js";
 import { SavedSearch } from "../src/infrastructure/database/mongoose/models/SavedSearchModel.js";
 import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
 

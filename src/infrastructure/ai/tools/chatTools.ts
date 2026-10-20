@@ -12,7 +12,7 @@ import {
   scheduleApplicationReminder,
   cancelApplicationReminder,
 } from "../../queue/applicationReminderQueue.js";
-import { jobIngestionService } from "../../database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../../external-services/jobs/ingestion/JobIngestionEngine.js";
 import { scoreJobMatch } from "../../../domain/services/jobs/matching.js";
 import {
   classifyEligibility,
@@ -23,8 +23,8 @@ import {
   scoreResumeForJob,
   reportJobHash,
   RESUME_MATCH_SCORE_VERSION,
-} from "../../database/mongoose/services/resumeMatchService.js";
-import { interviewSessionService } from "../../database/mongoose/services/interviewSessionService.js";
+} from "../services/resumeMatchReportService.js";
+import { interviewSessionService } from "../../interview/interviewSessionService.js";
 import { longTermMemory } from "../memory/longTerm.js";
 import { Job } from "../../database/mongoose/models/JobModel.js";
 import { JobDetail } from "../../database/mongoose/models/JobDetailModel.js";

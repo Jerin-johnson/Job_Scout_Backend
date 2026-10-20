@@ -12,13 +12,13 @@ import {
   isSourceActivationAllowed,
   SOURCE_POLICIES,
 } from "../src/domain/services/jobs/sourcePolicies.js";
-import { jobIngestionService } from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { normalizePublicAtsJob } from "../src/infrastructure/external-services/jobs/adapters/publicAtsAdapter.js";
 import { normalizeAdzunaJob } from "../src/infrastructure/external-services/jobs/adapters/adzunaAdapter.js";
 import {
   detectAtsCareersUrl,
   verifyPublicBoard,
-} from "../src/infrastructure/database/mongoose/services/trackedCompanyService.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseTrackedCompanyRepository.js";
 
 test("source identity uses source IDs first, then URL, then normalized company-title-location", () => {
   const adapter = new BaseJobAdapter({ key: "test" });

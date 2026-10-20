@@ -7,7 +7,7 @@ import {
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
 import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
-import { normalizeProvenanceList } from "../src/infrastructure/database/mongoose/services/jobStorage.js";
+import { normalizeProvenanceList } from "../src/infrastructure/database/mongoose/storage/jobStorageCompaction.js";
 
 const host = new URL(env.MONGODB_URI).hostname;
 if (env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(host)) {

@@ -7,7 +7,7 @@ import {
   classifyJobOccupation,
   OCCUPATION_FEATURES_VERSION,
 } from "../src/domain/services/jobs/occupationClassification.js";
-import { bumpCatalogVersion } from "../src/infrastructure/database/mongoose/services/catalogVersion.js";
+import { bumpCatalogVersion } from "../src/infrastructure/database/mongoose/repositories/MongooseCatalogVersionRepository.js";
 
 const apply = process.argv.includes("--apply");
 const batchSizeArg = process.argv.find((arg) => arg.startsWith("--batch-size="));

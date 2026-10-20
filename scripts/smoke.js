@@ -270,8 +270,7 @@ async function run() {
 
   // Step 9: B3 Quotas & Daily Budgets Check
   await recordStep("Quota & Budget Validation (Free Tier limits & blocks)", async () => {
-    const { quotaService } =
-      await import("../src/infrastructure/database/mongoose/services/quotaService.js");
+    const { quotaService } = await import("../src/infrastructure/cache/redisQuotaService.js");
     const mockUser = { id: newSmokeUserId(), plan: "free" };
 
     // Initially quota check should pass
@@ -840,7 +839,7 @@ async function run() {
   // Step 24: B8 Job Ingestion & One-Time Vector Embedding
   await recordStep("Job Ingestion (deduplication & one-time embedding)", async () => {
     const { jobIngestionService } =
-      await import("../src/infrastructure/database/mongoose/services/jobIngestionService.js");
+      await import("../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js");
     let result;
     if (process.env.SMOKE_ALLOW_INGESTION === "true") {
       result = await jobIngestionService.ingestAll();

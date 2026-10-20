@@ -9,7 +9,7 @@ import {
   normalizeProvenanceList,
   projectJobDetail,
   splitJobForStorage,
-} from "../src/infrastructure/database/mongoose/services/jobStorage.js";
+} from "../src/infrastructure/database/mongoose/storage/jobStorageCompaction.js";
 
 test("job storage separates list-safe data, details, and optional vectors", () => {
   const parts = splitJobForStorage({

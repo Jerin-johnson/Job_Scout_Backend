@@ -7,7 +7,7 @@ import {
 } from "../src/infrastructure/database/database.js";
 import { env } from "../src/config/env.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
-import { detectAtsCareersUrl } from "../src/infrastructure/database/mongoose/services/trackedCompanyService.js";
+import { detectAtsCareersUrl } from "../src/infrastructure/database/mongoose/repositories/MongooseTrackedCompanyRepository.js";
 
 const output =
   process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) ||

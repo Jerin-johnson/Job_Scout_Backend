@@ -11,7 +11,7 @@ import {
   requestIngestionShutdown,
   resetIngestionShutdown,
   validateRawIngestJob,
-} from "../src/infrastructure/database/mongoose/services/ingestionResilienceService.js";
+} from "../src/domain/services/jobs/ingestionResilience.js";
 import { BaseJobAdapter } from "../src/infrastructure/external-services/jobs/adapters/baseAdapter.js";
 
 test("computeRetryBackoffMs applies bounded exponential backoff", () => {

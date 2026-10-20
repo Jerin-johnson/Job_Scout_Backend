@@ -45,6 +45,10 @@ const obsoleteDirs = [
   { path: "src/repositories", canonical: "src/infrastructure/database/mongoose/repositories/" },
   { path: "src/services", canonical: "src/domain/services/ and src/infrastructure/" },
   { path: "src/ai", canonical: "src/infrastructure/ai/" },
+  {
+    path: "src/infrastructure/database/mongoose/services",
+    canonical: "src/domain/services/, src/infrastructure/, and src/application/useCases/",
+  },
 ];
 
 for (const obsolete of obsoleteDirs) {

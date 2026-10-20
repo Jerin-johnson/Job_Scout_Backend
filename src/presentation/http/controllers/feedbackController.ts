@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { feedbackInputSchema } from "../../../shared/schemas/feedbackSchemas.js";
-import { feedbackService } from "../../../infrastructure/database/mongoose/services/feedbackService.js";
+import { feedbackService } from "../../../infrastructure/database/mongoose/repositories/MongooseFeedbackRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse } from "../../../shared/types/apiResponse.js";
 

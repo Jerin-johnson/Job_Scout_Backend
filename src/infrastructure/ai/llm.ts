@@ -2,7 +2,7 @@ import CircuitBreaker from "opossum";
 import { env } from "../../config/env.js";
 import { getLLMProvider } from "./providers/index.js";
 import { getChatModelProvider } from "./modelCatalog.js";
-import { quotaService } from "../database/mongoose/services/quotaService.js";
+import { quotaService } from "../cache/redisQuotaService.js";
 import { logger } from "../../shared/utils/logger.js";
 import { PLANS } from "../../shared/constants/plans.js";
 import { invokeWithTransientRetry } from "./providerErrors.js";

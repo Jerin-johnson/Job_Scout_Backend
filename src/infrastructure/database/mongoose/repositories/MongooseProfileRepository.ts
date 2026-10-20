@@ -9,7 +9,15 @@ import { ProfileMapper } from "../mappers/ProfileMapper.js";
 import { ResumeMapper } from "../mappers/ResumeMapper.js";
 import { ResumeModel } from "../models/ResumeModel.js";
 import { isMongoReady } from "../../database.js";
-import { buildProfileMatchIndex } from "../services/incrementalMatching.js";
+import {
+  buildProfileMatchIndex,
+  extractBatchJobDemandIndex,
+  rankAffectedProfilesForNewJobs,
+  INCREMENTAL_MATCH_BUDGET,
+  type JobForDemandIndexLike,
+  type ProfileForIndexLike,
+  type FindAffectedUsersResult,
+} from "../../../../domain/services/jobs/incrementalMatching.js";
 
 @injectable()
 export class MongooseProfileRepository
@@ -344,3 +352,39 @@ export const profileRepository = {
     );
   },
 };
+
+export async function findAffectedUsersForNewJobs(
+  newJobs: JobForDemandIndexLike[] = [],
+  { maxUsers = INCREMENTAL_MATCH_BUDGET.maxUsersPerRun }: { maxUsers?: number } = {},
+): Promise<FindAffectedUsersResult> {
+  const batchIndex = extractBatchJobDemandIndex(newJobs);
+  if (!batchIndex.tokens.length || !isMongoReady()) {
+    return {
+      affectedUsers: [],
+      candidateCount: 0,
+      budgetMaxUsers: maxUsers,
+      batchTokens: batchIndex.tokens,
+    };
+  }
+  const safeMax = Math.max(1, Number(maxUsers) || INCREMENTAL_MATCH_BUDGET.maxUsersPerRun);
+  const fetchCap = Math.min(1000, safeMax * 3);
+  const query = {
+    matchTokens: { $in: batchIndex.tokens },
+  };
+  const candidates = (await ProfileModel.find(query)
+    .sort({ updatedAt: -1 })
+    .limit(fetchCap)
+    .select("userId version updatedAt matchTokens matchCountryCodes")
+    .lean()) as unknown as ProfileForIndexLike[];
+
+  const affectedUsers = rankAffectedProfilesForNewJobs(candidates, batchIndex, {
+    maxUsers: safeMax,
+  });
+
+  return {
+    affectedUsers,
+    candidateCount: candidates.length,
+    budgetMaxUsers: safeMax,
+    batchTokens: batchIndex.tokens,
+  };
+}

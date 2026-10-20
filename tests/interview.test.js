@@ -17,7 +17,7 @@ import {
   interviewPromptBlock,
   localDayKey,
   inferInterviewRoleFamily,
-} from "../src/infrastructure/database/mongoose/services/interviewSessionService.js";
+} from "../src/infrastructure/interview/interviewSessionService.js";
 import { redactPaths } from "../src/shared/utils/logger.js";
 
 test("session repository scope requires both session id and authenticated owner", () => {

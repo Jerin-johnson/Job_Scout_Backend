@@ -3,7 +3,7 @@ import { interviewGraph } from "../../../infrastructure/ai/graphs/interviewGraph
 import { profileRepository } from "../../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import { logger } from "../../../shared/utils/logger.js";
 import { isMongoReady } from "../../../infrastructure/database/database.js";
-import { interviewSessionService } from "../../../infrastructure/database/mongoose/services/interviewSessionService.js";
+import { interviewSessionService } from "../../../infrastructure/interview/interviewSessionService.js";
 import { acceptRequestQuota, requestQuotaIdempotencyKey } from "../middleware/quotaGate.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";

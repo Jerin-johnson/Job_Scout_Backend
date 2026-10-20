@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
-import { jobIngestionService } from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { scoreJobMatch } from "../src/domain/services/jobs/matching.js";
 import { profileApplicantCountries } from "../src/domain/services/jobs/eligibility.js";
 
