@@ -40,6 +40,8 @@ export const TOKENS = {
   LoginUserUseCase: Symbol.for("LoginUserUseCase"),
   GoogleLoginUseCase: Symbol.for("GoogleLoginUseCase"),
   RefreshTokenUseCase: Symbol.for("RefreshTokenUseCase"),
+  VerifyEmailOtpUseCase: Symbol.for("VerifyEmailOtpUseCase"),
+  ResendOtpUseCase: Symbol.for("ResendOtpUseCase"),
 
   // Use Cases - Applications
   GetApplicationsUseCase: Symbol.for("GetApplicationsUseCase"),

@@ -13,7 +13,8 @@ export class UserMapper {
         tokenHash: typeof t.tokenHash === "string" ? t.tokenHash : "",
         familyId: typeof t.familyId === "string" ? t.familyId : "",
         expiresAt: t.expiresAt instanceof Date ? t.expiresAt : new Date(String(t.expiresAt || "")),
-        createdAt: t.createdAt instanceof Date ? t.createdAt : new Date(String(t.createdAt || Date.now())),
+        createdAt:
+          t.createdAt instanceof Date ? t.createdAt : new Date(String(t.createdAt || Date.now())),
       };
     });
 
@@ -29,13 +30,34 @@ export class UserMapper {
       planSource: typeof raw.planSource === "string" ? raw.planSource : "manual",
       planVersion: typeof raw.planVersion === "number" ? raw.planVersion : 1,
       profileVersion: typeof raw.profileVersion === "number" ? raw.profileVersion : 1,
-      failedLoginAttempts: typeof raw.failedLoginAttempts === "number" ? raw.failedLoginAttempts : 0,
-      lockUntil: raw.lockUntil instanceof Date ? raw.lockUntil : raw.lockUntil ? new Date(String(raw.lockUntil)) : null,
+      failedLoginAttempts:
+        typeof raw.failedLoginAttempts === "number" ? raw.failedLoginAttempts : 0,
+      lockUntil:
+        raw.lockUntil instanceof Date
+          ? raw.lockUntil
+          : raw.lockUntil
+            ? new Date(String(raw.lockUntil))
+            : null,
       refreshTokens,
       memoryPaused: Boolean(raw.memoryPaused),
+      isEmailVerified: raw.isEmailVerified !== undefined ? Boolean(raw.isEmailVerified) : true,
+      emailVerificationOtpHash:
+        typeof raw.emailVerificationOtpHash === "string" ? raw.emailVerificationOtpHash : null,
+      emailVerificationOtpExpiresAt:
+        raw.emailVerificationOtpExpiresAt instanceof Date
+          ? raw.emailVerificationOtpExpiresAt
+          : raw.emailVerificationOtpExpiresAt
+            ? new Date(String(raw.emailVerificationOtpExpiresAt))
+            : null,
       isDeleted: Boolean(raw.isDeleted),
-      createdAt: raw.createdAt instanceof Date ? raw.createdAt : new Date(String(raw.createdAt || Date.now())),
-      updatedAt: raw.updatedAt instanceof Date ? raw.updatedAt : new Date(String(raw.updatedAt || Date.now())),
+      createdAt:
+        raw.createdAt instanceof Date
+          ? raw.createdAt
+          : new Date(String(raw.createdAt || Date.now())),
+      updatedAt:
+        raw.updatedAt instanceof Date
+          ? raw.updatedAt
+          : new Date(String(raw.updatedAt || Date.now())),
     };
   }
 

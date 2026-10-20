@@ -54,6 +54,8 @@ import { ResendEmailService } from "../infrastructure/email/ResendEmailService.j
 import { RegisterUserUseCase } from "../application/useCases/auth/RegisterUserUseCase.js";
 import { LoginUserUseCase } from "../application/useCases/auth/LoginUserUseCase.js";
 import { RefreshTokenUseCase } from "../application/useCases/auth/RefreshTokenUseCase.js";
+import { VerifyEmailOtpUseCase } from "../application/useCases/auth/VerifyEmailOtpUseCase.js";
+import { ResendOtpUseCase } from "../application/useCases/auth/ResendOtpUseCase.js";
 import { GetApplicationsUseCase } from "../application/useCases/applications/GetApplicationsUseCase.js";
 import { CreateApplicationUseCase } from "../application/useCases/applications/CreateApplicationUseCase.js";
 import { UpdateApplicationStatusUseCase } from "../application/useCases/applications/UpdateApplicationStatusUseCase.js";
@@ -77,29 +79,25 @@ export interface ITestService {
 @injectable()
 export class MockTestService implements ITestService {
   execute(): string {
-    return "tsyringe_verified";
+    return "mocked";
   }
 }
 
 @injectable()
-export class TestConsumer {
+export class ClientComponent {
   constructor(@inject(TOKENS.TestService) private readonly service: ITestService) {}
-
-  run(): string {
+  getVal(): string {
     return this.service.execute();
   }
-}
-
-export function setupTestContainer(): DependencyContainer {
-  const child = container.createChildContainer();
-  child.register<ITestService>(TOKENS.TestService, { useClass: MockTestService });
-  return child;
 }
 
 export function registerDependencies(
   targetContainer: DependencyContainer = container,
 ): DependencyContainer {
-  // Repositories (Singletons)
+  const child = targetContainer.createChildContainer();
+  child.register<ITestService>(TOKENS.TestService, { useClass: MockTestService });
+
+  // Repositories
   targetContainer.register<IUserRepository>(
     TOKENS.UserRepository,
     {
@@ -227,7 +225,7 @@ export function registerDependencies(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Security & Infrastructure Adapters (Singletons)
+  // Security & Storage & Notifications
   targetContainer.register<IPasswordHasher>(
     TOKENS.PasswordHasher,
     {
@@ -266,6 +264,12 @@ export function registerDependencies(
   });
   targetContainer.register<RefreshTokenUseCase>(TOKENS.RefreshTokenUseCase, {
     useClass: RefreshTokenUseCase,
+  });
+  targetContainer.register<VerifyEmailOtpUseCase>(TOKENS.VerifyEmailOtpUseCase, {
+    useClass: VerifyEmailOtpUseCase,
+  });
+  targetContainer.register<ResendOtpUseCase>(TOKENS.ResendOtpUseCase, {
+    useClass: ResendOtpUseCase,
   });
   targetContainer.register<GetApplicationsUseCase>(TOKENS.GetApplicationsUseCase, {
     useClass: GetApplicationsUseCase,

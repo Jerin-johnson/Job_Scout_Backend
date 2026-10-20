@@ -7,7 +7,10 @@ export abstract class ApplicationError extends Error {
   public abstract readonly code: string;
   public abstract readonly statusCode: number;
 
-  constructor(message: string, public readonly details?: unknown) {
+  constructor(
+    message: string,
+    public readonly details?: unknown,
+  ) {
     super(message);
     Object.setPrototypeOf(this, new.target.prototype);
     this.name = this.constructor.name;
@@ -56,7 +59,7 @@ export class ConflictError extends ApplicationError {
   public readonly code = "CONFLICT";
   public readonly statusCode = 409;
 
-  constructor(message = "Resource conflict", details?: unknown) {
+  constructor(message = "Resource conflict occurred", details?: unknown) {
     super(message, details);
   }
 }
@@ -65,7 +68,7 @@ export class ValidationError extends ApplicationError {
   public readonly code = "VALIDATION_ERROR";
   public readonly statusCode = 400;
 
-  constructor(message = "Invalid request payload", details?: unknown) {
+  constructor(message = "Validation failed", details?: unknown) {
     super(message, details);
   }
 }
@@ -84,6 +87,15 @@ export class QuotaExceededError extends ApplicationError {
   public readonly statusCode = 429;
 
   constructor(message = "Rate limit or quota exceeded", details?: unknown) {
+    super(message, details);
+  }
+}
+
+export class EmailNotVerifiedError extends ApplicationError {
+  public readonly code = "EMAIL_NOT_VERIFIED";
+  public readonly statusCode = 403;
+
+  constructor(message = "Please verify your email address to continue.", details?: unknown) {
     super(message, details);
   }
 }

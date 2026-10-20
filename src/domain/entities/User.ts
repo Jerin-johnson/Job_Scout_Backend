@@ -23,5 +23,8 @@ export interface UserEntity extends IBaseEntity {
   lockUntil: Date | null;
   refreshTokens: IRefreshTokenMeta[];
   memoryPaused: boolean;
+  isEmailVerified: boolean;
+  emailVerificationOtpHash?: string | null;
+  emailVerificationOtpExpiresAt?: Date | null;
   isDeleted: boolean;
 }

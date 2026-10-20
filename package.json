@@ -8,7 +8,7 @@
   },
   "main": "dist/src/main/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "start": "node dist/src/main/server.js",
     "dev": "tsx watch src/main/server.ts",

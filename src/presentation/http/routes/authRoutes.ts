@@ -10,6 +10,8 @@ export function createAuthRouter(): Router {
   const controller = appContainer.resolve(AuthController);
 
   router.post("/register", authLimiter, csrfProtection, controller.register);
+  router.post("/verify-otp", authLimiter, csrfProtection, controller.verifyOtp);
+  router.post("/resend-otp", authLimiter, csrfProtection, controller.resendOtp);
   router.post("/login", authLimiter, csrfProtection, controller.login);
   router.post("/google", authLimiter, csrfProtection, authController.googleAuth as RequestHandler);
   router.post("/refresh", csrfProtection, controller.refresh);

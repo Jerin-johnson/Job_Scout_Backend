@@ -1,20 +1,19 @@
-import { Request, Response, CookieOptions } from "express";
+import { Request, Response, NextFunction, CookieOptions } from "express";
 import { injectable, inject } from "tsyringe";
 import { RegisterUserUseCase } from "../../../application/useCases/auth/RegisterUserUseCase.js";
 import { LoginUserUseCase } from "../../../application/useCases/auth/LoginUserUseCase.js";
 import { RefreshTokenUseCase } from "../../../application/useCases/auth/RefreshTokenUseCase.js";
+import { VerifyEmailOtpUseCase } from "../../../application/useCases/auth/VerifyEmailOtpUseCase.js";
+import { ResendOtpUseCase } from "../../../application/useCases/auth/ResendOtpUseCase.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { env } from "../../../config/env.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
 import { authService } from "../../../infrastructure/security/authService.js";
-import {
-  registerSchema,
-  loginSchema,
-  googleAuthSchema,
-} from "../../../shared/schemas/authSchemas.js";
+import { googleAuthSchema } from "../../../shared/schemas/authSchemas.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
+import { appContainer } from "../../../main/container.js";
 
 const COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
@@ -63,16 +62,24 @@ export class AuthController {
     private readonly loginUseCase: LoginUserUseCase,
     @inject(TOKENS.RefreshTokenUseCase)
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
+    @inject(TOKENS.VerifyEmailOtpUseCase)
+    private readonly verifyEmailOtpUseCase: VerifyEmailOtpUseCase,
+    @inject(TOKENS.ResendOtpUseCase)
+    private readonly resendOtpUseCase: ResendOtpUseCase,
   ) {}
 
   register = asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const session = await this.registerUseCase.execute(req.body);
-    setAuthCookies(res, session.tokens);
-    const authToken = session.tokens.accessToken;
+    const result = await this.registerUseCase.execute(req.body);
+    if (result.tokens) {
+      setAuthCookies(res, result.tokens);
+    }
+    const token = result.tokens?.accessToken;
     res.status(201).json(
       successResponse({
-        user: session.user,
-        accessToken: authToken,
+        user: result.user,
+        requiresVerification: result.requiresVerification,
+        message: result.message,
+        accessToken: token,
       }),
     );
   });
@@ -80,13 +87,31 @@ export class AuthController {
   login = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const session = await this.loginUseCase.execute(req.body);
     setAuthCookies(res, session.tokens);
-    const authToken = session.tokens.accessToken;
+    const token = session.tokens.accessToken;
     res.status(200).json(
       successResponse({
         user: session.user,
-        accessToken: authToken,
+        accessToken: token,
       }),
     );
+  });
+
+  verifyOtp = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const session = await this.verifyEmailOtpUseCase.execute(req.body);
+    setAuthCookies(res, session.tokens);
+    const token = session.tokens.accessToken;
+    res.status(200).json(
+      successResponse({
+        user: session.user,
+        accessToken: token,
+        message: session.message,
+      }),
+    );
+  });
+
+  resendOtp = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const result = await this.resendOtpUseCase.execute(req.body);
+    res.status(200).json(successResponse(result));
   });
 
   refresh = asyncHandler(async (req: Request, res: Response): Promise<void> => {
@@ -103,9 +128,10 @@ export class AuthController {
     });
 
     setAuthCookies(res, tokens);
+    const token = tokens.accessToken;
     res.status(200).json(
       successResponse({
-        accessToken: tokens.accessToken,
+        accessToken: token,
       }),
     );
   });
@@ -121,44 +147,32 @@ export class AuthController {
 }
 
 export const authController = {
-  register: asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const data = registerSchema.parse(req.body);
-    const session = (await authService.register(data)) as SessionResult;
+  register: (req: Request, res: Response, next: NextFunction): void => {
+    void appContainer.resolve(AuthController).register(req, res, next);
+  },
 
-    setAuthCookies(res, session);
-    res.status(201).json(
-      successResponse({
-        user: session.user,
-        accessToken: session.accessToken,
-      }),
-    );
-  }),
+  login: (req: Request, res: Response, next: NextFunction): void => {
+    void appContainer.resolve(AuthController).login(req, res, next);
+  },
 
-  login: asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const data = loginSchema.parse(req.body);
-    const session = (await authService.login({
-      email: data.email,
-      password: data.password,
-    })) as SessionResult;
+  verifyOtp: (req: Request, res: Response, next: NextFunction): void => {
+    void appContainer.resolve(AuthController).verifyOtp(req, res, next);
+  },
 
-    setAuthCookies(res, session);
-    res.status(200).json(
-      successResponse({
-        user: session.user,
-        accessToken: session.accessToken,
-      }),
-    );
-  }),
+  resendOtp: (req: Request, res: Response, next: NextFunction): void => {
+    void appContainer.resolve(AuthController).resendOtp(req, res, next);
+  },
 
   googleAuth: asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const data = googleAuthSchema.parse(req.body);
     const session = (await authService.googleLogin(data.idToken)) as SessionResult;
 
     setAuthCookies(res, session);
+    const token = session.accessToken;
     res.status(200).json(
       successResponse({
         user: session.user,
-        accessToken: session.accessToken,
+        accessToken: token,
       }),
     );
   }),
@@ -184,10 +198,11 @@ export const authController = {
       const session = (await authService.rotateRefreshToken(rawRefreshToken)) as SessionResult;
       setAuthCookies(res, session);
 
+      const token = session.accessToken;
       res.status(200).json(
         successResponse({
           user: session.user,
-          accessToken: session.accessToken,
+          accessToken: token,
         }),
       );
     } catch (err) {

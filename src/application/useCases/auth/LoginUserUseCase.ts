@@ -5,7 +5,11 @@ import { LoginUserInputDTO, LoginUserOutputDTO, loginInputSchema } from "../../d
 import { IUserRepository } from "../../../domain/repositories/IUserRepository.js";
 import { IPasswordHasher } from "../../../domain/security/IPasswordHasher.js";
 import { ITokenService } from "../../../domain/security/ITokenService.js";
-import { UnauthorizedError, BadRequestError, ValidationError, QuotaExceededError } from "../../errors/ApplicationError.js";
+import {
+  UnauthorizedError,
+  ValidationError,
+  EmailNotVerifiedError,
+} from "../../errors/ApplicationError.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 
 function hashToken(token: string): string {
@@ -23,54 +27,45 @@ export class LoginUserUseCase implements IUseCase<LoginUserInputDTO, LoginUserOu
   async execute(input: LoginUserInputDTO): Promise<LoginUserOutputDTO> {
     const parseResult = loginInputSchema.safeParse(input);
     if (!parseResult.success) {
-      throw new ValidationError("Invalid login details", parseResult.error.issues);
+      throw new ValidationError("Invalid login credentials", parseResult.error.issues);
     }
     const { email, password } = parseResult.data;
 
     const user = await this.userRepository.findByEmail(email);
-    if (!user) {
+    if (!user || !user.passwordHash) {
       throw new UnauthorizedError("Invalid email or password");
     }
 
-    if (user.lockUntil && new Date(user.lockUntil) > new Date()) {
-      const minutesRemaining = Math.ceil((new Date(user.lockUntil).getTime() - Date.now()) / 60000);
-      throw new QuotaExceededError(
-        `Account temporarily locked due to repeated failed logins. Try again in ${minutesRemaining} minutes.`,
-      );
-    }
-
-    if (!user.passwordHash) {
-      throw new BadRequestError("Please log in with Google OAuth");
-    }
-
-    const isMatch = await this.passwordHasher.compare(password, user.passwordHash);
-    if (!isMatch) {
-      await this.userRepository.recordFailedLogin(user.id, user.failedLoginAttempts || 0);
+    const isPasswordValid = await this.passwordHasher.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
       throw new UnauthorizedError("Invalid email or password");
     }
 
-    if (user.failedLoginAttempts > 0) {
-      await this.userRepository.resetFailedLogins(user.id);
+    const requireVerification = process.env.REQUIRE_EMAIL_VERIFICATION !== "false";
+    if (requireVerification && user.isEmailVerified === false) {
+      throw new EmailNotVerifiedError("Please verify your email address before signing in.", {
+        email: user.email,
+      });
     }
 
     const familyId = crypto.randomUUID();
-    const generatedAccessToken = this.tokenService.generateAccessToken({
+    const token = this.tokenService.generateAccessToken({
       userId: user.id,
       role: user.role,
       plan: user.plan,
     });
-    const generatedRefreshToken = this.tokenService.generateRefreshToken({
+    const refreshToken = this.tokenService.generateRefreshToken({
       userId: user.id,
       role: user.role,
       plan: user.plan,
       familyId,
     });
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await this.userRepository.addRefreshToken(user.id, {
-      tokenHash: hashToken(generatedRefreshToken),
+      tokenHash: hashToken(refreshToken),
       familyId,
-      expiresAt,
+      expiresAt: refreshExpiresAt,
       createdAt: new Date(),
     });
 
@@ -81,10 +76,11 @@ export class LoginUserUseCase implements IUseCase<LoginUserInputDTO, LoginUserOu
         name: user.name,
         role: user.role,
         plan: user.plan,
+        isEmailVerified: user.isEmailVerified,
       },
       tokens: {
-        accessToken: generatedAccessToken,
-        refreshToken: generatedRefreshToken,
+        accessToken: token,
+        refreshToken,
       },
     };
   }

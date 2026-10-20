@@ -8,4 +8,6 @@ export interface IUserRepository extends IBaseRepository<UserEntity, string> {
   resetFailedLogins(id: string): Promise<UserEntity | null>;
   addRefreshToken(id: string, tokenMeta: IRefreshTokenMeta): Promise<UserEntity | null>;
   revokeTokenFamily(id: string, familyId: string): Promise<UserEntity | null>;
+  setEmailVerificationOtp(id: string, otpHash: string, expiresAt: Date): Promise<UserEntity | null>;
+  verifyEmail(id: string): Promise<UserEntity | null>;
 }
