@@ -8,7 +8,7 @@ import {
   rankAffectedProfilesForNewJobs,
   findAffectedUsersForNewJobs,
 } from "../src/services/jobs/incrementalMatching.js";
-import { Profile } from "../src/models/Profile.js";
+import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
 
 test("buildProfileMatchIndex normalizes skills, target roles, occupation codes, and countries", () => {
   const indexed = buildProfileMatchIndex({

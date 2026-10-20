@@ -10,8 +10,8 @@ import {
   canSendSavedSearchAlert,
   savedSearchService,
 } from "../src/services/jobs/savedSearchService.js";
-import { SavedSearch } from "../src/models/SavedSearch.js";
-import { User } from "../src/models/User.js";
+import { SavedSearch } from "../src/infrastructure/database/mongoose/models/SavedSearchModel.js";
+import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
 
 test("getSavedSearchPlanLimits enforces Free (3), Pro (15), and Premium (50) tier caps", () => {
   assert.deepEqual(getSavedSearchPlanLimits("free"), {

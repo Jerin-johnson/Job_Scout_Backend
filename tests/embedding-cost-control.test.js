@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 
 const { embeddingService } = await import("../src/services/embeddingService.js");
 const { CacheKeys } = await import("../src/shared/cache.js");
-const { Job } = await import("../src/models/Job.js");
+const { Job } = await import("../src/infrastructure/database/mongoose/models/JobModel.js");
 
 test("explicit local mock embeddings return provider, model and dimension metadata", async () => {
   const result = await embeddingService.getEmbeddingWithMetadata("a test query");
@@ -15,12 +15,25 @@ test("explicit local mock embeddings return provider, model and dimension metada
 
 test("embedding cache key changes with provider, model and dimension", () => {
   const base = CacheKeys.embedding("content-hash", "openai", "text-embedding-3-small", 1536);
-  assert.notEqual(base, CacheKeys.embedding("content-hash", "voyage", "voyage-large-2-instruct", 1024));
-  assert.notEqual(base, CacheKeys.embedding("content-hash", "openai", "text-embedding-3-small", 1024));
+  assert.notEqual(
+    base,
+    CacheKeys.embedding("content-hash", "voyage", "voyage-large-2-instruct", 1024),
+  );
+  assert.notEqual(
+    base,
+    CacheKeys.embedding("content-hash", "openai", "text-embedding-3-small", 1024),
+  );
 });
 
 test("legacy job vectors remain without inferred embedding metadata", () => {
-  const legacy = Job.hydrate({ contentHash: "legacy", title: "Role", company: "Company", rawDescription: "Description", sourceBoard: "test", embedding: [0.1, 0.2] });
+  const legacy = Job.hydrate({
+    contentHash: "legacy",
+    title: "Role",
+    company: "Company",
+    rawDescription: "Description",
+    sourceBoard: "test",
+    embedding: [0.1, 0.2],
+  });
   assert.equal(legacy.embeddingMetadata?.provider, undefined);
   assert.equal(legacy.embeddingMetadata?.model, undefined);
   assert.equal(legacy.embeddingMetadata?.dimension, undefined);
@@ -28,6 +41,7 @@ test("legacy job vectors remain without inferred embedding metadata", () => {
 
 test("production rejects mock embeddings even if the mock flag is accidentally enabled", () => {
   const script = `
+    await import('reflect-metadata');
     const { embeddingService } = await import('./src/services/embeddingService.js');
     try {
       await embeddingService.getEmbeddingWithMetadata('private profile text');
@@ -39,13 +53,19 @@ test("production rejects mock embeddings even if the mock flag is accidentally e
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", AI_ALLOW_MOCKS: "true", OPENAI_API_KEY: "dummy_openai_key" },
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      AI_ALLOW_MOCKS: "true",
+      OPENAI_API_KEY: "dummy_openai_key",
+    },
   });
   assert.equal(child.status, 0, child.stderr || child.stdout);
 });
 
 test("embedding calls honor the global AI kill switch", () => {
   const script = `
+    await import('reflect-metadata');
     const { embeddingService } = await import('./src/services/embeddingService.js');
     try {
       await embeddingService.getEmbeddingWithMetadata('test');
@@ -57,13 +77,19 @@ test("embedding calls honor the global AI kill switch", () => {
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", AI_ALLOW_MOCKS: "false", AI_KILL_SWITCH: "true" },
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      AI_ALLOW_MOCKS: "false",
+      AI_KILL_SWITCH: "true",
+    },
   });
   assert.equal(child.status, 0, child.stderr || child.stdout);
 });
 
 test("system embeddings fail closed in production when the shared quota store is unavailable", () => {
   const script = `
+    await import('reflect-metadata');
     const { embeddingService } = await import('./src/services/embeddingService.js');
     try {
       await embeddingService.assertAvailable();
@@ -75,7 +101,12 @@ test("system embeddings fail closed in production when the shared quota store is
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", AI_ALLOW_MOCKS: "false", AI_KILL_SWITCH: "false" },
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      AI_ALLOW_MOCKS: "false",
+      AI_KILL_SWITCH: "false",
+    },
   });
   assert.equal(child.status, 0, child.stderr || child.stdout);
 });

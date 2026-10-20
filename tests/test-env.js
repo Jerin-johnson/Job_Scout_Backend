@@ -1,4 +1,8 @@
+import "reflect-metadata";
 // Lock tests to local services before dotenv/config is imported by application modules.
+if (!process.env.NODE_OPTIONS?.includes("--import tsx")) {
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ""} --import tsx`.trim();
+}
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const composeHosts = new Set(["mongo", "redis"]);
 function requireLoopback(name, fallback) {

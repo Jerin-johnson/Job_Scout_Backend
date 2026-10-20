@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
-import { Job } from "../src/models/Job.js";
-import { JobSource } from "../src/models/JobSource.js";
+import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
+import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
 import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
 import { SOURCE_POLICIES } from "../src/services/jobs/sourcePolicies.js";
 import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
@@ -57,14 +57,19 @@ export function buildMigrationFields(job) {
     firstSeenAt: job.firstSeenAt || job.createdAt || job.postedAt || new Date(),
     lastSeenAt: job.lastSeenAt || job.updatedAt || job.postedAt || new Date(),
     occupationCodes: Array.isArray(job.occupationCodes) ? job.occupationCodes : [],
-    provenance: Array.isArray(job.provenance) && job.provenance.length ? job.provenance : [{
-      source,
-      sourceJobId,
-      canonicalUrl,
-      attributionText: policy?.attributionText || source,
-      attributionUrl: policy?.attributionUrl || canonicalUrl,
-      seenAt: job.lastSeenAt || job.postedAt || new Date(),
-    }],
+    provenance:
+      Array.isArray(job.provenance) && job.provenance.length
+        ? job.provenance
+        : [
+            {
+              source,
+              sourceJobId,
+              canonicalUrl,
+              attributionText: policy?.attributionText || source,
+              attributionUrl: policy?.attributionUrl || canonicalUrl,
+              seenAt: job.lastSeenAt || job.postedAt || new Date(),
+            },
+          ],
   };
   const withIdentity = { ...job, ...migrated };
   migrated.contentHash = adapter.generateContentHash(withIdentity);
@@ -72,7 +77,8 @@ export function buildMigrationFields(job) {
   return migrated;
 }
 
-const migrationProjection = "_id sourceBoard sourceJobId sourceUrl canonicalUrl title company location remoteType structuredLocation salaryRange compensation requirements tags rawDescription sourceExpiresAt status firstSeenAt lastSeenAt occupationCodes provenance createdAt updatedAt postedAt contentHash";
+const migrationProjection =
+  "_id sourceBoard sourceJobId sourceUrl canonicalUrl title company location remoteType structuredLocation salaryRange compensation requirements tags rawDescription sourceExpiresAt status firstSeenAt lastSeenAt occupationCodes provenance createdAt updatedAt postedAt contentHash";
 
 async function ensureCatalogIndex(jobModel, key, options) {
   const indexes = await jobModel.collection.indexes();
@@ -80,8 +86,16 @@ async function ensureCatalogIndex(jobModel, key, options) {
   if (existing && JSON.stringify(existing.key) === JSON.stringify(key)) return;
   if (existing) {
     const backup = jobModel.db.collection(indexBackupCollection);
-    const savedOptions = Object.fromEntries(Object.entries(existing).filter(([name]) => !["v", "key", "name", "ns", "background"].includes(name)));
-    await backup.updateOne({ _id: existing.name }, { $setOnInsert: { key: existing.key, options: savedOptions } }, { upsert: true });
+    const savedOptions = Object.fromEntries(
+      Object.entries(existing).filter(
+        ([name]) => !["v", "key", "name", "ns", "background"].includes(name),
+      ),
+    );
+    await backup.updateOne(
+      { _id: existing.name },
+      { $setOnInsert: { key: existing.key, options: savedOptions } },
+      { upsert: true },
+    );
     await jobModel.collection.dropIndex(existing.name);
   }
   await jobModel.collection.createIndex(key, options);
@@ -106,13 +120,28 @@ export async function inspectJobCatalog({ jobModel = Job } = {}) {
 export async function migrateJobCatalog({ jobModel = Job, batchSize = 500 } = {}) {
   const inspection = await inspectJobCatalog({ jobModel });
   const { identityCollisions: collisionCount } = inspection;
-  if (collisionCount) throw new Error(`Identity collisions found (${collisionCount}). Resolve before applying.`);
+  if (collisionCount)
+    throw new Error(`Identity collisions found (${collisionCount}). Resolve before applying.`);
   let batch = [];
   const backup = jobModel.db.collection(backupCollection);
   const flush = async () => {
     if (!batch.length) return;
-    await backup.bulkWrite(batch.map(({ job }) => ({ updateOne: { filter: { _id: job._id }, update: { $setOnInsert: { contentHash: job.contentHash } }, upsert: true } })), { ordered: true });
-    await jobModel.bulkWrite(batch.map(({ job, fields }) => ({ updateOne: { filter: { _id: job._id }, update: { $set: fields } } })), { ordered: true });
+    await backup.bulkWrite(
+      batch.map(({ job }) => ({
+        updateOne: {
+          filter: { _id: job._id },
+          update: { $setOnInsert: { contentHash: job.contentHash } },
+          upsert: true,
+        },
+      })),
+      { ordered: true },
+    );
+    await jobModel.bulkWrite(
+      batch.map(({ job, fields }) => ({
+        updateOne: { filter: { _id: job._id }, update: { $set: fields } },
+      })),
+      { ordered: true },
+    );
     batch = [];
   };
   for await (const job of jobModel.find({}).select(migrationProjection).lean().cursor()) {
@@ -120,31 +149,103 @@ export async function migrateJobCatalog({ jobModel = Job, batchSize = 500 } = {}
     batch.push({ job, fields });
     if (batch.length >= batchSize) await flush();
   }
-  const report = { ...inspection, indexesToCreate: [migrationIndex, "job_candidate_location_mode", "job_candidate_active_recent", "job_candidate_recent_feed", "job_candidate_occupation", "job_source_coverage", "job_candidate_skills_recent", "job_candidate_title_recent", "job_candidate_occupation_recent", "job_candidate_eligible_country_recent"] };
+  const report = {
+    ...inspection,
+    indexesToCreate: [
+      migrationIndex,
+      "job_candidate_location_mode",
+      "job_candidate_active_recent",
+      "job_candidate_recent_feed",
+      "job_candidate_occupation",
+      "job_source_coverage",
+      "job_candidate_skills_recent",
+      "job_candidate_title_recent",
+      "job_candidate_occupation_recent",
+      "job_candidate_eligible_country_recent",
+    ],
+  };
   await flush();
-  await ensureCatalogIndex(jobModel, { identityKey: 1 }, { unique: true, sparse: true, name: migrationIndex });
-  await ensureCatalogIndex(jobModel, { status: 1, "structuredLocation.countryCode": 1, remoteType: 1, expiresAt: 1, postedAt: -1 }, { name: "job_candidate_location_mode" });
-  await ensureCatalogIndex(jobModel, { status: 1, expiresAt: 1, postedAt: -1 }, { name: "job_candidate_active_recent" });
-  await ensureCatalogIndex(jobModel, { status: 1, sourceBoard: 1, postedAt: -1, _id: 1, expiresAt: 1 }, { name: "job_candidate_recent_feed" });
-  await ensureCatalogIndex(jobModel, { status: 1, expiresAt: 1, occupationCodes: 1, postedAt: -1 }, { name: "job_candidate_occupation" });
-  await ensureCatalogIndex(jobModel, { sourceBoard: 1, status: 1, expiresAt: 1 }, { name: "job_source_coverage" });
-  await ensureCatalogIndex(jobModel, { status: 1, "features.skills": 1, postedAt: -1 }, { name: "job_candidate_skills_recent" });
-  await ensureCatalogIndex(jobModel, { status: 1, "features.titleTokens": 1, postedAt: -1 }, { name: "job_candidate_title_recent" });
-  await ensureCatalogIndex(jobModel, { status: 1, occupationCodes: 1, postedAt: -1 }, { name: "job_candidate_occupation_recent" });
-  await ensureCatalogIndex(jobModel, { status: 1, "structuredLocation.eligibleCountryCodes": 1, postedAt: -1 }, { name: "job_candidate_eligible_country_recent" });
+  await ensureCatalogIndex(
+    jobModel,
+    { identityKey: 1 },
+    { unique: true, sparse: true, name: migrationIndex },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, "structuredLocation.countryCode": 1, remoteType: 1, expiresAt: 1, postedAt: -1 },
+    { name: "job_candidate_location_mode" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, expiresAt: 1, postedAt: -1 },
+    { name: "job_candidate_active_recent" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, sourceBoard: 1, postedAt: -1, _id: 1, expiresAt: 1 },
+    { name: "job_candidate_recent_feed" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, expiresAt: 1, occupationCodes: 1, postedAt: -1 },
+    { name: "job_candidate_occupation" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { sourceBoard: 1, status: 1, expiresAt: 1 },
+    { name: "job_source_coverage" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, "features.skills": 1, postedAt: -1 },
+    { name: "job_candidate_skills_recent" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, "features.titleTokens": 1, postedAt: -1 },
+    { name: "job_candidate_title_recent" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, occupationCodes: 1, postedAt: -1 },
+    { name: "job_candidate_occupation_recent" },
+  );
+  await ensureCatalogIndex(
+    jobModel,
+    { status: 1, "structuredLocation.eligibleCountryCodes": 1, postedAt: -1 },
+    { name: "job_candidate_eligible_country_recent" },
+  );
   await bumpCatalogVersion();
   return report;
 }
 
-export async function rollbackJobCatalog({ jobModel = Job, sourceModel = JobSource, batchSize = 500 } = {}) {
-  await sourceModel.updateMany({ key: { $in: SOURCE_POLICIES.map((item) => item.key) } }, { $set: { enabled: false } });
+export async function rollbackJobCatalog({
+  jobModel = Job,
+  sourceModel = JobSource,
+  batchSize = 500,
+} = {}) {
+  await sourceModel.updateMany(
+    { key: { $in: SOURCE_POLICIES.map((item) => item.key) } },
+    { $set: { enabled: false } },
+  );
   const backup = jobModel.db.collection(backupCollection);
   const hashes = [];
   for await (const entry of backup.find({})) {
     if (!entry.contentHash) continue;
-    const conflict = await jobModel.exists({ _id: { $ne: entry._id }, contentHash: entry.contentHash });
-    if (conflict) throw new Error(`Cannot restore legacy contentHash for ${entry._id}: another record now uses it.`);
-    hashes.push({ updateOne: { filter: { _id: entry._id }, update: { $set: { contentHash: entry.contentHash } } } });
+    const conflict = await jobModel.exists({
+      _id: { $ne: entry._id },
+      contentHash: entry.contentHash,
+    });
+    if (conflict)
+      throw new Error(
+        `Cannot restore legacy contentHash for ${entry._id}: another record now uses it.`,
+      );
+    hashes.push({
+      updateOne: {
+        filter: { _id: entry._id },
+        update: { $set: { contentHash: entry.contentHash } },
+      },
+    });
     if (hashes.length >= batchSize) {
       await jobModel.bulkWrite(hashes.splice(0, hashes.length), { ordered: true });
     }
@@ -168,24 +269,48 @@ async function main() {
   if (mode === "--rollback") {
     const result = await rollbackJobCatalog();
     console.info(JSON.stringify(result));
-    console.info(`Rollback complete. Additive fields and backup collection '${backupCollection}' were retained; existing embeddings were not changed.`);
+    console.info(
+      `Rollback complete. Additive fields and backup collection '${backupCollection}' were retained; existing embeddings were not changed.`,
+    );
     return;
   }
   if (mode !== "--apply") {
-    const report = { ...(await inspectJobCatalog()), indexesToCreate: [migrationIndex, "job_candidate_location_mode", "job_candidate_active_recent", "job_candidate_recent_feed", "job_candidate_occupation", "job_source_coverage", "job_candidate_skills_recent", "job_candidate_title_recent", "job_candidate_occupation_recent", "job_candidate_eligible_country_recent"] };
+    const report = {
+      ...(await inspectJobCatalog()),
+      indexesToCreate: [
+        migrationIndex,
+        "job_candidate_location_mode",
+        "job_candidate_active_recent",
+        "job_candidate_recent_feed",
+        "job_candidate_occupation",
+        "job_source_coverage",
+        "job_candidate_skills_recent",
+        "job_candidate_title_recent",
+        "job_candidate_occupation_recent",
+        "job_candidate_eligible_country_recent",
+      ],
+    };
     console.info(JSON.stringify(report, null, 2));
     return;
   }
   const report = await migrateJobCatalog();
   console.info(JSON.stringify(report, null, 2));
-  console.info("Job catalog migration applied. Existing embeddings were preserved; prior contentHash values are retained in the rollback collection.");
+  console.info(
+    "Job catalog migration applied. Existing embeddings were preserved; prior contentHash values are retained in the rollback collection.",
+  );
 }
 
-if (process.argv[1] && new URL(import.meta.url).pathname.toLowerCase() === new URL(`file:///${process.argv[1].replaceAll("\\", "/")}`).pathname.toLowerCase()) {
-  main().catch((error) => {
-    console.error(`Job catalog migration failed: ${error.message}`);
-    process.exitCode = 1;
-  }).finally(async () => {
-    await mongoose.disconnect();
-  });
+if (
+  process.argv[1] &&
+  new URL(import.meta.url).pathname.toLowerCase() ===
+    new URL(`file:///${process.argv[1].replaceAll("\\", "/")}`).pathname.toLowerCase()
+) {
+  main()
+    .catch((error) => {
+      console.error(`Job catalog migration failed: ${error.message}`);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await mongoose.disconnect();
+    });
 }

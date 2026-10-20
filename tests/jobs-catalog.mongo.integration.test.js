@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { Job } from "../src/models/Job.js";
-import { jobController } from "../src/controllers/jobController.js";
-import { JobSource } from "../src/models/JobSource.js";
-import { JobCatalogVersion } from "../src/models/JobCatalogVersion.js";
-import { Profile } from "../src/models/Profile.js";
+import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
+import { jobController } from "../src/presentation/http/controllers/jobController.js";
+import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
+import { JobCatalogVersion } from "../src/infrastructure/database/mongoose/models/JobCatalogVersionModel.js";
+import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
 import { embeddingService } from "../src/services/embeddingService.js";
 import { bumpCatalogVersion, getCatalogVersion } from "../src/services/jobs/catalogVersion.js";
 import { del, CacheKeys, set } from "../src/shared/cache.js";
@@ -721,12 +721,12 @@ test("catalog counts bypass stale global cache entries after source policy chang
 
 test("discovery graph reads the indexed catalog and contains no ingestion call", async () => {
   const graph = await readFile(
-    new URL("../src/ai/graphs/discoveryGraph.js", import.meta.url),
+    new URL("../src/ai/graphs/discoveryGraph.ts", import.meta.url),
     "utf8",
   );
   assert.match(
     graph,
-    /getCandidateJobs\(\{ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds \}\)/,
+    /getCandidateJobs\(\{\s*profile: matchProfile,\s*limit: 400,\s*excludeJobIds: hiddenJobIds,?\s*\}\)/,
   );
   assert.doesNotMatch(graph, /\.ingestAll\(|\.ingestSource\(/);
 });

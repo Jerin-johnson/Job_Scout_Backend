@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applicationController } from "../src/controllers/applicationController.js";
-import { applicationRepository } from "../src/repositories/applicationRepository.js";
-import { Application } from "../src/models/Application.js";
+import { applicationController } from "../src/presentation/http/controllers/ApplicationController.js";
+import { applicationRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
+import { Application } from "../src/infrastructure/database/mongoose/models/ApplicationModel.js";
 import { applicationReminderTransition } from "../src/services/applicationLifecycle.js";
 
 test("application model adds safe defaults for priority, pinning, archive, and source", () => {

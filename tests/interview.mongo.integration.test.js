@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
-import { User } from "../src/models/User.js";
-import { InterviewMessage } from "../src/models/InterviewMessage.js";
-import { InterviewReport } from "../src/models/InterviewReport.js";
-import { InterviewSession } from "../src/models/InterviewSession.js";
-import { interviewRepository as repo } from "../src/repositories/interviewRepository.js";
+import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
+import { InterviewMessage } from "../src/infrastructure/database/mongoose/models/InterviewMessageModel.js";
+import { InterviewReport } from "../src/infrastructure/database/mongoose/models/InterviewReportModel.js";
+import { InterviewSession } from "../src/infrastructure/database/mongoose/models/InterviewSessionModel.js";
+import { interviewRepository as repo } from "../src/infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
 
 let MongoMemoryServer;
 try {
