@@ -1,12 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractJobFeatures, scoreJobMatch, MATCH_SCORE_VERSION, annualComparableAmount } from "../src/services/jobs/matching.js";
-import { normalizeRoleForMatching, suggestTargetRoleCorrections } from "../src/services/jobs/roleNormalization.js";
+import {
+  extractJobFeatures,
+  scoreJobMatch,
+  MATCH_SCORE_VERSION,
+  annualComparableAmount,
+} from "../src/domain/services/jobs/matching.js";
+import {
+  normalizeRoleForMatching,
+  suggestTargetRoleCorrections,
+} from "../src/domain/services/jobs/roleNormalization.js";
 
 const nurseProfile = {
   skills: ["GNM", "ICU", "BLS", "Patient care", "Nursing"].map((name) => ({ name })),
   roles: [{ title: "Staff Nurse", years: 3 }],
-  preferences: { targetRoles: ["Staff Nurse"], preferredLocations: ["Kochi"], remotePreference: "any" },
+  preferences: {
+    targetRoles: ["Staff Nurse"],
+    preferredLocations: ["Kochi"],
+    remotePreference: "any",
+  },
 };
 
 test("job feature extraction expands clinical aliases and captures experience and licences", () => {
@@ -72,9 +84,13 @@ test("broad software-engineering targets recognize frontend and backend speciali
     preferences: { targetRoles: ["Software Engineer"] },
   };
   const job = {
-    title: "Frontend Engineer", requirements: ["TypeScript", "React", "CSS"],
-    tags: ["TypeScript", "React"], rawDescription: "3 years experience",
-    remoteType: "remote", location: "Remote", locationTier: 2,
+    title: "Frontend Engineer",
+    requirements: ["TypeScript", "React", "CSS"],
+    tags: ["TypeScript", "React"],
+    rawDescription: "3 years experience",
+    remoteType: "remote",
+    location: "Remote",
+    locationTier: 2,
     postedDateKnown: false,
   };
   const score = scoreJobMatch(profile, job);
@@ -84,29 +100,71 @@ test("broad software-engineering targets recognize frontend and backend speciali
 
 test("score bands follow selected version with lexical-v2 as the default", () => {
   assert.equal(MATCH_SCORE_VERSION, "lexical-v2");
-  const low = scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
-    title: "Frontend Engineer", requirements: [], rawDescription: "",
-    location: "Remote", remoteType: "remote", postedDateKnown: false,
-  }, { version: "lexical-v3" });
+  const low = scoreJobMatch(
+    { skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } },
+    {
+      title: "Frontend Engineer",
+      requirements: [],
+      rawDescription: "",
+      location: "Remote",
+      remoteType: "remote",
+      postedDateKnown: false,
+    },
+    { version: "lexical-v3" },
+  );
   assert.ok(low.score < 50);
   assert.equal(low.band, "low");
-  const fair = scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
-    title: "Frontend Engineer", requirements: [], rawDescription: "",
-    location: "Kochi", remoteType: "onsite", postedDateKnown: true, postedAt: new Date(), locationTier: 1,
-  });
+  const fair = scoreJobMatch(
+    { skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } },
+    {
+      title: "Frontend Engineer",
+      requirements: [],
+      rawDescription: "",
+      location: "Kochi",
+      remoteType: "onsite",
+      postedDateKnown: true,
+      postedAt: new Date(),
+      locationTier: 1,
+    },
+  );
   assert.ok(fair.score >= 40);
   assert.equal(fair.band, "fair");
-  assert.equal(scoreJobMatch({ skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } }, {
-    title: "Frontend Engineer", requirements: [], rawDescription: "",
-    location: "Kochi", remoteType: "onsite", postedDateKnown: true, postedAt: new Date(), locationTier: 1,
-  }, { version: "lexical-v3" }).scoreVersion, "lexical-v3");
+  assert.equal(
+    scoreJobMatch(
+      { skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } },
+      {
+        title: "Frontend Engineer",
+        requirements: [],
+        rawDescription: "",
+        location: "Kochi",
+        remoteType: "onsite",
+        postedDateKnown: true,
+        postedAt: new Date(),
+        locationTier: 1,
+      },
+      { version: "lexical-v3" },
+    ).scoreVersion,
+    "lexical-v3",
+  );
 });
 
 test("salary comparison annualizes monthly pay only in the same currency and skips unsupported periods", () => {
-  assert.equal(annualComparableAmount({ amount: 1000, currency: "USD", period: "month" }, "USD"), 12000);
-  assert.equal(annualComparableAmount({ amount: 1000, currency: "INR", period: "month" }, "USD"), null);
-  assert.equal(annualComparableAmount({ amount: 50, currency: "USD", period: "hour" }, "USD"), null);
-  assert.equal(annualComparableAmount({ amount: 50, currency: "USD", period: "unknown" }, "USD"), null);
+  assert.equal(
+    annualComparableAmount({ amount: 1000, currency: "USD", period: "month" }, "USD"),
+    12000,
+  );
+  assert.equal(
+    annualComparableAmount({ amount: 1000, currency: "INR", period: "month" }, "USD"),
+    null,
+  );
+  assert.equal(
+    annualComparableAmount({ amount: 50, currency: "USD", period: "hour" }, "USD"),
+    null,
+  );
+  assert.equal(
+    annualComparableAmount({ amount: 50, currency: "USD", period: "unknown" }, "USD"),
+    null,
+  );
 });
 
 test("a typo-shaped target role suggests, but does not silently persist, the canonical role", () => {
@@ -125,17 +183,29 @@ test("a typo-shaped target role suggests, but does not silently persist, the can
 });
 
 test("resume role facts prefill target-role suggestions only when the preference is missing", () => {
-  const profile = { skills: [], roles: [{ title: "Backend Engineer" }], preferences: { targetRoles: [] } };
+  const profile = {
+    skills: [],
+    roles: [{ title: "Backend Engineer" }],
+    preferences: { targetRoles: [] },
+  };
   assert.equal(suggestTargetRoleCorrections(profile)[0].source, "resume");
-  assert.deepEqual(suggestTargetRoleCorrections(profile)[0].proposedTargetRoles, ["Backend Engineer"]);
-  assert.deepEqual(suggestTargetRoleCorrections({ ...profile, preferences: { targetRoles: ["Accountant"] } }), []);
+  assert.deepEqual(suggestTargetRoleCorrections(profile)[0].proposedTargetRoles, [
+    "Backend Engineer",
+  ]);
+  assert.deepEqual(
+    suggestTargetRoleCorrections({ ...profile, preferences: { targetRoles: ["Accountant"] } }),
+    [],
+  );
 });
 
 test("real-profile-shaped typo, missing role facts, and unmatched location still produce explainable scores", () => {
   const profile = {
     skills: ["JavaScript", "React"].map((name) => ({ name })),
     roles: [],
-    preferences: { targetRoles: ["software engierer"], preferredLocations: ["a free-text place not in the catalog"] },
+    preferences: {
+      targetRoles: ["software engierer"],
+      preferredLocations: ["a free-text place not in the catalog"],
+    },
   };
   const job = {
     title: "Platform Engineer",
@@ -148,21 +218,46 @@ test("real-profile-shaped typo, missing role facts, and unmatched location still
     postedDateKnown: false,
   };
   const score = scoreJobMatch(profile, job, { version: "lexical-v3" });
-  assert.ok(score.score >= 50, `expected a role suggestion to recover the title match, got ${score.score}`);
+  assert.ok(
+    score.score >= 50,
+    `expected a role suggestion to recover the title match, got ${score.score}`,
+  );
   assert.equal(score.band, "fair");
   assert.equal(score.hardBlocked, false);
   const scoreWithoutTypoResolution = Math.round(
-    score.breakdown.skills * 40 + score.breakdown.experience * 15 +
-    score.breakdown.location * 15 + score.breakdown.salary * 5 + score.breakdown.recency * 5,
+    score.breakdown.skills * 40 +
+      score.breakdown.experience * 15 +
+      score.breakdown.location * 15 +
+      score.breakdown.salary * 5 +
+      score.breakdown.recency * 5,
   );
-  assert.ok(scoreWithoutTypoResolution < 50, "the typo-shaped profile would have been hidden by the former title score");
+  assert.ok(
+    scoreWithoutTypoResolution < 50,
+    "the typo-shaped profile would have been hidden by the former title score",
+  );
   assert.ok(score.reasons.length >= 2);
 });
 
 test("eligibility remains explicitly unknown and only a known country exclusion hard-blocks", () => {
-  const profile = { skills: [], roles: [{ title: "Engineer" }], preferences: { preferredCountryCodes: ["IN"] } };
-  const unknown = scoreJobMatch(profile, { title: "Engineer", rawDescription: "", location: "Remote", remoteType: "remote", structuredLocation: { remoteScope: "unknown", eligibleCountryCodes: [] } });
-  const excluded = scoreJobMatch(profile, { title: "Engineer", rawDescription: "", location: "Remote", remoteType: "remote", structuredLocation: { remoteScope: "country", eligibleCountryCodes: ["US"] } });
+  const profile = {
+    skills: [],
+    roles: [{ title: "Engineer" }],
+    preferences: { preferredCountryCodes: ["IN"] },
+  };
+  const unknown = scoreJobMatch(profile, {
+    title: "Engineer",
+    rawDescription: "",
+    location: "Remote",
+    remoteType: "remote",
+    structuredLocation: { remoteScope: "unknown", eligibleCountryCodes: [] },
+  });
+  const excluded = scoreJobMatch(profile, {
+    title: "Engineer",
+    rawDescription: "",
+    location: "Remote",
+    remoteType: "remote",
+    structuredLocation: { remoteScope: "country", eligibleCountryCodes: ["US"] },
+  });
   assert.equal(unknown.eligibility, "unknown");
   assert.equal(unknown.hardBlocked, false);
   assert.equal(excluded.eligibility, "excluded");
@@ -170,15 +265,39 @@ test("eligibility remains explicitly unknown and only a known country exclusion 
 });
 
 test("v4 eligibility contribution is neutral until both the profile country and job eligibility evidence exist", () => {
-  const profileWithoutCountry = { skills: [], roles: [{ title: "Engineer" }], preferences: { targetRoles: ["Engineer"] } };
-  const unknownJob = { title: "Engineer", rawDescription: "", location: "Remote", remoteType: "remote", locationTier: 2, eligibility: { countries: [], remoteScope: "unknown", confidence: 0.2, evidence: "" } };
+  const profileWithoutCountry = {
+    skills: [],
+    roles: [{ title: "Engineer" }],
+    preferences: { targetRoles: ["Engineer"] },
+  };
+  const unknownJob = {
+    title: "Engineer",
+    rawDescription: "",
+    location: "Remote",
+    remoteType: "remote",
+    locationTier: 2,
+    eligibility: { countries: [], remoteScope: "unknown", confidence: 0.2, evidence: "" },
+  };
   const neutral = scoreJobMatch(profileWithoutCountry, unknownJob, { version: "lexical-v4" });
   assert.equal(neutral.breakdown.eligibility, 0);
   assert.equal(neutral.eligibility, "unknown");
-  const profileWithCountry = { ...profileWithoutCountry, preferences: { targetRoles: ["Engineer"], preferredCountryCodes: ["IN"] } };
+  const profileWithCountry = {
+    ...profileWithoutCountry,
+    preferences: { targetRoles: ["Engineer"], preferredCountryCodes: ["IN"] },
+  };
   const noJobEvidence = scoreJobMatch(profileWithCountry, unknownJob, { version: "lexical-v4" });
   assert.equal(noJobEvidence.breakdown.eligibility, 0);
-  const evidenceUnknown = scoreJobMatch(profileWithCountry, { ...unknownJob, eligibility: { ...unknownJob.eligibility, evidence: "Remote, work authorization varies by region" } }, { version: "lexical-v4" });
+  const evidenceUnknown = scoreJobMatch(
+    profileWithCountry,
+    {
+      ...unknownJob,
+      eligibility: {
+        ...unknownJob.eligibility,
+        evidence: "Remote, work authorization varies by region",
+      },
+    },
+    { version: "lexical-v4" },
+  );
   assert.equal(evidenceUnknown.breakdown.eligibility, -2);
 });
 
@@ -201,9 +320,29 @@ test("15 role-family fixtures prefer the matching occupation over an unrelated A
     ["Project Manager", ["Project management"], "Project Manager"],
   ];
   for (const [role, skills, goodTitle] of fixtures) {
-    const profile = { roles: [{ title: role }], skills: skills.map((name) => ({ name })), preferences: { targetRoles: [role] } };
-    const good = scoreJobMatch(profile, { title: goodTitle, requirements: skills, tags: skills, rawDescription: "", remoteType: "remote", location: "Remote", postedDateKnown: false });
-    const unrelated = scoreJobMatch(profile, { title: "AI Trainer", requirements: ["LLM evaluation"], tags: ["machine learning"], rawDescription: "", remoteType: "remote", location: "Remote", postedDateKnown: false });
+    const profile = {
+      roles: [{ title: role }],
+      skills: skills.map((name) => ({ name })),
+      preferences: { targetRoles: [role] },
+    };
+    const good = scoreJobMatch(profile, {
+      title: goodTitle,
+      requirements: skills,
+      tags: skills,
+      rawDescription: "",
+      remoteType: "remote",
+      location: "Remote",
+      postedDateKnown: false,
+    });
+    const unrelated = scoreJobMatch(profile, {
+      title: "AI Trainer",
+      requirements: ["LLM evaluation"],
+      tags: ["machine learning"],
+      rawDescription: "",
+      remoteType: "remote",
+      location: "Remote",
+      postedDateKnown: false,
+    });
     assert.ok(good.score > unrelated.score, `${role} should outrank unrelated AI Trainer`);
   }
 });

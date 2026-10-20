@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reconcileJobIngestionSchedules, writeWorkerHeartbeat } from "../src/services/jobs/repeatSchedule.js";
+import {
+  reconcileJobIngestionSchedules,
+  writeWorkerHeartbeat,
+} from "../src/infrastructure/database/mongoose/services/repeatScheduleService.js";
 
 test("repeat schedule reconciliation upserts enabled sources and removes disabled or stale schedules", async () => {
   const adds = [];
@@ -13,8 +16,12 @@ test("repeat schedule reconciliation upserts enabled sources and removes disable
         { name: "reminder", every: 30000, key: "unrelated" },
       ];
     },
-    async removeRepeatableByKey(key) { removed.push(key); },
-    async add(...args) { adds.push(args); },
+    async removeRepeatableByKey(key) {
+      removed.push(key);
+    },
+    async add(...args) {
+      adds.push(args);
+    },
   };
   const sources = [
     { key: "remotive", enabled: true, approved: true, quota: { intervalMs: 60000 } },
@@ -30,7 +37,11 @@ test("repeat schedule reconciliation upserts enabled sources and removes disable
 
 test("worker heartbeat uses a short TTL and preserves last-seen timestamp", async () => {
   const writes = [];
-  const redis = { async set(...args) { writes.push(args); } };
+  const redis = {
+    async set(...args) {
+      writes.push(args);
+    },
+  };
   const now = new Date("2026-10-16T10:00:00Z");
   await writeWorkerHeartbeat(redis, now, "test-worker");
   assert.deepEqual(writes[0], [

@@ -3,8 +3,8 @@ import { env } from "../src/config/env.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
 import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
-import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
-import { normalizeProvenanceList } from "../src/services/jobs/jobStorage.js";
+import { bumpCatalogVersion } from "../src/infrastructure/database/mongoose/services/catalogVersion.js";
+import { normalizeProvenanceList } from "../src/infrastructure/database/mongoose/services/jobStorage.js";
 
 const mode = process.argv.includes("--apply") ? "apply" : "report";
 const force = process.argv.includes("--force");

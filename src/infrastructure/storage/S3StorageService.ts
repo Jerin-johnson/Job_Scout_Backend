@@ -7,7 +7,7 @@ import {
   IUploadFileOptions,
   IGetFileOptions,
 } from "../../domain/storage/IStorageService.js";
-import { storageService } from "../../services/storageService.js";
+import { storageService } from "./storageService.js";
 
 @injectable()
 export class S3StorageService implements IStorageService {

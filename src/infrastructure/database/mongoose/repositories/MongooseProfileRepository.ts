@@ -8,8 +8,8 @@ import { IProfileRepository } from "../../../../domain/repositories/IProfileRepo
 import { ProfileMapper } from "../mappers/ProfileMapper.js";
 import { ResumeMapper } from "../mappers/ResumeMapper.js";
 import { ResumeModel } from "../models/ResumeModel.js";
-import { isMongoReady } from "../../../../config/database.js";
-import { buildProfileMatchIndex } from "../../../../services/jobs/incrementalMatching.js";
+import { isMongoReady } from "../../database.js";
+import { buildProfileMatchIndex } from "../services/incrementalMatching.js";
 
 @injectable()
 export class MongooseProfileRepository

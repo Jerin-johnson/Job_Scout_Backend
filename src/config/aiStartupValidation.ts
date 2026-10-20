@@ -1,5 +1,5 @@
 import { env, Env } from "./env.js";
-import { catalogModelStatus } from "../ai/modelPricingCatalog.js";
+import { catalogModelStatus } from "../infrastructure/ai/modelPricingCatalog.js";
 
 const PROVIDER_CREDENTIAL: Record<string, keyof Env> = {
   gemini: "GEMINI_API_KEY",
@@ -53,7 +53,11 @@ export function personalDataPolicyError(
     "application_chat",
     "resume_match_suggestions",
   ]);
-  if (config.NODE_ENV !== "production" || !config.AI_BLOCK_UNPAID_PERSONAL_DATA || !personalDataFeatures.has(feature)) {
+  if (
+    config.NODE_ENV !== "production" ||
+    !config.AI_BLOCK_UNPAID_PERSONAL_DATA ||
+    !personalDataFeatures.has(feature)
+  ) {
     return null;
   }
   if (effectiveDataPolicy(provider, config) !== "paid_api") {
@@ -73,7 +77,8 @@ export function validateAIConfiguration(config: Env = env): string[] {
 
   const issues: string[] = [];
   if (config.AI_ALLOW_MOCKS) issues.push("AI_ALLOW_MOCKS must be false in production");
-  if (!config.AI_BLOCK_UNPAID_PERSONAL_DATA) issues.push("AI_BLOCK_UNPAID_PERSONAL_DATA must be true in production");
+  if (!config.AI_BLOCK_UNPAID_PERSONAL_DATA)
+    issues.push("AI_BLOCK_UNPAID_PERSONAL_DATA must be true in production");
 
   const provider = config.LLM_PROVIDER;
   const credentialName = PROVIDER_CREDENTIAL[provider];
@@ -86,18 +91,28 @@ export function validateAIConfiguration(config: Env = env): string[] {
   for (const variable of PROVIDER_MODELS[provider] || []) {
     const modelId = config[variable] as string | undefined;
     const status = catalogModelStatus(provider, modelId);
-    if (status !== "priced") issues.push(`${variable}=${modelId || "unset"} is ${status} in the model catalog`);
+    if (status !== "priced")
+      issues.push(`${variable}=${modelId || "unset"} is ${status} in the model catalog`);
   }
 
   const embeddingCredentialName = EMBEDDING_CREDENTIAL[config.EMBEDDING_PROVIDER];
-  if (!embeddingCredentialName || isPlaceholder(config[embeddingCredentialName] as string | undefined)) {
-    issues.push(`${embeddingCredentialName || "embedding provider"} must be configured for the selected embedding provider`);
+  if (
+    !embeddingCredentialName ||
+    isPlaceholder(config[embeddingCredentialName] as string | undefined)
+  ) {
+    issues.push(
+      `${embeddingCredentialName || "embedding provider"} must be configured for the selected embedding provider`,
+    );
   }
   const embeddingModel =
-    config.EMBEDDING_PROVIDER === "voyage" ? config.VOYAGE_EMBEDDING_MODEL : config.OPENAI_EMBEDDING_MODEL;
+    config.EMBEDDING_PROVIDER === "voyage"
+      ? config.VOYAGE_EMBEDDING_MODEL
+      : config.OPENAI_EMBEDDING_MODEL;
   const embeddingStatus = catalogModelStatus(config.EMBEDDING_PROVIDER, embeddingModel);
   if (embeddingStatus !== "priced") {
-    issues.push(`Embedding model ${config.EMBEDDING_PROVIDER}/${embeddingModel || "unset"} is ${embeddingStatus} in the model catalog`);
+    issues.push(
+      `Embedding model ${config.EMBEDDING_PROVIDER}/${embeddingModel || "unset"} is ${embeddingStatus} in the model catalog`,
+    );
   }
 
   if (!Number.isFinite(config.DAILY_USER_USD_BUDGET) || config.DAILY_USER_USD_BUDGET <= 0) {
@@ -112,7 +127,9 @@ export function validateAIConfiguration(config: Env = env): string[] {
 export function assertValidAIConfiguration(config: Env = env): void {
   const issues = validateAIConfiguration(config);
   if (issues.length) {
-    const error = new Error(`AI production configuration is invalid: ${issues.join("; ")}`) as Error & { code?: string };
+    const error = new Error(
+      `AI production configuration is invalid: ${issues.join("; ")}`,
+    ) as Error & { code?: string };
     error.code = "AI_CONFIGURATION_INVALID";
     throw error;
   }

@@ -1,30 +1,36 @@
 import "reflect-metadata";
 import { env } from "../config/env.js";
 import { logger } from "../shared/utils/logger.js";
-import { initSentry } from "../config/sentry.js";
-import { connectMongo } from "../config/database.js";
-import { getRedisClient, isRedisReady } from "../config/redis.js";
-import { registerShutdownHandler, setupGracefulShutdown } from "../config/shutdown.js";
-import { jobIngestionService } from "../services/jobs/jobIngestionService.js";
-import { emailDigestService } from "../services/emailDigestService.js";
+import { initSentry } from "../infrastructure/logging/sentry.js";
+import { connectMongo } from "../infrastructure/database/database.js";
+import { getRedisClient, isRedisReady } from "../infrastructure/cache/redis.js";
+import {
+  registerShutdownHandler,
+  setupGracefulShutdown,
+} from "../infrastructure/lifecycle/shutdown.js";
+import { jobIngestionService } from "../infrastructure/database/mongoose/services/jobIngestionService.js";
+import { emailDigestService } from "../infrastructure/email/emailDigestService.js";
 import { Queue, Worker, Job } from "bullmq";
 import { applicationRepository } from "../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
 import { userRepository } from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
-import { assertValidAIConfiguration } from "../config/aiStartupValidation.js";
-import { discoveryGraph } from "../ai/graphs/discoveryGraph.js";
+import { assertValidAIConfiguration } from "../infrastructure/ai/config/aiStartupValidation.js";
+import { discoveryGraph } from "../infrastructure/ai/graphs/discoveryGraph.js";
 import { User } from "../infrastructure/database/mongoose/models/UserModel.js";
 import { CacheKeys, del } from "../shared/cache.js";
 import { Profile } from "../infrastructure/database/mongoose/models/ProfileModel.js";
-import { enqueueMatchRefreshForUser, markMatchRefresh } from "../services/matchRefreshService.js";
-import { MATCH_SCORE_VERSION } from "../services/jobs/matching.js";
+import {
+  enqueueMatchRefreshForUser,
+  markMatchRefresh,
+} from "../infrastructure/database/mongoose/services/matchRefreshService.js";
+import { MATCH_SCORE_VERSION } from "../domain/services/jobs/matching.js";
 import {
   reconcileJobIngestionSchedules,
   writeWorkerHeartbeat,
   type BullQueueLike,
   type RedisLike,
   type ScheduledSource,
-} from "../services/jobs/repeatSchedule.js";
-import { refreshReferenceRates } from "../services/jobs/fxRates.js";
+} from "../infrastructure/database/mongoose/services/repeatScheduleService.js";
+import { refreshReferenceRates } from "../infrastructure/database/mongoose/services/fxRates.js";
 
 interface IngestionJobData {
   sourceKey?: string;

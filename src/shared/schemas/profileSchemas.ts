@@ -4,7 +4,7 @@ import {
   ISO_SUBDIVISION_CODES,
   PLACE_CATALOG_VERSION,
   PLACE_SUGGESTIONS,
-} from "../../services/profileSuggestionCatalog.js";
+} from "../../domain/services/profile/profileSuggestionCatalog.js";
 
 export const preferencesSchema = z.object({
   targetRoles: z.array(z.string()).default([]),

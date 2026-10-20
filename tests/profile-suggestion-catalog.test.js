@@ -7,10 +7,10 @@ import {
   resolvePlacePair,
   suggestPlaces,
   suggestRoles,
-} from "../src/services/profileSuggestionCatalog.js";
+} from "../src/domain/services/profile/profileSuggestionCatalog.js";
 import { careerProfileSchema } from "../src/presentation/http/controllers/profileController.js";
 import { profileController } from "../src/presentation/http/controllers/profileController.js";
-import { normalizeRoleForMatching } from "../src/services/jobs/roleNormalization.js";
+import { normalizeRoleForMatching } from "../src/domain/services/jobs/roleNormalization.js";
 
 function apiResponse() {
   return {

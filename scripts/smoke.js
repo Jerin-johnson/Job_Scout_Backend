@@ -1,8 +1,8 @@
 import "../tests/test-env.js";
 import { createApp } from "../src/app.js";
-import { connectMongo, disconnectMongo } from "../src/config/database.js";
+import { connectMongo, disconnectMongo } from "../src/infrastructure/database/database.js";
 import { env } from "../src/config/env.js";
-import { RESUME_AI_CONSENT_VERSION } from "../src/services/resumeAiConsent.js";
+import { RESUME_AI_CONSENT_VERSION } from "../src/domain/services/profile/resumeAiConsent.js";
 import mongoose from "mongoose";
 
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:4001";
@@ -224,7 +224,7 @@ async function run() {
   await recordStep("POST /api/v1/auth/refresh (rotation & reuse revocation)", async () => {
     if (!testUserRefreshToken) {
       // If cookie was not accessible in node fetch, generate token through service directly
-      const { authService } = await import("../src/services/authService.js");
+      const { authService } = await import("../src/infrastructure/security/authService.js");
       const { userRepository } =
         await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
       const u = await userRepository.findByEmail(testEmail);
@@ -270,7 +270,8 @@ async function run() {
 
   // Step 9: B3 Quotas & Daily Budgets Check
   await recordStep("Quota & Budget Validation (Free Tier limits & blocks)", async () => {
-    const { quotaService } = await import("../src/services/quotaService.js");
+    const { quotaService } =
+      await import("../src/infrastructure/database/mongoose/services/quotaService.js");
     const mockUser = { id: newSmokeUserId(), plan: "free" };
 
     // Initially quota check should pass
@@ -512,7 +513,7 @@ async function run() {
 
   // Step 15: B5 Central LLM Wrapper Prompt Format Caching & Invocation
   await recordStep("Central LLM Wrapper (prompt caching order & invocation)", async () => {
-    const { formatCachedPrompt, invokeLLM } = await import("../src/ai/llm.js");
+    const { formatCachedPrompt, invokeLLM } = await import("../src/infrastructure/ai/llm.js");
     const { z } = await import("zod");
 
     // 1. Verify prompt formatting order
@@ -572,7 +573,7 @@ async function run() {
 
   // Step 16: B6 AI Router - Tier 0 Slash Commands & DB Lookups (< 50ms)
   await recordStep("AI Router Tier 0 (Slash command & Deterministic DB match)", async () => {
-    const { routeRequest } = await import("../src/ai/router.js");
+    const { routeRequest } = await import("../src/infrastructure/ai/router.js");
     const mockUser = { id: newSmokeUserId(), plan: "pro" };
 
     // 1. Slash command /track
@@ -593,7 +594,7 @@ async function run() {
 
   // Step 17: B6 AI Router - Exact Cache Speedup (< 50ms)
   await recordStep("AI Router Tier 0 Exact Cache hit speedup", async () => {
-    const { routeRequest } = await import("../src/ai/router.js");
+    const { routeRequest } = await import("../src/infrastructure/ai/router.js");
     const { set, CacheKeys, TTL } = await import("../src/shared/cache.js");
     const { computeSha256 } = await import("../src/shared/utils/crypto.js");
 
@@ -627,7 +628,7 @@ async function run() {
 
   // Step 18: B6 AI Router - Tier 1 & Tier 2 Classification & Escalation
   await recordStep("AI Router Tier 1 vs Tier 2 Escalation", async () => {
-    const { routeRequest } = await import("../src/ai/router.js");
+    const { routeRequest } = await import("../src/infrastructure/ai/router.js");
     const mockUser = { id: newSmokeUserId(), plan: "pro" };
 
     // Simple question -> Tier 1
@@ -641,7 +642,7 @@ async function run() {
 
     // Heavy workflow intent -> Tier 2
     // We can test that heavy workflows resolve to Tier 2
-    const { routerClassifierSchema } = await import("../src/ai/router.js");
+    const { routerClassifierSchema } = await import("../src/infrastructure/ai/router.js");
     const parsed = routerClassifierSchema.safeParse({
       intent: "match_jobs",
       complexity: "high",
@@ -731,7 +732,7 @@ async function run() {
 
   // Step 20: B7 Short-Term Memory Sliding Window (8 turns max)
   await recordStep("Short-Term Memory (Redis session sliding window 8 turns)", async () => {
-    const { shortTermMemory } = await import("../src/ai/memory/shortTerm.js");
+    const { shortTermMemory } = await import("../src/infrastructure/ai/memory/shortTerm.js");
     const threadId = "thread_smoke_test_1";
     const userId = newSmokeUserId();
 
@@ -755,7 +756,7 @@ async function run() {
 
   // Step 21: B7 Long-Term Memory Deduplication & Vector Storage
   await recordStep("Long-Term Memory write & deduplication (>0.9 similarity)", async () => {
-    const { longTermMemory } = await import("../src/ai/memory/longTerm.js");
+    const { longTermMemory } = await import("../src/infrastructure/ai/memory/longTerm.js");
     const userId = newSmokeUserId();
 
     // Write first memory
@@ -789,7 +790,7 @@ async function run() {
 
   // Step 22: B7 Compliance Filter (Block Protected Attributes)
   await recordStep("Memory Compliance Filter (rejection of protected attributes)", async () => {
-    const { longTermMemory } = await import("../src/ai/memory/longTerm.js");
+    const { longTermMemory } = await import("../src/infrastructure/ai/memory/longTerm.js");
     let caught = false;
 
     try {
@@ -838,7 +839,8 @@ async function run() {
 
   // Step 24: B8 Job Ingestion & One-Time Vector Embedding
   await recordStep("Job Ingestion (deduplication & one-time embedding)", async () => {
-    const { jobIngestionService } = await import("../src/services/jobs/jobIngestionService.js");
+    const { jobIngestionService } =
+      await import("../src/infrastructure/database/mongoose/services/jobIngestionService.js");
     let result;
     if (process.env.SMOKE_ALLOW_INGESTION === "true") {
       result = await jobIngestionService.ingestAll();
@@ -847,7 +849,7 @@ async function run() {
       // contract and ingestion behavior are exercised by fixture-based tests.
       await jobIngestionService.ensureSources();
       const { Job } = await import("../src/infrastructure/database/mongoose/models/JobModel.js");
-      const { extractJobFeatures } = await import("../src/services/jobs/matching.js");
+      const { extractJobFeatures } = await import("../src/domain/services/jobs/matching.js");
       const fixture = {
         contentHash: `smoke-${newSmokeUserId()}`,
         title: "Principal Software Engineer",
@@ -900,7 +902,7 @@ async function run() {
   await recordStep("Discovery Graph A (vector matching, rule filter & top matches)", async () => {
     const { userRepository } =
       await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
-    const { discoveryGraph } = await import("../src/ai/graphs/discoveryGraph.js");
+    const { discoveryGraph } = await import("../src/infrastructure/ai/graphs/discoveryGraph.js");
 
     const u = await userRepository.findByEmail(testEmail);
     const result = await discoveryGraph.runDiscovery(u);
@@ -1280,7 +1282,7 @@ async function run() {
     // 2. Create Admin user and obtain token
     const { userRepository } =
       await import("../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js");
-    const { authService } = await import("../src/services/authService.js");
+    const { authService } = await import("../src/infrastructure/security/authService.js");
     const adminUser = await userRepository.create({
       email: `admin_${Date.now()}@jobscout.internal`,
       role: "admin",

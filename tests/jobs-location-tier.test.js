@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { locationTierForJob } from "../src/ai/graphs/discoveryGraph.js";
+import { locationTierForJob } from "../src/infrastructure/ai/graphs/discoveryGraph.js";
 
 test("location ranking aliases cities and falls back to regional or unknown-eligibility remote roles", () => {
   const locations = ["Cochin"];

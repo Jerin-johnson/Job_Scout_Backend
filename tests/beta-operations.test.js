@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { closeHttpServer } from "../src/config/shutdown.js";
-import { redactSentryEvent } from "../src/config/sentry.js";
+import { closeHttpServer } from "../src/infrastructure/lifecycle/shutdown.js";
+import { redactSentryEvent } from "../src/infrastructure/logging/sentry.js";
 import { UserFeedback } from "../src/infrastructure/database/mongoose/models/UserFeedbackModel.js";
 
 test("Sentry event redaction drops request payloads and sensitive fields", () => {

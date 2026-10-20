@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { validateResumeMagicBytes } from "../../../shared/utils/fileValidation.js";
-import { textExtractionService } from "../../../services/textExtractionService.js";
-import { resumeParserService } from "../../../services/resumeParserService.js";
+import { textExtractionService } from "../../../infrastructure/ai/textExtractionService.js";
+import { resumeParserService } from "../../../infrastructure/ai/resumeParserService.js";
 import { injectable, inject } from "tsyringe";
 import { AuthenticatedRequest } from "../types/index.js";
 import { GetProfileUseCase } from "../../../application/useCases/profile/GetProfileUseCase.js";
@@ -14,15 +14,15 @@ import {
   ProfileRecord,
   ResumeRecord,
 } from "../../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
-import { invalidateCandidateContext } from "../../../ai/candidateContext.js";
-import { storageService } from "../../../services/storageService.js";
+import { invalidateCandidateContext } from "../../../infrastructure/ai/candidateContext.js";
+import { storageService } from "../../../infrastructure/storage/storageService.js";
 import { z } from "zod";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import {
   userRepository,
   UserRecord,
 } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
-import { enqueueMatchRefreshForUser } from "../../../services/matchRefreshService.js";
+import { enqueueMatchRefreshForUser } from "../../../infrastructure/database/mongoose/services/matchRefreshService.js";
 import {
   PLACE_CATALOG_VERSION,
   PLACE_SUGGESTIONS,
@@ -30,16 +30,16 @@ import {
   resolvePlacePair,
   suggestPlaces,
   suggestRoles,
-} from "../../../services/profileSuggestionCatalog.js";
+} from "../../../domain/services/profile/profileSuggestionCatalog.js";
 import {
   RESUME_AI_CONSENT_VERSION,
   requireResumeAiConsent,
-} from "../../../services/resumeAiConsent.js";
-import { deleteResumeForUser } from "../../../services/resumeDataLifecycle.js";
+} from "../../../domain/services/profile/resumeAiConsent.js";
+import { deleteResumeForUser } from "../../../infrastructure/database/mongoose/services/resumeDataLifecycle.js";
 import {
   JOB_ANALYTICS_CONSENT_VERSION,
   deleteInteractionEventsForUser,
-} from "../../../services/jobs/interactionEvents.js";
+} from "../../../infrastructure/database/mongoose/services/interactionEvents.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 import {
@@ -273,15 +273,13 @@ export const profileController = {
       jobAnalyticsConsent: { acceptedAt: null, version: null },
     });
     await deleteInteractionEventsForUser(userId);
-    res
-      .status(200)
-      .json(
-        successResponse({
-          accepted: false,
-          version: JOB_ANALYTICS_CONSENT_VERSION,
-          acceptedAt: null,
-        }),
-      );
+    res.status(200).json(
+      successResponse({
+        accepted: false,
+        version: JOB_ANALYTICS_CONSENT_VERSION,
+        acceptedAt: null,
+      }),
+    );
   }),
 
   roleSuggestions: asyncHandler(async (req: Request, res: Response): Promise<void> => {

@@ -1,6 +1,6 @@
 import zlib from "zlib";
 import { promisify } from "util";
-import { getRedisClient, isRedisReady } from "../config/redis.js";
+import { getRedisClient, isRedisReady } from "../infrastructure/cache/redis.js";
 import { logger } from "./utils/logger.js";
 
 const gzip = promisify(zlib.gzip);
@@ -66,14 +66,21 @@ function recordMetric(layer: string, type: "hit" | "miss"): void {
  */
 export const CacheKeys = {
   version: (userId: string, scope: string) => `${CACHE_NAMESPACE}ver:${userId}:${scope}`,
-  response: (userId: string, resource: string, ver: string | number) => `${CACHE_NAMESPACE}resp:${userId}:${resource}:v${ver}`,
-  pinnedMemory: (userId: string, ver: string | number) => `${CACHE_NAMESPACE}mem:pinned:${userId}:v${ver}`,
+  response: (userId: string, resource: string, ver: string | number) =>
+    `${CACHE_NAMESPACE}resp:${userId}:${resource}:v${ver}`,
+  pinnedMemory: (userId: string, ver: string | number) =>
+    `${CACHE_NAMESPACE}mem:pinned:${userId}:v${ver}`,
   session: (userId: string, threadId: string) => `${CACHE_NAMESPACE}sess:${userId}:${threadId}`,
-  interviewSession: (userId: string, interviewId: string) => `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
+  interviewSession: (userId: string, interviewId: string) =>
+    `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
   exactQuery: (sha256: string) => `${CACHE_NAMESPACE}exact:${sha256}`,
   jobDescription: (hash: string) => `${CACHE_NAMESPACE}jd:${hash}`,
-  embedding: (hash: string, provider: string = "legacy", model: string = "unknown", dimension: string | number = "unknown") =>
-    `${CACHE_NAMESPACE}emb:${provider}:${model}:${dimension}:${hash}`,
+  embedding: (
+    hash: string,
+    provider: string = "legacy",
+    model: string = "unknown",
+    dimension: string | number = "unknown",
+  ) => `${CACHE_NAMESPACE}emb:${provider}:${model}:${dimension}:${hash}`,
   company: (slug: string) => `${CACHE_NAMESPACE}co:${slug}`,
   jobDemand: () => `${CACHE_NAMESPACE}job-demand:v1`,
   jobDemandVersion: (catalogVersion: number = 1) =>
@@ -166,7 +173,11 @@ export async function get<T = unknown>(key: string): Promise<T | null> {
 /**
  * Set value in cache with optional compression (> 2KB)
  */
-export async function set<T = unknown>(key: string, value: T, ttlSeconds: number = TTL.SHORT): Promise<boolean> {
+export async function set<T = unknown>(
+  key: string,
+  value: T,
+  ttlSeconds: number = TTL.SHORT,
+): Promise<boolean> {
   const serialized = JSON.stringify(value);
 
   if (!isRedisReady()) {
@@ -237,10 +248,7 @@ export async function bumpVersion(userId: string, scope: string): Promise<number
     return newVer;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn(
-      { err: message, verKey },
-      "Cache bumpVersion failed; falling back to timestamp",
-    );
+    logger.warn({ err: message, verKey }, "Cache bumpVersion failed; falling back to timestamp");
     return Date.now();
   }
 }
@@ -314,7 +322,11 @@ export async function releaseLock(lockKey: string, lockToken: string): Promise<b
 /**
  * Get cached value or compute and set, protected by single-flight lock
  */
-export async function getOrSet<T>(key: string, computeFn: () => Promise<T>, ttlSeconds: number = TTL.SHORT): Promise<T> {
+export async function getOrSet<T>(
+  key: string,
+  computeFn: () => Promise<T>,
+  ttlSeconds: number = TTL.SHORT,
+): Promise<T> {
   // 1. Try reading cache first
   const cached = await get<T>(key);
   if (cached !== null) {

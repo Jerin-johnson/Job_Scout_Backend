@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { profileController } from "../src/presentation/http/controllers/ProfileController.js";
 import { profileRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import { userRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
-import { storageService } from "../src/services/storageService.js";
+import { storageService } from "../src/infrastructure/storage/storageService.js";
 
 function mockResponse() {
   return {

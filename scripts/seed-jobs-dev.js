@@ -10,10 +10,10 @@ if (process.argv[2] !== "--confirm-dev-fixtures") {
 }
 
 const [{ connectMongo }, { Job }, { JobSource }, { embeddingService }] = await Promise.all([
-  import("../src/config/database.js"),
+  import("../src/infrastructure/database/database.js"),
   import("../src/infrastructure/database/mongoose/models/JobModel.js"),
   import("../src/infrastructure/database/mongoose/models/JobSourceModel.js"),
-  import("../src/services/embeddingService.js"),
+  import("../src/infrastructure/ai/embeddingService.js"),
 ]);
 await connectMongo();
 const source = {

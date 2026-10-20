@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
-import { privacyService } from "../../../services/privacyService.js";
+import { privacyService } from "../../../infrastructure/database/mongoose/services/privacyService.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse } from "../../../shared/types/apiResponse.js";
 

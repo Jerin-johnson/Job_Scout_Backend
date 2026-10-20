@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { detectAtsCareersUrl } from "../src/services/jobs/trackedCompanyService.js";
+import { detectAtsCareersUrl } from "../src/infrastructure/database/mongoose/services/trackedCompanyService.js";
 
 const ENDPOINTS = {
   greenhouse: (slug) =>
@@ -262,7 +262,8 @@ async function importFile() {
     throw new Error(
       "Usage: npm run jobs:ats:import -- --file=ats-verified.json --requested-by=<admin-user-id>",
     );
-  const { connectMongo, disconnectMongo } = await import("../src/config/database.js");
+  const { connectMongo, disconnectMongo } =
+    await import("../src/infrastructure/database/database.js");
   const { env } = await import("../src/config/env.js");
   const mongoose = (await import("mongoose")).default;
   const { User } = await import("../src/infrastructure/database/mongoose/models/UserModel.js");

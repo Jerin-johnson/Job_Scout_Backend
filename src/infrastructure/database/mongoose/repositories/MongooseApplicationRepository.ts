@@ -8,7 +8,7 @@ import {
   IApplicationFilterOptions,
 } from "../../../../domain/repositories/IApplicationRepository.js";
 import { ApplicationMapper } from "../mappers/ApplicationMapper.js";
-import { isMongoReady } from "../../../../config/database.js";
+import { isMongoReady } from "../../database.js";
 
 function withApplicationDefaults(application: Record<string, unknown>): Record<string, unknown> {
   return {

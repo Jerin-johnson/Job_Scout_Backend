@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MEMORY_CONSENT_VERSION } from "../../ai/memory/longTerm.js";
+import { MEMORY_CONSENT_VERSION } from "../../infrastructure/ai/memory/longTerm.js";
 
 export const updateMemorySchema = z
   .object({

@@ -7,8 +7,8 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import { Match } from "../src/infrastructure/database/mongoose/models/MatchModel.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
-import { discoveryGraph } from "../src/ai/graphs/discoveryGraph.js";
-import { embeddingService } from "../src/services/embeddingService.js";
+import { discoveryGraph } from "../src/infrastructure/ai/graphs/discoveryGraph.js";
+import { embeddingService } from "../src/infrastructure/ai/embeddingService.js";
 
 let mongo;
 let mongoDataPath;

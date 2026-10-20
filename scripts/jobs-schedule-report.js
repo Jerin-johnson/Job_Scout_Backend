@@ -1,8 +1,8 @@
 import { Queue } from "bullmq";
-import { connectMongo, disconnectMongo } from "../src/config/database.js";
-import { getRedisClient, disconnectRedis } from "../src/config/redis.js";
+import { connectMongo, disconnectMongo } from "../src/infrastructure/database/database.js";
+import { getRedisClient, disconnectRedis } from "../src/infrastructure/cache/redis.js";
 import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
-import { buildJobScheduleReport } from "../src/services/jobs/scheduleReport.js";
+import { buildJobScheduleReport } from "../src/infrastructure/database/mongoose/services/scheduleReportService.js";
 
 if (process.env.NODE_ENV === "production") {
   console.error("Schedule report is a development command and is disabled in production.");
