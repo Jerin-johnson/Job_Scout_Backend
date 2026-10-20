@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
-const { embeddingService } = await import("../src/services/embeddingService.js");
+const { embeddingService } = await import("../src/infrastructure/ai/embeddingService.js");
 const { CacheKeys } = await import("../src/shared/cache.js");
 const { Job } = await import("../src/infrastructure/database/mongoose/models/JobModel.js");
 
@@ -42,7 +42,7 @@ test("legacy job vectors remain without inferred embedding metadata", () => {
 test("production rejects mock embeddings even if the mock flag is accidentally enabled", () => {
   const script = `
     await import('reflect-metadata');
-    const { embeddingService } = await import('./src/services/embeddingService.js');
+    const { embeddingService } = await import('./src/infrastructure/ai/embeddingService.js');
     try {
       await embeddingService.getEmbeddingWithMetadata('private profile text');
       process.exitCode = 2;
@@ -66,7 +66,7 @@ test("production rejects mock embeddings even if the mock flag is accidentally e
 test("embedding calls honor the global AI kill switch", () => {
   const script = `
     await import('reflect-metadata');
-    const { embeddingService } = await import('./src/services/embeddingService.js');
+    const { embeddingService } = await import('./src/infrastructure/ai/embeddingService.js');
     try {
       await embeddingService.getEmbeddingWithMetadata('test');
       process.exitCode = 2;
@@ -90,7 +90,7 @@ test("embedding calls honor the global AI kill switch", () => {
 test("system embeddings fail closed in production when the shared quota store is unavailable", () => {
   const script = `
     await import('reflect-metadata');
-    const { embeddingService } = await import('./src/services/embeddingService.js');
+    const { embeddingService } = await import('./src/infrastructure/ai/embeddingService.js');
     try {
       await embeddingService.assertAvailable();
       process.exitCode = 2;

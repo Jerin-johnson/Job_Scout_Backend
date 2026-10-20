@@ -31,9 +31,9 @@ test("Architecture Boundaries: production source code strictly passes all bounda
   );
   assert.ok(
     output.includes(
-      "all 5 legacy directories (routes, controllers, middleware, models, repositories) removed",
+      "all 7 legacy directories (routes, controllers, middleware, models, repositories, services, ai) removed",
     ),
-    "All 5 legacy directories must be confirmed eliminated",
+    "All 7 legacy directories must be confirmed eliminated",
   );
 });
 
@@ -332,5 +332,51 @@ test("Architecture Boundaries: rejects explicit any type annotations in source f
     if (fs.existsSync(tempFile)) {
       fs.unlinkSync(tempFile);
     }
+  }
+});
+
+test("Architecture Boundaries: rejects obsolete src/services/ directory reintroduction", () => {
+  const tempDir = path.join("src", "services");
+  const tempFile = path.join(tempDir, "tempService.ts");
+  try {
+    fs.mkdirSync(tempDir, { recursive: true });
+    fs.writeFileSync(tempFile, "export class TempService {}\n", "utf8");
+
+    assert.throws(
+      () => {
+        execFileSync("node", ["scripts/check-architecture.mjs"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+      },
+      /Obsolete architectural directory reintroduction forbidden/,
+      "Checker must throw error for src/services/ reintroduction",
+    );
+  } finally {
+    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+  }
+});
+
+test("Architecture Boundaries: rejects obsolete src/ai/ directory reintroduction", () => {
+  const tempDir = path.join("src", "ai");
+  const tempFile = path.join(tempDir, "tempAi.ts");
+  try {
+    fs.mkdirSync(tempDir, { recursive: true });
+    fs.writeFileSync(tempFile, "export class TempAi {}\n", "utf8");
+
+    assert.throws(
+      () => {
+        execFileSync("node", ["scripts/check-architecture.mjs"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+      },
+      /Obsolete architectural directory reintroduction forbidden/,
+      "Checker must throw error for src/ai/ reintroduction",
+    );
+  } finally {
+    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
   }
 });

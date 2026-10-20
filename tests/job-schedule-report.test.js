@@ -1,10 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildJobScheduleReport } from "../src/services/jobs/scheduleReport.js";
+import { buildJobScheduleReport } from "../src/domain/services/jobs/scheduleReport.js";
 
 test("job schedule report distinguishes registered, mismatched, and missing repeat jobs", () => {
   const sources = [
-    { key: "remotive", enabled: true, approved: true, quota: { intervalMs: 60000 }, lastRunAt: new Date(1000) },
+    {
+      key: "remotive",
+      enabled: true,
+      approved: true,
+      quota: { intervalMs: 60000 },
+      lastRunAt: new Date(1000),
+    },
     { key: "jobicy", enabled: true, approved: true, quota: { intervalMs: 120000 } },
     { key: "held", enabled: false, approved: false, quota: { intervalMs: 60000 } },
   ];

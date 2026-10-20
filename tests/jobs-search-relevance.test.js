@@ -7,8 +7,11 @@ import {
   scoreCatalogSearchRelevance,
   compareJobsByRelevance,
   isAfterRelevanceCursor,
-} from "../src/services/jobs/jobSearch.js";
-import { decodeCatalogCursor, encodeCatalogCursor } from "../src/services/jobs/jobStorage.js";
+} from "../src/domain/services/jobs/jobSearch.js";
+import {
+  decodeCatalogCursor,
+  encodeCatalogCursor,
+} from "../src/infrastructure/database/mongoose/storage/jobStorageCompaction.js";
 
 test("buildSearchTokens deduplicates and orders title, company, skill, and location tokens", () => {
   const tokens = buildSearchTokens({

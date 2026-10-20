@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getLLMProvider, listLLMProviders, registerLLMProvider } from "../src/ai/providers/index.js";
-import { listChatModelOptions, listSelectableChatModels, resolveChatModelForTier, resolveSelectableChatModel } from "../src/ai/modelCatalog.js";
+import {
+  getLLMProvider,
+  listLLMProviders,
+  registerLLMProvider,
+} from "../src/infrastructure/ai/providers/index.js";
+import {
+  listChatModelOptions,
+  listSelectableChatModels,
+  resolveChatModelForTier,
+  resolveSelectableChatModel,
+} from "../src/infrastructure/ai/modelCatalog.js";
 
 test("provider registry validates and exposes adapters through the shared contract", () => {
   const names = listLLMProviders().map((provider) => provider.id);
@@ -27,4 +36,3 @@ test("chat model catalog exposes only models from configured adapters and resolv
   assert.equal(listChatModelOptions()[0].id, "auto");
   assert.ok(["small", "strong"].includes(resolveChatModelForTier("small")?.tier));
 });
-

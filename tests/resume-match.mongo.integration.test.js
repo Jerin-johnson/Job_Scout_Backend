@@ -17,7 +17,7 @@ import { encryptText, computeSha256 } from "../src/shared/utils/crypto.js";
 import { resumeMatchController } from "../src/presentation/http/controllers/resumeMatchController.js";
 import { privacyController } from "../src/presentation/http/controllers/privacyController.js";
 import { profileController } from "../src/presentation/http/controllers/profileController.js";
-import { storageService } from "../src/services/storageService.js";
+import { storageService } from "../src/infrastructure/storage/storageService.js";
 
 function response() {
   return {

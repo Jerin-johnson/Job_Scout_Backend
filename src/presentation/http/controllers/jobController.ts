@@ -1,36 +1,39 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
-import { discoveryGraph } from "../../../ai/graphs/discoveryGraph.js";
+import { discoveryGraph } from "../../../infrastructure/ai/graphs/discoveryGraph.js";
 import { get, set, del, CacheKeys, TTL } from "../../../shared/cache.js";
-import { longTermMemory } from "../../../ai/memory/longTerm.js";
-import { jobIngestionService } from "../../../services/jobs/jobIngestionService.js";
+import { longTermMemory } from "../../../infrastructure/ai/memory/longTerm.js";
+import { jobIngestionService } from "../../../infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import {
   latestEcbReferenceRates,
   convertAmount,
   isFxRateStale,
-} from "../../../services/jobs/fxRates.js";
-import { getJobRiskFlags } from "../../../services/jobs/jobRisk.js";
+} from "../../../infrastructure/database/mongoose/repositories/MongooseFxRateRepository.js";
+import { getJobRiskFlags } from "../../../domain/services/jobs/jobRisk.js";
 import {
   classifyEligibility,
   profileApplicantCountries,
-} from "../../../services/jobs/eligibility.js";
-import { requestCompanyTracking } from "../../../services/jobs/trackedCompanyService.js";
+} from "../../../domain/services/jobs/eligibility.js";
+import { requestCompanyTracking } from "../../../infrastructure/database/mongoose/repositories/MongooseTrackedCompanyRepository.js";
 import {
   getMatchRefresh,
   requestMatchRefresh,
   recordLocalMatchRefreshDone,
-} from "../../../services/matchRefreshService.js";
+} from "../../../infrastructure/database/mongoose/repositories/MongooseMatchRefreshRepository.js";
 import { profileRepository } from "../../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import {
   MATCH_SCORE_VERSION,
   scoreJobMatch,
   extractJobFeatures,
-} from "../../../services/jobs/matching.js";
-import { jobPersistenceService } from "../../../services/jobs/jobPersistenceService.js";
-import { suggestTargetRoleCorrections } from "../../../services/jobs/roleNormalization.js";
-import { recordInteraction, recordImpressions } from "../../../services/jobs/interactionEvents.js";
-import { getCatalogVersion } from "../../../services/jobs/catalogVersion.js";
-import { savedSearchService } from "../../../services/jobs/savedSearchService.js";
+} from "../../../domain/services/jobs/matching.js";
+import { jobPersistenceService } from "../../../infrastructure/database/mongoose/repositories/MongooseJobRepository.js";
+import { suggestTargetRoleCorrections } from "../../../domain/services/jobs/roleNormalization.js";
+import {
+  recordInteraction,
+  recordImpressions,
+} from "../../../infrastructure/database/mongoose/repositories/MongooseInteractionEventRepository.js";
+import { getCatalogVersion } from "../../../infrastructure/database/mongoose/repositories/MongooseCatalogVersionRepository.js";
+import { savedSearchService } from "../../../infrastructure/database/mongoose/repositories/MongooseSavedSearchRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 import {
@@ -142,14 +145,12 @@ export const jobController = {
     const user = req.user as { _id?: string; id?: string };
     const userId = user._id || user.id;
     const company = await requestCompanyTracking(careersUrl, userId as string);
-    res
-      .status(202)
-      .json(
-        successResponse({
-          company,
-          message: "Company board verified and queued for admin review.",
-        }),
-      );
+    res.status(202).json(
+      successResponse({
+        company,
+        message: "Company board verified and queued for admin review.",
+      }),
+    );
   }),
 
   getMatches: asyncHandler(async (req: Request, res: Response): Promise<void> => {
@@ -495,7 +496,7 @@ export const jobController = {
     const sourceCounts = new Map((jobFeatures?.skills || []).map((skill: string) => [skill, 1]));
 
     const similarJobs = similar
-      .map((item) => {
+      .map((item: Record<string, unknown>) => {
         const itemRec = item as Record<string, unknown>;
         const features =
           (itemRec.features as { skills?: string[]; occupation?: string }) ||
@@ -507,9 +508,13 @@ export const jobController = {
           jobFeatures?.occupation && features.occupation === jobFeatures.occupation ? 3 : 0;
         return { ...itemRec, _similarity: shared + titleSame };
       })
-      .sort((a, b) => b._similarity - a._similarity)
+      .sort(
+        (a: { _similarity: number }, b: { _similarity: number }) => b._similarity - a._similarity,
+      )
       .slice(0, 3)
-      .map(({ _similarity: _sim, ...item }) => item);
+      .map(
+        ({ _similarity: _sim, ...item }: { _similarity: number; [key: string]: unknown }) => item,
+      );
 
     res.json(
       successResponse({
@@ -666,7 +671,8 @@ export const jobController = {
     const locations = (prefs?.preferredLocations as string[]) || [];
     const codes = (prefs?.preferredCountryCodes as string[]) || [];
 
-    const { locationTierForJob } = await import("../../../ai/graphs/discoveryGraph.js");
+    const { locationTierForJob } =
+      await import("../../../infrastructure/ai/graphs/discoveryGraph.js");
     const jobList = jobs as Array<Record<string, unknown>>;
     const bestTier = jobList.length
       ? Math.min(...jobList.map((job) => locationTierForJob(job, locations, codes)))
@@ -694,7 +700,7 @@ export const jobController = {
       : 0;
 
     const embedding = (
-      await import("../../../services/embeddingService.js")
+      await import("../../../infrastructure/ai/embeddingService.js")
     ).embeddingService.getConfig();
 
     const availableScores = scored.filter((item) => !item.hardBlocked);

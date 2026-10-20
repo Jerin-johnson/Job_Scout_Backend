@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
-import { interviewGraph } from "../../../ai/graphs/interviewGraph.js";
+import { interviewGraph } from "../../../infrastructure/ai/graphs/interviewGraph.js";
 import { profileRepository } from "../../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import { logger } from "../../../shared/utils/logger.js";
-import { isMongoReady } from "../../../config/database.js";
-import { interviewSessionService } from "../../../services/interview/sessionService.js";
+import { isMongoReady } from "../../../infrastructure/database/database.js";
+import { interviewSessionService } from "../../../infrastructure/interview/interviewSessionService.js";
 import { acceptRequestQuota, requestQuotaIdempotencyKey } from "../middleware/quotaGate.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";

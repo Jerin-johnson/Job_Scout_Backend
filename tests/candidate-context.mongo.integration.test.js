@@ -10,7 +10,10 @@ import { InterviewSession } from "../src/infrastructure/database/mongoose/models
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
 import { Resume } from "../src/infrastructure/database/mongoose/models/ResumeModel.js";
 import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
-import { getCandidateContext, invalidateCandidateContext } from "../src/ai/candidateContext.js";
+import {
+  getCandidateContext,
+  invalidateCandidateContext,
+} from "../src/infrastructure/ai/candidateContext.js";
 
 let mongo;
 let mongoDataPath;

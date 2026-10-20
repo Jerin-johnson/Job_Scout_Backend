@@ -6,7 +6,7 @@ import { RefreshTokenUseCase } from "../../../application/useCases/auth/RefreshT
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { env } from "../../../config/env.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
-import { authService } from "../../../services/authService.js";
+import { authService } from "../../../infrastructure/security/authService.js";
 import {
   registerSchema,
   loginSchema,

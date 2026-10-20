@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { logger } from "../../../shared/utils/logger.js";
-import { tailoringGraph } from "../../../ai/graphs/tailoringGraph.js";
-import { exportService } from "../../../services/exportService.js";
+import { tailoringGraph } from "../../../infrastructure/ai/graphs/tailoringGraph.js";
+import { exportService } from "../../../infrastructure/storage/DocumentExportService.js";
 import { profileRepository } from "../../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
@@ -12,7 +12,10 @@ import {
   approveTailoringSchema,
   rejectTailoringSchema,
 } from "../../../shared/schemas/tailoringSchemas.js";
-import { documentStorageService, StoredDoc } from "../../../services/documentStorageService.js";
+import {
+  documentStorageService,
+  StoredDoc,
+} from "../../../infrastructure/database/mongoose/repositories/MongooseDocumentRepository.js";
 
 function getUserId(u?: UserRecord): string {
   if (!u) return "";

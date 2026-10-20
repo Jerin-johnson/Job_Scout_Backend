@@ -9,17 +9,17 @@ import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js"
 import { Match } from "../src/infrastructure/database/mongoose/models/MatchModel.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
 import { MatchRefresh } from "../src/infrastructure/database/mongoose/models/MatchRefreshModel.js";
-import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
+import { jobIngestionService } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { CacheKeys } from "../src/shared/cache.js";
 import { profileController } from "../src/presentation/http/controllers/profileController.js";
 import { jobController } from "../src/presentation/http/controllers/jobController.js";
-import { persistMatchesBulk } from "../src/ai/graphs/discoveryGraph.js";
-import { discoveryGraph } from "../src/ai/graphs/discoveryGraph.js";
-import { embeddingService } from "../src/services/embeddingService.js";
+import { persistMatchesBulk } from "../src/infrastructure/ai/graphs/discoveryGraph.js";
+import { discoveryGraph } from "../src/infrastructure/ai/graphs/discoveryGraph.js";
+import { embeddingService } from "../src/infrastructure/ai/embeddingService.js";
 import {
   configureMatchRefreshQueue,
   requestMatchRefresh,
-} from "../src/services/matchRefreshService.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseMatchRefreshRepository.js";
 
 let mongo;
 let mongoDataPath;
@@ -199,7 +199,7 @@ test("a city preference with no exact listing still returns unknown-eligibility 
     limit: 300,
   });
   assert.ok(candidates.some((candidate) => String(candidate._id) === String(job._id)));
-  const { locationTierForJob } = await import("../src/ai/graphs/discoveryGraph.js");
+  const { locationTierForJob } = await import("../src/infrastructure/ai/graphs/discoveryGraph.js");
   assert.equal(locationTierForJob(job.toObject(), ["Kochi"], ["IN"]), 3);
   await Promise.all([Job.deleteOne({ _id: job._id }), User.deleteOne({ _id: user._id })]);
 });

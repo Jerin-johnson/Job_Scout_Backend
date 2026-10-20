@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
-import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
+import { jobIngestionService } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 
 let mongo;
 before(async () => {

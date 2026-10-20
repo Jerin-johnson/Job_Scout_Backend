@@ -11,8 +11,8 @@ import {
   requestIngestionShutdown,
   resetIngestionShutdown,
   validateRawIngestJob,
-} from "../src/services/jobs/ingestionResilience.js";
-import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
+} from "../src/domain/services/jobs/ingestionResilience.js";
+import { BaseJobAdapter } from "../src/infrastructure/external-services/jobs/adapters/baseAdapter.js";
 
 test("computeRetryBackoffMs applies bounded exponential backoff", () => {
   assert.equal(computeRetryBackoffMs(0, { baseMs: 300, maxMs: 4000 }), 300);

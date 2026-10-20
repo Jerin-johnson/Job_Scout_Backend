@@ -1,12 +1,19 @@
 import { BSON } from "mongodb";
 import { env } from "../src/config/env.js";
-import { connectMongo, disconnectMongo, isMongoReady } from "../src/config/database.js";
+import {
+  connectMongo,
+  disconnectMongo,
+  isMongoReady,
+} from "../src/infrastructure/database/database.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
 import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
-import { compactHotJobFields, normalizeProvenanceList } from "../src/services/jobs/jobStorage.js";
-import { buildSearchTokens } from "../src/services/jobs/jobSearch.js";
-import { extractJobFeatures } from "../src/services/jobs/matching.js";
+import {
+  compactHotJobFields,
+  normalizeProvenanceList,
+} from "../src/infrastructure/database/mongoose/storage/jobStorageCompaction.js";
+import { buildSearchTokens } from "../src/domain/services/jobs/jobSearch.js";
+import { extractJobFeatures } from "../src/domain/services/jobs/matching.js";
 
 const apply = process.argv.includes("--apply");
 const rollback = process.argv.includes("--rollback");

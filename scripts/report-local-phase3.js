@@ -1,14 +1,18 @@
 import "../src/config/env.js";
-import { connectMongo, disconnectMongo, isMongoReady } from "../src/config/database.js";
+import {
+  connectMongo,
+  disconnectMongo,
+  isMongoReady,
+} from "../src/infrastructure/database/database.js";
 import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
-import { jobIngestionService } from "../src/services/jobs/jobIngestionService.js";
-import { scoreJobMatch } from "../src/services/jobs/matching.js";
+import { jobIngestionService } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
+import { scoreJobMatch } from "../src/domain/services/jobs/matching.js";
 import {
   classifyEligibility,
   profileApplicantCountries,
-} from "../src/services/jobs/eligibility.js";
+} from "../src/domain/services/jobs/eligibility.js";
 
 const hostname = new URL(env.MONGODB_URI).hostname;
 if (env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(hostname))

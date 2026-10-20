@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createS3ClientOptions, isMockStorageEnabled } from "../src/services/storageService.js";
+import {
+  createS3ClientOptions,
+  isMockStorageEnabled,
+} from "../src/infrastructure/storage/storageService.js";
 
 const baseConfig = {
   NODE_ENV: "development",

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { invokeLLM } from "../src/ai/llm.js";
+import { invokeLLM } from "../src/infrastructure/ai/llm.js";
 import { env } from "../src/config/env.js";
 import { interviewFixtures } from "../evals/interviewFixtures.js";
 import {
@@ -9,7 +9,7 @@ import {
 import {
   InterviewReportContentSchema,
   interviewPromptBlock,
-} from "../src/services/interview/sessionService.js";
+} from "../src/infrastructure/interview/interviewSessionService.js";
 
 const tier = process.env.MOCK_INTERVIEW_REPORT_TIER || "strong";
 const output = [];

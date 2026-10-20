@@ -1,11 +1,11 @@
 import { Model, Document } from "mongoose";
-import { isMongoReady } from "../../../../config/database.js";
+import { isMongoReady } from "../../database.js";
 import { IBaseRepository } from "../../../../domain/repositories/IBaseRepository.js";
 
 export abstract class BaseMongooseRepository<
   TDocument extends Document,
   TEntity,
-  TId = string
+  TId = string,
 > implements IBaseRepository<TEntity, TId> {
   protected inMemoryStore: Map<string, Record<string, unknown>> = new Map();
 
@@ -30,7 +30,11 @@ export abstract class BaseMongooseRepository<
       const created = await this.model.create(persistenceData);
       return this.toEntity(created);
     }
-    const id = String(persistenceData._id || persistenceData.id || `mock_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+    const id = String(
+      persistenceData._id ||
+        persistenceData.id ||
+        `mock_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    );
     const entity: Record<string, unknown> = {
       ...persistenceData,
       _id: id,
@@ -53,7 +57,11 @@ export abstract class BaseMongooseRepository<
     }
     const existing = this.inMemoryStore.get(idStr);
     if (!existing) return null;
-    const merged: Record<string, unknown> = { ...existing, ...persistenceUpdates, updatedAt: new Date() };
+    const merged: Record<string, unknown> = {
+      ...existing,
+      ...persistenceUpdates,
+      updatedAt: new Date(),
+    };
     this.inMemoryStore.set(idStr, merged);
     return this.toEntity(merged);
   }

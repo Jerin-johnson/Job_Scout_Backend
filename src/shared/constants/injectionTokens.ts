@@ -13,6 +13,20 @@ export const TOKENS = {
   MemoryRepository: Symbol.for("IMemoryRepository"),
   ChatSessionRepository: Symbol.for("IChatSessionRepository"),
   AuditLogRepository: Symbol.for("IAuditLogRepository"),
+  FeedbackRepository: Symbol.for("IFeedbackRepository"),
+  CatalogVersionRepository: Symbol.for("ICatalogVersionRepository"),
+  SavedSearchRepository: Symbol.for("ISavedSearchRepository"),
+  JobMatchReportRepository: Symbol.for("IJobMatchReportRepository"),
+  AdminRepository: Symbol.for("IAdminRepository"),
+  InteractionEventRepository: Symbol.for("IInteractionEventRepository"),
+  FxRateRepository: Symbol.for("IFxRateRepository"),
+  UsageEventRepository: Symbol.for("IUsageEventRepository"),
+  MatchRefreshRepository: Symbol.for("IMatchRefreshRepository"),
+  TrackedCompanyRepository: Symbol.for("ITrackedCompanyRepository"),
+  DocumentRepository: Symbol.for("IDocumentRepository"),
+  PrivacyRepository: Symbol.for("IPrivacyRepository"),
+  InterviewSessionRepository: Symbol.for("IInterviewSessionRepository"),
+  ResumeMatchReportService: Symbol.for("IResumeMatchReportService"),
 
   // Infrastructure & Adapters
   PasswordHasher: Symbol.for("IPasswordHasher"),
@@ -39,6 +53,8 @@ export const TOKENS = {
   UpsertProfileUseCase: Symbol.for("UpsertProfileUseCase"),
   PresignResumeUploadUseCase: Symbol.for("PresignResumeUploadUseCase"),
   CompleteResumeUploadUseCase: Symbol.for("CompleteResumeUploadUseCase"),
+  ResumeMatchReportUseCase: Symbol.for("ResumeMatchReportUseCase"),
+  DeleteResumeUseCase: Symbol.for("DeleteResumeUseCase"),
 
   // Use Cases - Jobs
   SearchJobsUseCase: Symbol.for("SearchJobsUseCase"),
@@ -50,10 +66,16 @@ export const TOKENS = {
   CreateInterviewSessionUseCase: Symbol.for("CreateInterviewSessionUseCase"),
   SendInterviewMessageUseCase: Symbol.for("SendInterviewMessageUseCase"),
   CompleteInterviewUseCase: Symbol.for("CompleteInterviewUseCase"),
+  InterviewSessionUseCase: Symbol.for("InterviewSessionUseCase"),
 
   // Use Cases - Memory
   RetrieveMemoriesUseCase: Symbol.for("RetrieveMemoriesUseCase"),
   ManageMemoryConsentUseCase: Symbol.for("ManageMemoryConsentUseCase"),
+
+  // Use Cases - Feedback & Privacy
+  SubmitFeedbackUseCase: Symbol.for("SubmitFeedbackUseCase"),
+  ExportUserDataUseCase: Symbol.for("ExportUserDataUseCase"),
+  DeleteUserAccountUseCase: Symbol.for("DeleteUserAccountUseCase"),
 
   // Testing
   TestService: Symbol.for("ITestService"),

@@ -1,5 +1,5 @@
-import { runChatAgentTurn } from "../src/ai/graphs/chatGraph.js";
-import { CHAT_AGENT_PROMPT_VERSION } from "../src/ai/chatContext.js";
+import { runChatAgentTurn } from "../src/infrastructure/ai/graphs/chatGraph.js";
+import { CHAT_AGENT_PROMPT_VERSION } from "../src/infrastructure/ai/chatContext.js";
 
 const EVAL_PROMPTS = [
   // 1. Profile questions needing no tools (10)

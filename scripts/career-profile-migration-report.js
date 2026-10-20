@@ -1,4 +1,4 @@
-import { connectMongo, disconnectMongo } from "../src/config/database.js";
+import { connectMongo, disconnectMongo } from "../src/infrastructure/database/database.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
 
 try {

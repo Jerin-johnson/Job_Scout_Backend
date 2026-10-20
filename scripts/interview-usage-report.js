@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { connectMongo } from "../src/config/database.js";
+import { connectMongo } from "../src/infrastructure/database/database.js";
 import { UsageEvent } from "../src/infrastructure/database/mongoose/models/UsageEventModel.js";
 
 const days = Math.max(1, Math.min(90, Number.parseInt(process.argv[2] || "30", 10) || 30));

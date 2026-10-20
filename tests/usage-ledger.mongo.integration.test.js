@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { UsageEvent } from "../src/infrastructure/database/mongoose/models/UsageEventModel.js";
-import { streamLLM } from "../src/ai/llm.js";
+import { streamLLM } from "../src/infrastructure/ai/llm.js";
 
 const mongo = await MongoMemoryServer.create();
 await mongoose.connect(mongo.getUri());

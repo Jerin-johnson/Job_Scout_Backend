@@ -5,22 +5,25 @@ import {
   verifyActionToken,
   confirmChatAction,
   wrapUntrustedToolResult,
-} from "../src/ai/tools/chatTools.js";
+} from "../src/infrastructure/ai/tools/chatTools.js";
 import {
   isPromptInjectionAttempt,
   sanitizeAssistantResponse,
   runChatAgentTurn,
-} from "../src/ai/graphs/chatGraph.js";
-import { assembleChatContext, loadValidatedPageContext } from "../src/ai/chatContext.js";
+} from "../src/infrastructure/ai/graphs/chatGraph.js";
+import {
+  assembleChatContext,
+  loadValidatedPageContext,
+} from "../src/infrastructure/ai/chatContext.js";
 import {
   deriveSessionTitle,
   buildIncrementalSummary,
-} from "../src/ai/memory/chatSessionService.js";
+} from "../src/infrastructure/ai/memory/chatSessionService.js";
 import {
   MEMORY_CONSENT_VERSION,
   isSensitiveMemoryContent,
   resolveProfileMemoryConflicts,
-} from "../src/ai/memory/longTerm.js";
+} from "../src/infrastructure/ai/memory/longTerm.js";
 
 test("prompt injection attempts are detected and stripped", () => {
   assert.equal(

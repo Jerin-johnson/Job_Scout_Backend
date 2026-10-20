@@ -4,20 +4,30 @@ import {
   catalogModelStatus,
   getModelRate,
   MODEL_PRICING_CATALOG,
-} from "../src/ai/modelPricingCatalog.js";
+} from "../src/infrastructure/ai/modelPricingCatalog.js";
 import {
   effectiveDataPolicy,
   personalDataPolicyError,
   validateAIConfiguration,
-} from "../src/config/aiStartupValidation.js";
+} from "../src/infrastructure/ai/config/aiStartupValidation.js";
 
 test("model catalog has priced exact IDs and effective Gemini 3.6/3.8 rates", () => {
   assert.equal(catalogModelStatus("gemini", "gemini-3.8-flash"), "priced");
   for (const modelId of ["gemini-3.6-flash", "gemini-3.8-flash"]) {
-    assert.equal(getModelRate("gemini", modelId, new Date("2026-12-31T23:59:59Z")).inputUsdPerMillion, 0.75);
-    assert.equal(getModelRate("gemini", modelId, new Date("2027-01-01T00:00:00Z")).inputUsdPerMillion, 1.5);
+    assert.equal(
+      getModelRate("gemini", modelId, new Date("2026-12-31T23:59:59Z")).inputUsdPerMillion,
+      0.75,
+    );
+    assert.equal(
+      getModelRate("gemini", modelId, new Date("2027-01-01T00:00:00Z")).inputUsdPerMillion,
+      1.5,
+    );
   }
-  assert.ok(MODEL_PRICING_CATALOG.every((entry) => entry.provider && entry.modelId && entry.status && entry.dataPolicyClass));
+  assert.ok(
+    MODEL_PRICING_CATALOG.every(
+      (entry) => entry.provider && entry.modelId && entry.status && entry.dataPolicyClass,
+    ),
+  );
 });
 
 test("unknown and retired model pricing is rejected rather than recorded as zero", () => {
@@ -55,10 +65,16 @@ test("personal-data policy is provider-tier configuration, not inferred from mod
     GEMINI_DATA_POLICY_CLASS: "unpaid_free_tier",
   };
   assert.equal(effectiveDataPolicy("gemini", productionConfig), "unpaid_free_tier");
-  assert.equal(personalDataPolicyError("gemini", "gemini-3.5-flash-lite", "resume_parse", productionConfig)?.code,
-    "AI_PERSONAL_DATA_PROVIDER_BLOCKED");
-  assert.equal(personalDataPolicyError("gemini", "gemini-3.5-flash-lite", "chat", {
-    ...productionConfig,
-    GEMINI_DATA_POLICY_CLASS: "paid_api",
-  }), null);
+  assert.equal(
+    personalDataPolicyError("gemini", "gemini-3.5-flash-lite", "resume_parse", productionConfig)
+      ?.code,
+    "AI_PERSONAL_DATA_PROVIDER_BLOCKED",
+  );
+  assert.equal(
+    personalDataPolicyError("gemini", "gemini-3.5-flash-lite", "chat", {
+      ...productionConfig,
+      GEMINI_DATA_POLICY_CLASS: "paid_api",
+    }),
+    null,
+  );
 });

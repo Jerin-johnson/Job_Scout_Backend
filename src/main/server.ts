@@ -2,14 +2,17 @@ import "reflect-metadata";
 import { createApp } from "./app.js";
 import { env } from "../config/env.js";
 import { logger } from "../shared/utils/logger.js";
-import { initSentry } from "../config/sentry.js";
-import { connectMongo } from "../config/database.js";
-import { getRedisClient } from "../config/redis.js";
-import { setupGracefulShutdown, registerShutdownHandler } from "../config/shutdown.js";
+import { initSentry } from "../infrastructure/logging/sentry.js";
+import { connectMongo } from "../infrastructure/database/database.js";
+import { getRedisClient } from "../infrastructure/cache/redis.js";
+import {
+  setupGracefulShutdown,
+  registerShutdownHandler,
+} from "../infrastructure/lifecycle/shutdown.js";
 import { userRepository } from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { ROLES } from "../shared/constants/plans.js";
 import { interviewRepository } from "../infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
-import { assertValidAIConfiguration } from "../config/aiStartupValidation.js";
+import { assertValidAIConfiguration } from "../infrastructure/ai/config/aiStartupValidation.js";
 
 export async function bootstrap(): Promise<void> {
   assertValidAIConfiguration();
