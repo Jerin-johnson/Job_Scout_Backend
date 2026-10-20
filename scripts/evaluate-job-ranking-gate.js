@@ -1,5 +1,5 @@
 import { fixtures } from "./evaluate-match-versions.js";
-import { scoreJobMatch } from "../src/services/jobs/matching.js";
+import { scoreJobMatch } from "../src/domain/services/jobs/matching.js";
 
 const versions = ["lexical-v2", "lexical-v3", "lexical-v4"];
 const rankAbove = (candidate, control) =>
@@ -45,26 +45,77 @@ const eligibilityPairs = Array.from({ length: 14 }, (_, index) => ({
   },
 }));
 
-const results = Object.fromEntries(versions.map((version) => {
-  const relevance = relevancePairs.map((pair) => {
-    const candidate = scoreJobMatch(pair.profile, pair.relevant, { version });
-    const control = scoreJobMatch(pair.profile, pair.control, { version });
-    return { name: pair.name, isNew: pair.isNew, passes: rankAbove(candidate, control), candidate: candidate.score, control: control.score };
-  });
-  const eligibility = eligibilityPairs.map((pair) => {
-    const candidate = scoreJobMatch(pair.profile, pair.eligible, { version });
-    const control = scoreJobMatch(pair.profile, pair.ineligible, { version });
-    return { name: pair.name, passes: rankAbove(candidate, control) && !candidate.hardBlocked && control.hardBlocked };
-  });
-  return [version, { relevancePairs: relevance, relevancePasses: relevance.filter((item) => item.passes).length, newPairImprovements: relevance.filter((item) => item.isNew && item.passes).length, newPairCount: relevance.filter((item) => item.isNew).length, eligibilityPairs: eligibility, eligibilityPasses: eligibility.filter((item) => item.passes).length }];
-}));
+const results = Object.fromEntries(
+  versions.map((version) => {
+    const relevance = relevancePairs.map((pair) => {
+      const candidate = scoreJobMatch(pair.profile, pair.relevant, { version });
+      const control = scoreJobMatch(pair.profile, pair.control, { version });
+      return {
+        name: pair.name,
+        isNew: pair.isNew,
+        passes: rankAbove(candidate, control),
+        candidate: candidate.score,
+        control: control.score,
+      };
+    });
+    const eligibility = eligibilityPairs.map((pair) => {
+      const candidate = scoreJobMatch(pair.profile, pair.eligible, { version });
+      const control = scoreJobMatch(pair.profile, pair.ineligible, { version });
+      return {
+        name: pair.name,
+        passes: rankAbove(candidate, control) && !candidate.hardBlocked && control.hardBlocked,
+      };
+    });
+    return [
+      version,
+      {
+        relevancePairs: relevance,
+        relevancePasses: relevance.filter((item) => item.passes).length,
+        newPairImprovements: relevance.filter((item) => item.isNew && item.passes).length,
+        newPairCount: relevance.filter((item) => item.isNew).length,
+        eligibilityPairs: eligibility,
+        eligibilityPasses: eligibility.filter((item) => item.passes).length,
+      },
+    ];
+  }),
+);
 
-const summary = Object.fromEntries(Object.entries(results).map(([version, result]) => [version, {
-  relevancePairsPassed: `${result.relevancePasses}/${result.relevancePairs.length}`,
-  newRelevancePairsPassed: `${result.newPairImprovements}/${result.newPairCount}`,
-  eligibilityPairsPassed: `${result.eligibilityPasses}/${result.eligibilityPairs.length}`,
-  failedRelevancePairs: result.relevancePairs.filter((item) => !item.passes).map((item) => item.name),
-  failedEligibilityPairs: result.eligibilityPairs.filter((item) => !item.passes).map((item) => item.name),
-  newRelevancePairsImprovedVsV2: version === "lexical-v2" ? 0 : result.relevancePairs.filter((item) => item.isNew && item.passes && !results["lexical-v2"].relevancePairs.find((baseline) => baseline.name === item.name)?.passes).length,
-}]));
-console.log(JSON.stringify({ versions: summary, default: "lexical-v2", shipDecision: "Keep lexical-v2 until a challenger passes every relevance and eligibility pair without regressions and improves a new relevance pair." }, null, 2));
+const summary = Object.fromEntries(
+  Object.entries(results).map(([version, result]) => [
+    version,
+    {
+      relevancePairsPassed: `${result.relevancePasses}/${result.relevancePairs.length}`,
+      newRelevancePairsPassed: `${result.newPairImprovements}/${result.newPairCount}`,
+      eligibilityPairsPassed: `${result.eligibilityPasses}/${result.eligibilityPairs.length}`,
+      failedRelevancePairs: result.relevancePairs
+        .filter((item) => !item.passes)
+        .map((item) => item.name),
+      failedEligibilityPairs: result.eligibilityPairs
+        .filter((item) => !item.passes)
+        .map((item) => item.name),
+      newRelevancePairsImprovedVsV2:
+        version === "lexical-v2"
+          ? 0
+          : result.relevancePairs.filter(
+              (item) =>
+                item.isNew &&
+                item.passes &&
+                !results["lexical-v2"].relevancePairs.find(
+                  (baseline) => baseline.name === item.name,
+                )?.passes,
+            ).length,
+    },
+  ]),
+);
+console.log(
+  JSON.stringify(
+    {
+      versions: summary,
+      default: "lexical-v2",
+      shipDecision:
+        "Keep lexical-v2 until a challenger passes every relevance and eligibility pair without regressions and improves a new relevance pair.",
+    },
+    null,
+    2,
+  ),
+);

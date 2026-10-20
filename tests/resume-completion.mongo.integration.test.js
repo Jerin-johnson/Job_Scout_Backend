@@ -6,9 +6,9 @@ import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileM
 import { Resume } from "../src/infrastructure/database/mongoose/models/ResumeModel.js";
 import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
 import { profileController } from "../src/presentation/http/controllers/ProfileController.js";
-import { storageService } from "../src/services/storageService.js";
-import { textExtractionService } from "../src/services/textExtractionService.js";
-import { resumeParserService } from "../src/services/resumeParserService.js";
+import { storageService } from "../src/infrastructure/storage/storageService.js";
+import { textExtractionService } from "../src/infrastructure/ai/textExtractionService.js";
+import { resumeParserService } from "../src/infrastructure/ai/resumeParserService.js";
 import { profileRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
 
 function response() {

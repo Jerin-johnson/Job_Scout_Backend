@@ -1,10 +1,10 @@
-import { connectMongo, disconnectMongo } from "../src/config/database.js";
+import { connectMongo, disconnectMongo } from "../src/infrastructure/database/database.js";
 import { Resume } from "../src/infrastructure/database/mongoose/models/ResumeModel.js";
 import { decryptText } from "../src/shared/utils/crypto.js";
 import {
   getExperienceSectionMetrics,
   parseExperienceRoles,
-} from "../src/services/resumeRoleParser.js";
+} from "../src/domain/services/resumes/resumeRoleParser.js";
 
 try {
   await connectMongo();

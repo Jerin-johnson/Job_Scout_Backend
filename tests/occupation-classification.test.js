@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import {
   classifyJobOccupation,
   OCCUPATION_FEATURES_VERSION,
-} from "../src/services/jobs/occupationClassification.js";
+} from "../src/domain/services/jobs/occupationClassification.js";
 import {
   getReferenceDataAttributions,
   lookupGeoNamesPlace,
-} from "../src/services/jobs/referenceData/index.js";
+} from "../src/domain/services/jobs/referenceData/index.js";
 
 test("classifies normalized title families with deterministic rules", () => {
   const cases = [

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { routeRequest } from "../../../ai/router.js";
+import { routeRequest } from "../../../infrastructure/ai/router.js";
 import {
   userRepository,
   UserRecord,
@@ -9,18 +9,21 @@ import {
   listChatModelOptions,
   resolveChatModelForTier,
   resolveSelectableChatModel,
-} from "../../../ai/modelCatalog.js";
+} from "../../../infrastructure/ai/modelCatalog.js";
 import {
   getCandidateContext,
   invalidateCandidateContext,
   UserLike,
-} from "../../../ai/candidateContext.js";
+} from "../../../infrastructure/ai/candidateContext.js";
 import { logger } from "../../../shared/utils/logger.js";
-import { classifyProviderError, providerStatusCode } from "../../../ai/providerErrors.js";
+import {
+  classifyProviderError,
+  providerStatusCode,
+} from "../../../infrastructure/ai/providerErrors.js";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
-import { chatSessionService } from "../../../ai/memory/chatSessionService.js";
-import { confirmChatAction } from "../../../ai/tools/chatTools.js";
-import { runChatAgentTurn } from "../../../ai/graphs/chatGraph.js";
+import { chatSessionService } from "../../../infrastructure/ai/memory/chatSessionService.js";
+import { confirmChatAction } from "../../../infrastructure/ai/tools/chatTools.js";
+import { runChatAgentTurn } from "../../../infrastructure/ai/graphs/chatGraph.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 import {

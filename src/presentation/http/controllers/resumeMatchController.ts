@@ -7,7 +7,7 @@ import {
   createResumeMatchSchema,
   ignoredKeywordSchema,
 } from "../../../shared/schemas/resumeMatchSchemas.js";
-import { resumeMatchReportService } from "../../../services/resumeMatchReportService.js";
+import { resumeMatchReportService } from "../../../infrastructure/database/mongoose/services/resumeMatchReportService.js";
 
 function ownerId(user?: UserRecord): string {
   return String(user?._id || (user as unknown as { id?: string })?.id || "");

@@ -1,11 +1,15 @@
 import { readFile } from "node:fs/promises";
-import { connectMongo, disconnectMongo, isMongoReady } from "../src/config/database.js";
+import {
+  connectMongo,
+  disconnectMongo,
+  isMongoReady,
+} from "../src/infrastructure/database/database.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
 import {
   classifyEligibility,
   profileApplicantCountries,
-} from "../src/services/jobs/eligibility.js";
-import { scoreJobMatch } from "../src/services/jobs/matching.js";
+} from "../src/domain/services/jobs/eligibility.js";
+import { scoreJobMatch } from "../src/domain/services/jobs/matching.js";
 import { env } from "../src/config/env.js";
 
 const file = process.argv.find((arg) => arg.startsWith("--file="))?.slice(7);

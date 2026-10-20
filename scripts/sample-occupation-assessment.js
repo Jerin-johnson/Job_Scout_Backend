@@ -1,8 +1,12 @@
 import "../src/config/env.js";
-import { connectMongo, disconnectMongo, isMongoReady } from "../src/config/database.js";
+import {
+  connectMongo,
+  disconnectMongo,
+  isMongoReady,
+} from "../src/infrastructure/database/database.js";
 import { env } from "../src/config/env.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
-import { classifyJobOccupation } from "../src/services/jobs/occupationClassification.js";
+import { classifyJobOccupation } from "../src/domain/services/jobs/occupationClassification.js";
 
 const requestedSize = 300;
 const reviewSize = 30;

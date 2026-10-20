@@ -1,4 +1,4 @@
-import { connectMongo, disconnectMongo } from "../src/config/database.js";
+import { connectMongo, disconnectMongo } from "../src/infrastructure/database/database.js";
 import { env } from "../src/config/env.js";
 import { logger } from "../src/shared/utils/logger.js";
 import { InterviewSession } from "../src/infrastructure/database/mongoose/models/InterviewSessionModel.js";
@@ -10,7 +10,7 @@ import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js"
 import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
 import { JobDetail } from "../src/infrastructure/database/mongoose/models/JobDetailModel.js";
 import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVectorModel.js";
-import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
+import { dropObsoleteUniqueContentHashIndex } from "../src/infrastructure/database/mongoose/services/jobIndexes.js";
 
 const INDEXED_MODELS = [
   InterviewSession,

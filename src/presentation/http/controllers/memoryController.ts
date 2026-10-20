@@ -3,7 +3,7 @@ import {
   longTermMemory,
   MEMORY_CONSENT_VERSION,
   hasMemoryConsent,
-} from "../../../ai/memory/longTerm.js";
+} from "../../../infrastructure/ai/memory/longTerm.js";
 import {
   userRepository,
   UserRecord,

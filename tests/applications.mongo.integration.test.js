@@ -7,7 +7,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { Application } from "../src/infrastructure/database/mongoose/models/ApplicationModel.js";
 import { applicationController } from "../src/presentation/http/controllers/ApplicationController.js";
 import { applicationRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
-import { setApplicationReminderQueueFactoryForTests } from "../src/services/applicationReminderQueue.js";
+import { setApplicationReminderQueueFactoryForTests } from "../src/infrastructure/queue/applicationReminderQueue.js";
 
 let mongo;
 let mongoDataPath;

@@ -8,18 +8,21 @@ import { jobController } from "../src/presentation/http/controllers/jobControlle
 import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
 import { JobCatalogVersion } from "../src/infrastructure/database/mongoose/models/JobCatalogVersionModel.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
-import { embeddingService } from "../src/services/embeddingService.js";
-import { bumpCatalogVersion, getCatalogVersion } from "../src/services/jobs/catalogVersion.js";
+import { embeddingService } from "../src/infrastructure/ai/embeddingService.js";
+import {
+  bumpCatalogVersion,
+  getCatalogVersion,
+} from "../src/infrastructure/database/mongoose/services/catalogVersion.js";
 import { del, CacheKeys, set } from "../src/shared/cache.js";
 import {
   jobIngestionService,
   registerJobAdapterFactory,
   reserveSourceRequest,
   updateVariantGroups,
-} from "../src/services/jobs/jobIngestionService.js";
-import { BaseJobAdapter } from "../src/services/jobs/adapters/baseAdapter.js";
-import { getJobRiskFlags } from "../src/services/jobs/jobRisk.js";
-import { dropObsoleteUniqueContentHashIndex } from "../src/services/jobs/jobIndexes.js";
+} from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
+import { BaseJobAdapter } from "../src/infrastructure/external-services/jobs/adapters/baseAdapter.js";
+import { getJobRiskFlags } from "../src/domain/services/jobs/jobRisk.js";
+import { dropObsoleteUniqueContentHashIndex } from "../src/infrastructure/database/mongoose/services/jobIndexes.js";
 import {
   migrateJobCatalog,
   rollbackJobCatalog,

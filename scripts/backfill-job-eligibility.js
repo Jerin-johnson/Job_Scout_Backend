@@ -1,11 +1,15 @@
 import "../src/config/env.js";
-import { connectMongo, disconnectMongo, isMongoReady } from "../src/config/database.js";
+import {
+  connectMongo,
+  disconnectMongo,
+  isMongoReady,
+} from "../src/infrastructure/database/database.js";
 import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
-import { parseJobEligibility } from "../src/services/jobs/eligibility.js";
-import { ELIGIBILITY_REGION_CONFIG_VERSION } from "../src/services/jobs/eligibilityRegions.js";
-import { bumpCatalogVersion } from "../src/services/jobs/catalogVersion.js";
+import { parseJobEligibility } from "../src/domain/services/jobs/eligibility.js";
+import { ELIGIBILITY_REGION_CONFIG_VERSION } from "../src/domain/services/jobs/eligibilityRegions.js";
+import { bumpCatalogVersion } from "../src/infrastructure/database/mongoose/services/catalogVersion.js";
 
 const apply = process.argv.includes("--apply");
 const batchSizeArg = process.argv.find((arg) => arg.startsWith("--batch-size="));

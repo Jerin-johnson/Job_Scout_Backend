@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { applicationController } from "../src/presentation/http/controllers/ApplicationController.js";
 import { applicationRepository } from "../src/infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
 import { Application } from "../src/infrastructure/database/mongoose/models/ApplicationModel.js";
-import { applicationReminderTransition } from "../src/services/applicationLifecycle.js";
+import { applicationReminderTransition } from "../src/domain/services/applications/applicationLifecycle.js";
 
 test("application model adds safe defaults for priority, pinning, archive, and source", () => {
   for (const field of [

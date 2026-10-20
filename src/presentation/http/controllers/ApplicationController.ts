@@ -6,20 +6,20 @@ import { CreateApplicationUseCase } from "../../../application/useCases/applicat
 import { UpdateApplicationStatusUseCase } from "../../../application/useCases/applications/UpdateApplicationStatusUseCase.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
-import { applicationGraph } from "../../../ai/graphs/applicationGraph.js";
+import { applicationGraph } from "../../../infrastructure/ai/graphs/applicationGraph.js";
 import {
   applicationRepository,
   ApplicationRecord,
   ApplicationFilters,
 } from "../../../infrastructure/database/mongoose/repositories/MongooseApplicationRepository.js";
-import { applicationReminderTransition } from "../../../services/applicationLifecycle.js";
+import { applicationReminderTransition } from "../../../domain/services/applications/applicationLifecycle.js";
 import {
   scheduleApplicationReminder,
   cancelApplicationReminder,
-} from "../../../services/applicationReminderQueue.js";
+} from "../../../infrastructure/queue/applicationReminderQueue.js";
 import { logger } from "../../../shared/utils/logger.js";
 import { del, CacheKeys } from "../../../shared/cache.js";
-import { invalidateCandidateContext } from "../../../ai/candidateContext.js";
+import { invalidateCandidateContext } from "../../../infrastructure/ai/candidateContext.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";

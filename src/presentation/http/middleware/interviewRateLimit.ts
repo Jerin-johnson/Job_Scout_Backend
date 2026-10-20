@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
-import { getRedisClient, isRedisReady } from "../../../config/redis.js";
+import { getRedisClient, isRedisReady } from "../../../infrastructure/cache/redis.js";
 
 type RedisReplyType = boolean | number | string | (boolean | number | string)[];
 

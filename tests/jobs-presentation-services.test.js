@@ -4,16 +4,16 @@ import {
   convertAmount,
   isFxRateStale,
   refreshReferenceRates,
-} from "../src/services/jobs/fxRates.js";
+} from "../src/infrastructure/database/mongoose/services/fxRates.js";
 import {
   getJobRiskFlags,
   detectRepostSignal,
   classifyLinkHealthStatus,
   sampleJobsForPoliteLinkCheck,
   computeSourceTermExpiry,
-} from "../src/services/jobs/jobRisk.js";
-import { classifyEligibility } from "../src/services/jobs/eligibility.js";
-import { annualComparableAmount, scoreJobMatch } from "../src/services/jobs/matching.js";
+} from "../src/domain/services/jobs/jobRisk.js";
+import { classifyEligibility } from "../src/domain/services/jobs/eligibility.js";
+import { annualComparableAmount, scoreJobMatch } from "../src/domain/services/jobs/matching.js";
 
 test("cross-currency conversion uses rates per EUR and rejects missing rates", () => {
   assert.equal(convertAmount(100, "USD", "INR", { EUR: 1, USD: 1.1, INR: 90 }), (100 / 1.1) * 90);

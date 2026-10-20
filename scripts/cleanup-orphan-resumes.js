@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import { env } from "../src/config/env.js";
-import { createS3ClientOptions } from "../src/services/storageService.js";
+import { createS3ClientOptions } from "../src/infrastructure/storage/storageService.js";
 import { Resume } from "../src/infrastructure/database/mongoose/models/ResumeModel.js";
 
 const cutoff = new Date(Date.now() - env.ORPHAN_RESUME_CLEANUP_AFTER_HOURS * 60 * 60 * 1000);

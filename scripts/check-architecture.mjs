@@ -43,6 +43,8 @@ const obsoleteDirs = [
   { path: "src/middleware", canonical: "src/presentation/http/middleware/" },
   { path: "src/models", canonical: "src/infrastructure/database/mongoose/models/" },
   { path: "src/repositories", canonical: "src/infrastructure/database/mongoose/repositories/" },
+  { path: "src/services", canonical: "src/domain/services/ and src/infrastructure/" },
+  { path: "src/ai", canonical: "src/infrastructure/ai/" },
 ];
 
 for (const obsolete of obsoleteDirs) {
@@ -199,7 +201,7 @@ if (violations.length > 0) {
 
 console.log(`Architecture Boundary Check PASSED:`);
 console.log(
-  `- Obsolete directories: all 5 legacy directories (routes, controllers, middleware, models, repositories) removed`,
+  `- Obsolete directories: all 7 legacy directories (routes, controllers, middleware, models, repositories, services, ai) removed`,
 );
 console.log(`- JavaScript files in src/: 0 files found`);
 console.log(

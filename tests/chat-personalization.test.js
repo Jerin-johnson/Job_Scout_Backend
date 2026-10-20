@@ -5,10 +5,10 @@ import {
   getHistoryMessages,
   streamChatRequestSchema,
 } from "../src/presentation/http/controllers/aiController.js";
-import { formatCandidateContext } from "../src/ai/candidateContext.js";
-import { formatCachedPrompt } from "../src/ai/llm.js";
-import { classifyHeuristically, routeRequest } from "../src/ai/router.js";
-import { chatStreamEvents } from "../src/ai/chatStream.js";
+import { formatCandidateContext } from "../src/infrastructure/ai/candidateContext.js";
+import { formatCachedPrompt } from "../src/infrastructure/ai/llm.js";
+import { classifyHeuristically, routeRequest } from "../src/infrastructure/ai/router.js";
+import { chatStreamEvents } from "../src/infrastructure/ai/chatStream.js";
 
 test("candidate context prompt contains the supplied identity and live counts after static rules", () => {
   const card = formatCandidateContext({

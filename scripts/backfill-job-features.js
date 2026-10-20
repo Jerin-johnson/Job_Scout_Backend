@@ -1,7 +1,7 @@
 import "../src/config/env.js";
-import { connectMongo, disconnectMongo } from "../src/config/database.js";
+import { connectMongo, disconnectMongo } from "../src/infrastructure/database/database.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
-import { extractJobFeatures } from "../src/services/jobs/matching.js";
+import { extractJobFeatures } from "../src/domain/services/jobs/matching.js";
 
 const apply = process.argv.includes("--apply");
 const batchSize = 250;

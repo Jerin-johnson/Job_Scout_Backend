@@ -5,7 +5,7 @@ import { UserModel, IUserDocument } from "../models/UserModel.js";
 import { UserEntity, IRefreshTokenMeta } from "../../../../domain/entities/User.js";
 import { IUserRepository } from "../../../../domain/repositories/IUserRepository.js";
 import { UserMapper } from "../mappers/UserMapper.js";
-import { isMongoReady } from "../../../../config/database.js";
+import { isMongoReady } from "../../database.js";
 import { PLANS, ROLES } from "../../../../shared/constants/plans.js";
 
 @injectable()

@@ -1,8 +1,12 @@
-import { connectMongo, disconnectMongo, isMongoReady } from "../src/config/database.js";
+import {
+  connectMongo,
+  disconnectMongo,
+  isMongoReady,
+} from "../src/infrastructure/database/database.js";
 import { env } from "../src/config/env.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
-import { classifyEligibility } from "../src/services/jobs/eligibility.js";
-import { ELIGIBILITY_REGIONS } from "../src/services/jobs/eligibilityRegions.js";
+import { classifyEligibility } from "../src/domain/services/jobs/eligibility.js";
+import { ELIGIBILITY_REGIONS } from "../src/domain/services/jobs/eligibilityRegions.js";
 
 const host = new URL(env.MONGODB_URI).hostname;
 if (env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(host))

@@ -9,7 +9,7 @@ import {
   INTERVIEW_PROMPT_VERSION,
 } from "../src/shared/constants/interviews.js";
 import { ownedSessionFilter } from "../src/infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
-import { interviewGraph } from "../src/ai/graphs/interviewGraph.js";
+import { interviewGraph } from "../src/infrastructure/ai/graphs/interviewGraph.js";
 import { interviewFixtures } from "../evals/interviewFixtures.js";
 import {
   InterviewReportSchema,
@@ -17,7 +17,7 @@ import {
   interviewPromptBlock,
   localDayKey,
   inferInterviewRoleFamily,
-} from "../src/services/interview/sessionService.js";
+} from "../src/infrastructure/database/mongoose/services/interviewSessionService.js";
 import { redactPaths } from "../src/shared/utils/logger.js";
 
 test("session repository scope requires both session id and authenticated owner", () => {

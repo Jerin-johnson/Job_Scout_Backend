@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { interactionActorKey, recordInteraction, JOB_ANALYTICS_CONSENT_VERSION } from "../src/services/jobs/interactionEvents.js";
-import { buildSourceStatusUpdate } from "../src/services/jobs/jobIngestionService.js";
+import {
+  interactionActorKey,
+  recordInteraction,
+  JOB_ANALYTICS_CONSENT_VERSION,
+} from "../src/infrastructure/database/mongoose/services/interactionEvents.js";
+import { buildSourceStatusUpdate } from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
 
 test("interaction actor keys are stable pseudonyms and never the account ID", () => {
   const id = "507f1f77bcf86cd799439011";
@@ -13,7 +17,10 @@ test("interaction actor keys are stable pseudonyms and never the account ID", ()
 
 test("interaction collection is opt-in and uses a dedicated consent version", async () => {
   assert.equal(JOB_ANALYTICS_CONSENT_VERSION, "job-analytics-v1");
-  assert.equal(await recordInteraction({ userId: "507f1f77bcf86cd799439011", event: "click" }), null);
+  assert.equal(
+    await recordInteraction({ userId: "507f1f77bcf86cd799439011", event: "click" }),
+    null,
+  );
 });
 
 test("source status keeps confirmed active listings fresh, hides unknown, and closes closed", () => {

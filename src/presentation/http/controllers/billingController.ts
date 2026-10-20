@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { billingService } from "../../../services/billingService.js";
+import { billingService } from "../../../infrastructure/database/mongoose/services/billingService.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 import { checkoutSchema } from "../../../shared/schemas/billingSchemas.js";

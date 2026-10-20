@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { summarizeOccupationLabels } from "../src/services/jobs/occupationEvaluation.js";
-import { classifyJobOccupation } from "../src/services/jobs/occupationClassification.js";
+import { summarizeOccupationLabels } from "../src/domain/services/jobs/occupationEvaluation.js";
+import { classifyJobOccupation } from "../src/domain/services/jobs/occupationClassification.js";
 
 test("occupation accuracy summarizes per-predicted-family precision and per-gold-family recall", () => {
   const result = summarizeOccupationLabels([

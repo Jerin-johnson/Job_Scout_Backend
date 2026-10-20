@@ -1,20 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGroqModel, estimateGroqCost, groqProvider, toGroqMessages } from "../src/ai/providers/groq.js";
+import {
+  createGroqModel,
+  estimateGroqCost,
+  groqProvider,
+  toGroqMessages,
+} from "../src/infrastructure/ai/providers/groq.js";
 
 test("Groq adapter exposes a configured server-side provider and current free-plan chat models", () => {
   assert.equal(groqProvider.id, "groq");
   assert.equal(typeof groqProvider.isConfigured(), "boolean");
-  assert.deepEqual(groqProvider.chatModels.map((model) => model.id), [
-    "openai/gpt-oss-20b",
-    "openai/gpt-oss-120b",
-  ]);
-  assert.equal(groqProvider.chatModels.every((model) => model.access === "free_tier"), true);
+  assert.deepEqual(
+    groqProvider.chatModels.map((model) => model.id),
+    ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
+  );
+  assert.equal(
+    groqProvider.chatModels.every((model) => model.access === "free_tier"),
+    true,
+  );
 });
 
 test("Groq usage is normalized to conservative documented per-token cost", () => {
-  assert.equal(estimateGroqCost("openai/gpt-oss-20b", { inputTokens: 1000, outputTokens: 1000 }), 0.000375);
-  assert.throws(() => estimateGroqCost("unknown/model", { inputTokens: 1000, outputTokens: 1000 }), /unknown model/i);
+  assert.equal(
+    estimateGroqCost("openai/gpt-oss-20b", { inputTokens: 1000, outputTokens: 1000 }),
+    0.000375,
+  );
+  assert.throws(
+    () => estimateGroqCost("unknown/model", { inputTokens: 1000, outputTokens: 1000 }),
+    /unknown model/i,
+  );
 });
 
 test("Groq LangChain adapter maps normalized messages and returns a stream-capable facade", () => {
