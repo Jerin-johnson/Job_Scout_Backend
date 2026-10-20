@@ -1,6 +1,6 @@
 # 11 — Evaluation
 
-Use `npm run eval:match-rank-gate` for pairwise relevance and India eligibility checks across lexical-v2, lexical-v3, and lexical-v4. Use `npm run eval:jobs-phase3` to inspect calibration and the 14 US-only controls. These curated fixtures do not replace an independently labeled production sample. Keep lexical-v2 as the default unless a challenger improves pairwise ordering on new cases without breaking existing relevance or eligibility controls.
+Use `npm run eval:match-rank-gate` for pairwise relevance and India eligibility checks across lexical-v2, lexical-v2.1, lexical-v3, and lexical-v4. Use `npm run eval:jobs-phase3` to inspect calibration and the 14 US-only controls. These curated fixtures do not replace an independently labeled production sample. The lexical-v2.1 default changes only experience handling for confirmed zero-year freshers; existing fixtures are unchanged. Keep lexical-v3 and lexical-v4 evaluation-only until their gates pass.
 
 Last verified against commit `1dcc456` plus Phase 3 working-tree changes on 2026-10-17.
 
@@ -17,6 +17,7 @@ For the new deterministic resume matcher, run `node --test tests/resume-match-se
 Version every prompt/score change, publish eval results with the change, and block merges on representative regressions. Add human-reviewed cases for occupation, country eligibility, multilingual facts, short answers and adversarial inputs. Separate deterministic correctness from subjective generation quality. For lexical-v4 require zero existing fixture regressions and all US-only controls to block before changing the default.
 
 **Unverified:** human-rated baseline, provider parity, multilingual performance and population-wide quality. Build a consented, privacy-reviewed evaluation set before making quality claims.
+
 ## Matching version gate
 
 The fixture evaluator is `npm run eval:match-versions`; it reports deterministic lexical-v2 and lexical-v3 scores, bands, and deltas for named existing and India-first profile fixtures. Default selection remains lexical-v2 until the approved non-regression/improvement gate passes. The evaluator does not retune weights or call a model. Occupation v6 received a qualitative 100-listing review; per-family precision was not calculated, so this classifier must not be treated as a fully validated eligibility filter.

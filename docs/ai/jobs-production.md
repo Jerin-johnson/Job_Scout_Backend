@@ -168,7 +168,7 @@ Fresh 100k run on 2026-10-19 (`mongod` 8.0.8 on loopback, `bulkBatchSize: 1000`,
   - 10,000 synthetic user profiles benchmarked in `20.20 ms` (`< 50 ms`), enforcing the per-run cap (`40` users) and prioritizing multi-token + country-eligible matches.
   - MongoDB `explain("executionStats")` on 500 profiles with 12 matching nurses confirmed `IXSCAN` on `profile_match_tokens_idx` with `totalDocsExamined: 12` (zero unmatched profiles scanned).
 - **Scoring Version Policy (`lexical-v2` vs `lexical-v4`)**:
-  - `lexical-v2` (`JOB_MATCH_SCORE_VERSION=lexical-v2`) remains the default production scoring version (`skills: 40, title: 20, experience: 15, location: 15, salary: 5, recency: 5`).
+  - `lexical-v2.1` is the default production scoring version (`JOB_MATCH_SCORE_VERSION=lexical-v2.1`), retaining the v2 weights (`skills: 40, title: 20, experience: 15, location: 15, salary: 5, recency: 5`) while correctly treating an explicitly confirmed fresher as zero experience for numeric minimum requirements. `lexical-v2` remains available for comparison.
   - `lexical-v4` is opt-in via `JOB_MATCH_SCORE_VERSION=lexical-v4` (`skills: 32, title: 22, experience: 10, location: 12, salary: 5, recency: 5, occupation: 8, seniority: 3, eligibility: 3`) when structured `careerProfile` (confirmed experience years, home/target locations, work authorization) and occupation classification coverage exceed the activation threshold, because `lexical-v4` explicitly downgrades confidence to `low` when role/experience facts are unconfirmed and hard-blocks country-ineligible listings.
 
 ## 8. Saved Jobs, Saved Searches & Alerts (`src/models/SavedSearch.js`, `src/services/jobs/savedSearchService.js`)
