@@ -724,7 +724,7 @@ test("catalog counts bypass stale global cache entries after source policy chang
 
 test("discovery graph reads the indexed catalog and contains no ingestion call", async () => {
   const graph = await readFile(
-    new URL("../src/ai/graphs/discoveryGraph.ts", import.meta.url),
+    new URL("../src/infrastructure/ai/graphs/discoveryGraph.ts", import.meta.url),
     "utf8",
   );
   assert.match(
