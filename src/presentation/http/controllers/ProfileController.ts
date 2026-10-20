@@ -315,47 +315,18 @@ export const profileController = {
     const userId = getUserId(user);
     const profile = await profileRepository.findByUserId(userId);
     const derivedExperience = deriveExperience((profile?.roles as RoleItem[]) || []);
-    const careerProfile = profile?.careerProfile || {
-      schemaVersion: 1,
-      targetRoles: [],
-      experience: {
-        confirmedYears: null,
-        derivedYears: null,
-        internshipYears: null,
-        needsConfirmation: true,
-        confirmedAt: null,
-      },
-      homeLocation: {
-        countryCode: null,
-        subdivisionCode: null,
-        cityCode: null,
-        aliasCatalogVersion: PLACE_CATALOG_VERSION,
-        confirmedAt: null,
-      },
-      targetLocations: [],
-      workAuthorization: {
-        canWorkInHomeCountry: null,
-        sponsorshipOrRelocation: { enabled: false, countryCodes: [] },
-      },
-      workPreferences: { workMode: "any", employmentTypes: [], shiftPreference: null },
-      compensation: { minimumAmount: null, currencyCode: null, period: null },
-      moreDetails: {
-        educationLevelCode: null,
-        languages: [],
-        testScores: [],
-        availabilityCode: null,
-        noticePeriodDays: null,
-        certifications: [],
-      },
-    };
-    const cExp = (
-      careerProfile as {
-        experience?: { confirmedAt?: string | null; confirmedYears?: number | null };
-      }
-    ).experience;
+    const rawCareer = (
+      profile?.careerProfile ? JSON.parse(JSON.stringify(profile.careerProfile)) : {}
+    ) as Record<string, unknown>;
+    if (rawCareer.experience && typeof rawCareer.experience === "object") {
+      const exp = rawCareer.experience as Record<string, unknown>;
+      delete exp.derivedYears;
+    }
+    const careerProfile = careerProfileSchema.parse(rawCareer);
+    const cExp = careerProfile.experience;
     res.status(200).json(
       successResponse({
-        careerProfile: careerProfileSchema.parse(careerProfile),
+        careerProfile,
         profileVersion: profile?.version || 1,
         suggestions: {
           educationLevel: educationLevelSuggestion((profile?.education as EducationItem[]) || []),

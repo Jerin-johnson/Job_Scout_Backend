@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction, CookieOptions } from "express";
 import { injectable, inject } from "tsyringe";
+import { IUserRepository } from "../../../domain/repositories/IUserRepository.js";
 import { RegisterUserUseCase } from "../../../application/useCases/auth/RegisterUserUseCase.js";
 import { LoginUserUseCase } from "../../../application/useCases/auth/LoginUserUseCase.js";
 import { RefreshTokenUseCase } from "../../../application/useCases/auth/RefreshTokenUseCase.js";
@@ -221,17 +222,20 @@ export const authController = {
   }),
 
   me: asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as UserRecord;
+    const rawUser = req.user as Record<string, unknown> | undefined;
+    const userId = String(rawUser?.userId || rawUser?._id || rawUser?.id || "");
+    const userRepo = appContainer.resolve<IUserRepository>(TOKENS.UserRepository);
+    const user = userId ? await userRepo.findById(userId) : null;
     res.status(200).json(
       successResponse({
         user: {
-          id: user?._id ? user._id.toString() : (user as unknown as { id?: string })?.id,
-          email: user?.email,
-          name: user?.name,
-          role: user?.role,
-          plan: user?.plan,
-          planVersion: user?.planVersion,
-          profileVersion: user?.profileVersion,
+          id: user?.id || userId,
+          email: user?.email || (rawUser?.email as string | undefined),
+          name: user?.name || (rawUser?.name as string | undefined),
+          role: user?.role || (rawUser?.role as string | undefined) || "user",
+          plan: user?.plan || (rawUser?.plan as string | undefined) || "free",
+          planVersion: user?.planVersion || 1,
+          profileVersion: user?.profileVersion || 1,
         },
       }),
     );

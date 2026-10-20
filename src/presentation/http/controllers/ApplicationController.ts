@@ -30,10 +30,12 @@ import {
   archiveApplicationSchema,
 } from "../../../shared/schemas/applicationSchemas.js";
 
-function getUserId(user: UserRecord): string {
-  if (user && user._id) return user._id.toString();
-  if (user && (user as unknown as { id?: string }).id)
-    return String((user as unknown as { id?: string }).id);
+function getUserId(user?: unknown): string {
+  if (!user || typeof user !== "object") throw new UnauthorizedError("User identification missing");
+  const u = user as Record<string, unknown>;
+  if (u.userId) return String(u.userId);
+  if (u._id) return String(u._id);
+  if (u.id) return String(u.id);
   throw new UnauthorizedError("User identification missing");
 }
 
