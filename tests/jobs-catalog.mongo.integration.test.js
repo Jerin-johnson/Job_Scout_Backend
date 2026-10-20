@@ -726,7 +726,7 @@ test("discovery graph reads the indexed catalog and contains no ingestion call",
   );
   assert.match(
     graph,
-    /getCandidateJobs\(\{ profile: matchProfile, limit: 400, excludeJobIds: hiddenJobIds \}\)/,
+    /getCandidateJobs\(\{\s*profile: matchProfile,\s*limit: 400,\s*excludeJobIds: hiddenJobIds,?\s*\}\)/,
   );
   assert.doesNotMatch(graph, /\.ingestAll\(|\.ingestSource\(/);
 });
