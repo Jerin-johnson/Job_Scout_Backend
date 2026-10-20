@@ -133,27 +133,49 @@ export const fixtures = [
       locationTier: 1,
     },
   },
+  {
+    name: "new-confirmed-fresher-requirement",
+    profile: {
+      skills: [{ name: "Nursing" }, { name: "BLS" }],
+      roles: [],
+      preferences: { targetRoles: ["Staff Nurse"] },
+      careerProfile: {
+        experience: { isFresher: true, needsConfirmation: false, confirmedYears: 0 },
+      },
+    },
+    job: {
+      title: "Staff Nurse",
+      requirements: ["Nursing", "BLS", "2 years experience"],
+      rawDescription: "Two years of hospital experience preferred.",
+      remoteType: "onsite",
+      locationTier: 1,
+    },
+  },
 ];
 
 const rows = fixtures.map(({ name, profile, job }) => {
   const v2 = scoreJobMatch(profile, job, { version: "lexical-v2" });
+  const v2_1 = scoreJobMatch(profile, job, { version: "lexical-v2.1" });
   const v3 = scoreJobMatch(profile, job, { version: "lexical-v3" });
   return {
     fixture: name,
     v2: v2.score,
     v2Band: v2.band,
+    v2_1: v2_1.score,
+    v2_1Band: v2_1.band,
     v3: v3.score,
     v3Band: v3.band,
     delta: v3.score - v2.score,
+    v2_1Delta: v2_1.score - v2.score,
   };
 });
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   console.log(
     [
-      "fixture | v2 | v3 | delta",
+      "fixture | v2 | v2.1 | v3 | v3-v2 delta | v2.1-v2 delta",
       ...rows.map(
         (row) =>
-          `${row.fixture} | ${row.v2} (${row.v2Band}) | ${row.v3} (${row.v3Band}) | ${row.delta >= 0 ? "+" : ""}${row.delta}`,
+          `${row.fixture} | ${row.v2} (${row.v2Band}) | ${row.v2_1} (${row.v2_1Band}) | ${row.v3} (${row.v3Band}) | ${row.delta >= 0 ? "+" : ""}${row.delta} | ${row.v2_1Delta >= 0 ? "+" : ""}${row.v2_1Delta}`,
       ),
     ].join("\n"),
   );
@@ -161,10 +183,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     (row) => row.fixture.startsWith("existing-") && row.delta < 0,
   );
   const improvedNew = rows.filter((row) => row.fixture.startsWith("new-") && row.delta > 0);
-  console.log(
-    `Existing regressions: ${regressedExisting.length}; new fixture improvements: ${improvedNew.length}/3`,
+  const v2_1ExistingRegressions = rows.filter(
+    (row) => row.fixture.startsWith("existing-") && row.v2_1Delta < 0,
   );
+  const fresherBehavior = rows.find((row) => row.fixture === "new-confirmed-fresher-requirement");
+  console.log(
+    `v3 existing regressions: ${regressedExisting.length}; v3 new fixture improvements: ${improvedNew.length}/${rows.filter((row) => row.fixture.startsWith("new-")).length}; v2.1 existing regressions: ${v2_1ExistingRegressions.length}; confirmed-fresher experience adjustment: ${fresherBehavior?.v2_1Delta < 0 ? "PASS" : "FAIL"}`,
+  );
+  if (v2_1ExistingRegressions.length || !(fresherBehavior?.v2_1Delta < 0))
+    console.log("The v2.1 behavior gate did not pass; default remains lexical-v2.");
+  else console.log("The v2.1 fixture gate passes; default selected as lexical-v2.1.");
   if (regressedExisting.length || improvedNew.length === 0)
-    console.log("The v3 ship gate did not pass; default remains lexical-v2.");
+    console.log("The v3 ship gate did not pass; lexical-v2.1 remains the selected default.");
   else console.log("The fixture gate passes; review before changing the configured default.");
 }

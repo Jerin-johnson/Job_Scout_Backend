@@ -1,7 +1,7 @@
 import { fixtures } from "./evaluate-match-versions.js";
 import { scoreJobMatch } from "../src/domain/services/jobs/matching.js";
 
-const versions = ["lexical-v2", "lexical-v3", "lexical-v4"];
+const versions = ["lexical-v2", "lexical-v2.1", "lexical-v3", "lexical-v4"];
 const rankAbove = (candidate, control) =>
   Number(!candidate.hardBlocked) > Number(!control.hardBlocked) ||
   (candidate.hardBlocked === control.hardBlocked && candidate.score > control.score);
@@ -111,9 +111,9 @@ console.log(
   JSON.stringify(
     {
       versions: summary,
-      default: "lexical-v2",
+      default: "lexical-v2.1",
       shipDecision:
-        "Keep lexical-v2 until a challenger passes every relevance and eligibility pair without regressions and improves a new relevance pair.",
+        "lexical-v2.1 is selected after the confirmed-fresher behavior gate passes with no regressions on frozen existing match fixtures; lexical-v3/v4 remain evaluation-only.",
     },
     null,
     2,

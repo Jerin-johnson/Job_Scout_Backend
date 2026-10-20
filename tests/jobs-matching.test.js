@@ -98,8 +98,8 @@ test("broad software-engineering targets recognize frontend and backend speciali
   assert.ok(score.reasons.some((reason) => reason.includes("closely related")));
 });
 
-test("score bands follow selected version with lexical-v2 as the default", () => {
-  assert.equal(MATCH_SCORE_VERSION, "lexical-v2");
+test("score bands follow the configured lexical-v2.1 default", () => {
+  assert.equal(MATCH_SCORE_VERSION, "lexical-v2.1");
   const low = scoreJobMatch(
     { skills: [], roles: [], preferences: { targetRoles: ["Frontend Engineer"] } },
     {
@@ -145,6 +145,51 @@ test("score bands follow selected version with lexical-v2 as the default", () =>
       { version: "lexical-v3" },
     ).scoreVersion,
     "lexical-v3",
+  );
+});
+
+test("lexical-v2.1 treats an explicitly confirmed fresher as zero experience, not unknown", () => {
+  const profile = {
+    skills: [],
+    roles: [],
+    preferences: { targetRoles: ["Staff Nurse"] },
+    careerProfile: {
+      experience: { isFresher: true, needsConfirmation: false, confirmedYears: 0 },
+    },
+  };
+  const job = {
+    title: "Staff Nurse",
+    requirements: ["2 years experience"],
+    remoteType: "onsite",
+    locationTier: 1,
+    postedDateKnown: false,
+  };
+  const legacy = scoreJobMatch(profile, job, { version: "lexical-v2" });
+  const improved = scoreJobMatch(profile, job, { version: "lexical-v2.1" });
+
+  assert.equal(legacy.breakdown.experience, 0.55);
+  assert.equal(improved.breakdown.experience, 0.25);
+  assert.ok(improved.score < legacy.score);
+  assert.ok(
+    improved.reasons.includes("Your confirmed experience is below the stated 2-year requirement"),
+  );
+});
+
+test("lexical-v2.1 keeps unconfirmed experience neutral and says so in its explanation", () => {
+  const score = scoreJobMatch(
+    { skills: [], roles: [], preferences: { targetRoles: ["Staff Nurse"] } },
+    {
+      title: "Staff Nurse",
+      requirements: ["2 years experience"],
+      remoteType: "onsite",
+      locationTier: 1,
+    },
+    { version: "lexical-v2.1" },
+  );
+
+  assert.equal(score.breakdown.experience, 0.55);
+  assert.ok(
+    score.reasons.includes("Experience is unconfirmed in your profile; this factor is neutral"),
   );
 });
 

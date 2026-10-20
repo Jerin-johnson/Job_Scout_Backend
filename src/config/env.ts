@@ -3,7 +3,9 @@ import { z } from "zod";
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  JOB_MATCH_SCORE_VERSION: z.enum(["lexical-v2", "lexical-v3"]).default("lexical-v2"),
+  JOB_MATCH_SCORE_VERSION: z
+    .enum(["lexical-v2", "lexical-v2.1", "lexical-v3"])
+    .default("lexical-v2.1"),
   FX_REFERENCE_SOURCE: z.enum(["ecb", "rbi", "fbil"]).default("ecb"),
   PORT: z.coerce.number().default(4001),
   HOST: z.string().default("0.0.0.0"),
