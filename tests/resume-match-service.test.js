@@ -5,7 +5,7 @@ import {
   scoreResumeForJob,
   applyIgnoredKeywords,
   filterGroundedSuggestions,
-} from "../src/infrastructure/database/mongoose/services/resumeMatchService.js";
+} from "../src/domain/services/resumes/resumeMatch.js";
 
 const sourceText = `Jordan Smith\njordan@example.com\n+1 415 555 0199\nSUMMARY\nBackend engineer with Python and SQL experience.\nEXPERIENCE\nBackend Engineer at Acme Systems\n2021 - 2025\n- Built Python APIs serving 20 customers\n- Improved SQL query performance\nEDUCATION\nBachelor of Science\nSKILLS\nPython, SQL, APIs\n`;
 const profile = {

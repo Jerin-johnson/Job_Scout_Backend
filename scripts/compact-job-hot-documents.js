@@ -11,8 +11,8 @@ import { JobVector } from "../src/infrastructure/database/mongoose/models/JobVec
 import {
   compactHotJobFields,
   normalizeProvenanceList,
-} from "../src/infrastructure/database/mongoose/services/jobStorage.js";
-import { buildSearchTokens } from "../src/infrastructure/database/mongoose/services/jobSearchService.js";
+} from "../src/infrastructure/database/mongoose/storage/jobStorageCompaction.js";
+import { buildSearchTokens } from "../src/domain/services/jobs/jobSearch.js";
 import { extractJobFeatures } from "../src/domain/services/jobs/matching.js";
 
 const apply = process.argv.includes("--apply");

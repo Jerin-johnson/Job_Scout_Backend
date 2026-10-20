@@ -7,7 +7,7 @@ import { getCheckpointer, toNamespacedThreadId } from "../checkpointer.js";
 import { routeRequest } from "../router.js";
 import type { RoutingDecision } from "../router.js";
 import { invokeLLM } from "../llm.js";
-import { quotaService } from "../../database/mongoose/services/quotaService.js";
+import { quotaService } from "../../cache/redisQuotaService.js";
 import { assembleChatContext, CHAT_AGENT_PROMPT_VERSION } from "../chatContext.js";
 import type { PageContext, HistoryMessage, AssembledChatContext } from "../chatContext.js";
 import {

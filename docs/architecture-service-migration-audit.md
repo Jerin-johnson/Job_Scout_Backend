@@ -1,0 +1,108 @@
+# Architecture Service Migration Audit & Resolution Plan
+
+**Repository:** `AiJob_search_backend` (`jobscout-api`)  
+**Date:** 2026-10-20  
+**Status:** Audit Completed; Ready for Migration Execution
+
+---
+
+## 1. Executive Summary
+
+An exhaustive audit of the 26 files located in `src/infrastructure/database/mongoose/services/` was conducted. The directory violates Clean Architecture principles by serving as an unstructured, generic container that mixes:
+
+1. Pure domain business logic (e.g. search ranking, resume scoring, resilience evaluation, ATS validation)
+2. Application use case workflows (e.g. mock interviews, GDPR export, account deletion, resume match reporting, billing checkout)
+3. Concrete Mongoose repositories (e.g. `Job`, `Document`, `Feedback`, `CatalogVersion`, `Admin`, `SavedSearch`)
+4. Specialized infrastructure technical adapters (e.g. S3 export generation, BullMQ queues, Redis quota scripts, Razorpay billing gateway)
+
+This audit establishes the canonical architectural owner, contract interfaces, dependencies, and migration strategy for every component. Upon completion of this migration, `src/infrastructure/database/mongoose/services/` will be completely eliminated.
+
+---
+
+## 2. Exhaustive Audit & Target Mapping Matrix
+
+| Current File                    | Actual Responsibility                                                                             | Current Dependencies                                                    | Correct Architectural Owner                       | Proposed Destination                                                                                                                                                             | Required Interface                                        | Consumers to Update                                         | Migration Risks & Mitigations                                       |
+| :------------------------------ | :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------- | :------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------- | :---------------------------------------------------------- | :------------------------------------------------------------------ |
+| `catalogVersion.ts`             | Atomic version bump & query for global job catalog cache namespace                                | `JobCatalogVersionModel`, `database`                                    | Infrastructure Persistence                        | `src/infrastructure/database/mongoose/repositories/MongooseCatalogVersionRepository.ts`                                                                                          | `ICatalogVersionRepository`                               | `jobController`, `jobIngestionService`, `cache.ts`, scripts | Low: Simple atomic MongoDB findOne/findOneAndUpdate queries         |
+| `documentStorageService.ts`     | CRUD persistence for user tailored resume documents                                               | `DocumentModel`                                                         | Infrastructure Persistence                        | `src/infrastructure/database/mongoose/repositories/MongooseDocumentRepository.ts`                                                                                                | `IDocumentRepository`                                     | `tailoringController`                                       | Low: In-memory fallback preserved for tests                         |
+| `exportService.ts`              | PDF/DOCX binary generation via `pdfkit` & `docx`; S3 upload                                       | `pdfkit`, `docx`, `storageService`                                      | Infrastructure Storage Adapter                    | `src/infrastructure/storage/DocumentExportService.ts`                                                                                                                            | `IDocumentExportService`                                  | `tailoringController`                                       | Low: Pure stream/buffer generation with S3 storage                  |
+| `feedbackService.ts`            | Submission and persistence of user feedback                                                       | `UserFeedbackModel`                                                     | Application Use Case / Infra Repo                 | Use Case: `src/application/useCases/feedback/SubmitFeedbackUseCase.ts`<br>Repo: `MongooseFeedbackRepository.ts`                                                                  | `ISubmitFeedbackUseCase`, `IFeedbackRepository`           | `feedbackController`                                        | Low: Simple record creation                                         |
+| `fxRates.ts`                    | Currency math (domain); ECB API fetch (external); FxRate MongoDB storage                          | `FxRateModel`, `env`, `fetch`                                           | Domain / External Service / Infra Repo            | Math: `src/domain/services/currency/currencyConverter.ts`<br>API: `src/infrastructure/external-services/fx/EcbFxRateAdapter.ts`<br>Repo: `MongooseFxRateRepository.ts`           | `IFxRateRepository`, `IFxRateAdapter`                     | `jobController`, `worker.ts`, `discoveryGraph`              | Medium: Ensure rounding and stale rate checks match test assertions |
+| `incrementalMatching.ts`        | Profile match token extraction, job demand indexing, ranking; Mongo profile query                 | `ProfileModel`, `matching`, `roleNormalization`                         | Domain Service / Repository                       | Domain: `src/domain/services/jobs/incrementalMatching.ts`<br>Repo method on `MongooseProfileRepository.ts`                                                                       | `IProfileRepository.findProfilesByMatchTokens`            | `matchRefreshService`, `MongooseProfileRepository`          | Low: Domain functions are pure math/string processing               |
+| `ingestionResilienceService.ts` | Backoff math, circuit breaker timeouts, dead letter formatting, source health evaluation          | None (Zero Mongoose/DB dependencies)                                    | Pure Domain Service                               | `src/domain/services/jobs/ingestionResilience.ts`                                                                                                                                | Pure domain functions                                     | `jobIngestionService`, `baseAdapter`, tests                 | Zero: Zero DB dependencies; pure business invariant calculation     |
+| `interactionEvents.ts`          | Actor pseudonymization & consent check (domain); Event persistence                                | `crypto`, `InteractionEventModel`                                       | Domain Service / Infra Repo                       | Domain: `src/domain/services/analytics/interactionEvents.ts`<br>Repo: `MongooseInteractionEventRepository.ts`                                                                    | `IInteractionEventRepository`                             | `jobController`, `ProfileController`, `privacyService`      | Low: Keep sha256 actor hash key format exact                        |
+| `interviewSessionService.ts`    | LLM mock interview planning, answer grading, and report generation workflows                      | `invokeLLM`, `interviewRepository`, `profileRepository`, `quotaService` | Application Use Cases                             | `src/application/useCases/interviews/InterviewSessionUseCase.ts`                                                                                                                 | `IInterviewSessionUseCase`                                | `interviewController`, `chatTools`, `eval-interviews.js`    | Medium: Preserve zod response schemas and prompt versions           |
+| `jobIndexes.ts`                 | MongoDB collection index management for `JobModel`                                                | `JobModel`                                                              | Infrastructure Database Maintenance               | `src/infrastructure/database/mongoose/indexes/jobIndexes.ts`                                                                                                                     | Helper function                                           | `ensure-indexes.js`, `jobs-catalog test`                    | Zero: Database administration utility                               |
+| `jobIngestionService.ts`        | External source ingestion, stream processing, batch writes                                        | `Job`, `JobDetail`, `JobVector`, adapters, cache                        | Application Use Case / Ingestion Engine           | Use Case: `src/application/useCases/jobs/IngestJobSourceUseCase.ts`<br>Engine: `src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.ts`                       | `IIngestJobSourceUseCase`                                 | `adminController`, `jobController`, `worker.ts`, scripts    | High: Large file (110 KB), handles batch commits and cursor state   |
+| `jobPersistenceService.ts`      | Active job querying, job details loading, hidden job persistence                                  | `JobModel`, `JobDetailModel`, `JobVectorModel`, `HiddenJobModel`        | Infrastructure Repository                         | `src/infrastructure/database/mongoose/repositories/MongooseJobRepository.ts`                                                                                                     | `IJobRepository`                                          | `jobController`                                             | Low: Consolidates job retrieval under canonical repository          |
+| `jobSearchService.ts`           | Search tokenization, typo tolerance, relevance scoring, cursor comparator                         | `profileSuggestionCatalog` (Zero Mongoose dependencies)                 | Pure Domain Service                               | `src/domain/services/jobs/jobSearch.ts`                                                                                                                                          | Pure domain functions                                     | `compact-job-hot-documents.js`, `jobIngestionService`       | Zero: Pure algorithmic token and scoring logic                      |
+| `jobStorage.ts`                 | Hot document field compaction, feature trimming, provenance normalization                         | None (Zero Mongoose/DB dependencies)                                    | Infrastructure Database Storage Model             | `src/infrastructure/database/mongoose/storage/jobStorageCompaction.ts`                                                                                                           | Compaction helpers                                        | `jobIngestionService`, migration scripts                    | Zero: Pure projection and trimming utilities                        |
+| `matchRefreshService.ts`        | BullMQ match queue, MatchRefresh persistence, match refresh orchestration                         | `Queue`, `MatchRefreshModel`, `incrementalMatching`, `redis`            | Queue Adapter / Infra Repo / Application Use Case | Queue: `src/infrastructure/queue/jobMatchQueue.ts`<br>Repo: `MongooseMatchRefreshRepository.ts`<br>Use Case: `src/application/useCases/jobs/RefreshJobMatchesUseCase.ts`         | `IRefreshJobMatchesUseCase`                               | `jobController`, `ProfileController`, `worker.ts`           | Medium: Queue connection and worker job dispatch                    |
+| `privacyService.ts`             | GDPR/DPDP user data export bundle assembly and account deletion cascade                           | Multiple repos, models, memories, S3                                    | Application Use Cases                             | `src/application/useCases/privacy/ExportUserDataUseCase.ts`, `DeleteUserAccountUseCase.ts`                                                                                       | `IExportUserDataUseCase`, `IDeleteUserAccountUseCase`     | `privacyController`                                         | Medium: Must ensure all 12 user data stores are deleted in cascade  |
+| `quotaService.ts`               | Redis Lua scripts for atomic quotas, rate limits, usage event logging                             | `redis`, `UsageEventModel`, `env`                                       | Infrastructure Cache Adapter / Repository         | Cache: `src/infrastructure/cache/redisQuotaService.ts`<br>Repo: `MongooseUsageEventRepository.ts`                                                                                | `IQuotaService`, `IUsageEventRepository`                  | `quotaGate`, `llm`, `interviewSessionService`               | Medium: Redis Lua atomic scripts must execute without changes       |
+| `repeatScheduleService.ts`      | BullMQ repeatable job schedule reconciliation, worker heartbeat                                   | `os`, Redis/BullQueue                                                   | Infrastructure Queue Adapter                      | `src/infrastructure/queue/repeatScheduleService.ts`                                                                                                                              | `IRepeatScheduleService`                                  | `worker.ts`, tests                                          | Low: Isolated queue schedule synchronization                        |
+| `resumeDataLifecycle.ts`        | User resume deletion: delete S3 file, cascade delete match reports, reset profile facts           | `ResumeModel`, `JobMatchReportModel`, `ProfileModel`, `storageService`  | Application Use Case                              | `src/application/useCases/resumes/DeleteResumeUseCase.ts`                                                                                                                        | `IDeleteResumeUseCase`                                    | `ProfileController`, `privacyService`                       | Low: Coordinates storage and profile version bump                   |
+| `resumeMatchReportService.ts`   | Match report generation, suggestion generation via LLM, ignored keyword management                | `JobMatchReportModel`, `invokeLLM`, `resumeMatchService`                | Application Use Cases / Infra Repo                | Use Case: `src/application/useCases/resumes/ResumeMatchReportUseCase.ts`<br>Repo: `MongooseJobMatchReportRepository.ts`                                                          | `IResumeMatchReportUseCase`, `IJobMatchReportRepository`  | `resumeMatchController`                                     | Medium: Preserves deterministic report generation and LLM grounding |
+| `resumeMatchService.ts`         | Deterministic resume scoring weights, keyword matching, suggestion grounding                      | `zod`, `crypto`, `cache`, `matching` (Zero Mongoose dependencies)       | Pure Domain Service                               | `src/domain/services/resumes/resumeMatch.ts`                                                                                                                                     | Pure domain functions                                     | `resumeMatchReportService`, `chatTools`, tests              | Zero: Zero DB dependencies; pure scoring algorithms                 |
+| `savedSearchService.ts`         | Saved search business rules (quiet hours, alerts); SavedSearch persistence; search alert workflow | `SavedSearchModel`, `UserModel`, `emailDigestService`                   | Domain / Infra Repo / Application Use Case        | Domain: `src/domain/services/jobs/savedSearchDomain.ts`<br>Repo: `MongooseSavedSearchRepository.ts`<br>Use Case: `src/application/useCases/jobs/SendSavedSearchAlertsUseCase.ts` | `ISavedSearchRepository`, `ISendSavedSearchAlertsUseCase` | `jobController`, `privacyService`                           | Medium: Alert deduplication and quiet hours verification            |
+| `scheduleReportService.ts`      | Ingestion schedule status evaluation from sources and repeatable jobs                             | None (Zero Mongoose/DB dependencies)                                    | Pure Domain Service                               | `src/domain/services/jobs/scheduleReport.ts`                                                                                                                                     | Pure domain function                                      | `jobs-schedule-report.js`, tests                            | Zero: Pure reporting transform                                      |
+| `trackedCompanyService.ts`      | ATS career URL detection, ATS response validation; TrackedCompany persistence                     | `TrackedCompanyModel`                                                   | Domain Service / Infrastructure Repository        | Domain: `src/domain/services/jobs/atsValidation.ts`<br>Repo: `MongooseTrackedCompanyRepository.ts`                                                                               | `ITrackedCompanyRepository`                               | `jobController`, scripts                                    | Low: URL parsing and response schema validation                     |
+
+---
+
+## 3. Migration Roadmap
+
+1. **Phase 2 & 4 (Domain Services)**:
+   Extract pure domain logic to `src/domain/services/`:
+   - `src/domain/services/jobs/jobSearch.ts` (from `jobSearchService.ts`)
+   - `src/domain/services/jobs/ingestionResilience.ts` (from `ingestionResilienceService.ts`)
+   - `src/domain/services/resumes/resumeMatch.ts` (from `resumeMatchService.ts`)
+   - `src/domain/services/currency/currencyConverter.ts` (from `fxRates.ts`)
+   - `src/domain/services/jobs/incrementalMatching.ts` (pure token & ranking logic)
+   - `src/domain/services/jobs/savedSearchDomain.ts` (pure quiet hours & plan limits)
+   - `src/domain/services/jobs/scheduleReport.ts` (schedule reporting function)
+   - `src/domain/services/jobs/atsValidation.ts` (ATS URL detection & response validation)
+   - `src/domain/services/analytics/interactionEvents.ts` (actor hashing & consent checks)
+
+2. **Phase 2 & 5 (Infrastructure Adapters & Concrete Repositories)**:
+   Extract technical infrastructure adapters & Mongoose repositories:
+   - `src/infrastructure/storage/DocumentExportService.ts`
+   - `src/infrastructure/external-services/billing/RazorpayBillingGateway.ts`
+   - `src/infrastructure/external-services/fx/EcbFxRateAdapter.ts`
+   - `src/infrastructure/cache/redisQuotaService.ts`
+   - `src/infrastructure/queue/jobMatchQueue.ts`
+   - `src/infrastructure/queue/repeatScheduleService.ts`
+   - `src/infrastructure/database/mongoose/storage/jobStorageCompaction.ts`
+   - `src/infrastructure/database/mongoose/indexes/jobIndexes.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseJobRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseDocumentRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseFeedbackRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseCatalogVersionRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseSavedSearchRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseJobMatchReportRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseAdminRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseInteractionEventRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseFxRateRepository.ts`
+   - `src/infrastructure/database/mongoose/repositories/MongooseUsageEventRepository.ts`
+
+3. **Phase 3 (Application Use Cases)**:
+   Implement clean application use cases under `src/application/useCases/`:
+   - `src/application/useCases/feedback/SubmitFeedbackUseCase.ts`
+   - `src/application/useCases/resumes/DeleteResumeUseCase.ts`
+   - `src/application/useCases/resumes/ResumeMatchReportUseCase.ts`
+   - `src/application/useCases/privacy/ExportUserDataUseCase.ts`
+   - `src/application/useCases/privacy/DeleteUserAccountUseCase.ts`
+   - `src/application/useCases/interviews/InterviewSessionUseCase.ts`
+   - `src/application/useCases/jobs/RefreshJobMatchesUseCase.ts`
+   - `src/application/useCases/jobs/SendSavedSearchAlertsUseCase.ts`
+   - `src/application/useCases/jobs/IngestJobSourceUseCase.ts`
+
+4. **Phase 6 & 7 (Consumer Update & Directory Elimination)**:
+   - Rewire presentation controllers (`jobController`, `adminController`, `feedbackController`, `privacyController`, `ProfileController`, `resumeMatchController`, `tailoringController`, `interviewController`) to invoke use cases / repositories through interfaces.
+   - Update worker, scripts, and tests to import from canonical locations.
+   - Register all interfaces and implementations in `src/main/container.ts`.
+   - Remove `src/infrastructure/database/mongoose/services/` entirely.
+
+5. **Phase 8-10 (Enforcement & Verification)**:
+   - Update `scripts/check-architecture.mjs` to forbid `src/infrastructure/database/mongoose/services/`.
+   - Run `npm run typecheck`, `npm run lint`, `npm run check:architecture`, `npm run docs:check`, and test suite.

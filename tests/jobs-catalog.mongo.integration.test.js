@@ -12,17 +12,17 @@ import { embeddingService } from "../src/infrastructure/ai/embeddingService.js";
 import {
   bumpCatalogVersion,
   getCatalogVersion,
-} from "../src/infrastructure/database/mongoose/services/catalogVersion.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseCatalogVersionRepository.js";
 import { del, CacheKeys, set } from "../src/shared/cache.js";
 import {
   jobIngestionService,
   registerJobAdapterFactory,
   reserveSourceRequest,
   updateVariantGroups,
-} from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
+} from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { BaseJobAdapter } from "../src/infrastructure/external-services/jobs/adapters/baseAdapter.js";
 import { getJobRiskFlags } from "../src/domain/services/jobs/jobRisk.js";
-import { dropObsoleteUniqueContentHashIndex } from "../src/infrastructure/database/mongoose/services/jobIndexes.js";
+import { dropObsoleteUniqueContentHashIndex } from "../src/infrastructure/database/mongoose/indexes/jobIndexes.js";
 import {
   migrateJobCatalog,
   rollbackJobCatalog,

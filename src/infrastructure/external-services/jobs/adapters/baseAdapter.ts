@@ -1,5 +1,5 @@
 import { computeSha256 } from "../../../../shared/utils/crypto.js";
-import { computeRetryBackoffMs } from "../../../database/mongoose/services/ingestionResilienceService.js";
+import { computeRetryBackoffMs } from "../../../../domain/services/jobs/ingestionResilience.js";
 
 export function sourceDescriptionText(value: unknown): string {
   return String(value || "")

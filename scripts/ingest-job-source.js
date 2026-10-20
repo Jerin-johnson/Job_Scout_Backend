@@ -14,7 +14,7 @@ if (!/^(remoteok|remotive|jobicy)$/.test(sourceKey)) {
 const [{ connectMongo, disconnectMongo, isMongoReady }, { jobIngestionService }] =
   await Promise.all([
     import("../src/infrastructure/database/database.js"),
-    import("../src/infrastructure/database/mongoose/services/jobIngestionService.js"),
+    import("../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js"),
   ]);
 await connectMongo();
 if (!isMongoReady()) {

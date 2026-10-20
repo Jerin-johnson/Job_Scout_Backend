@@ -4,8 +4,8 @@ import {
   interactionActorKey,
   recordInteraction,
   JOB_ANALYTICS_CONSENT_VERSION,
-} from "../src/infrastructure/database/mongoose/services/interactionEvents.js";
-import { buildSourceStatusUpdate } from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseInteractionEventRepository.js";
+import { buildSourceStatusUpdate } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 
 test("interaction actor keys are stable pseudonyms and never the account ID", () => {
   const id = "507f1f77bcf86cd799439011";

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { quotaService } from "../../../infrastructure/database/mongoose/services/quotaService.js";
+import { quotaService } from "../../../infrastructure/cache/redisQuotaService.js";
 import { createHash } from "node:crypto";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { PlanType, PLANS } from "../../../shared/constants/plans.js";

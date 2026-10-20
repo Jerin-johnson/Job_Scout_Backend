@@ -4,7 +4,7 @@ import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js"
 import { JobSource } from "../src/infrastructure/database/mongoose/models/JobSourceModel.js";
 import { BaseJobAdapter } from "../src/infrastructure/external-services/jobs/adapters/baseAdapter.js";
 import { SOURCE_POLICIES } from "../src/domain/services/jobs/sourcePolicies.js";
-import { bumpCatalogVersion } from "../src/infrastructure/database/mongoose/services/catalogVersion.js";
+import { bumpCatalogVersion } from "../src/infrastructure/database/mongoose/repositories/MongooseCatalogVersionRepository.js";
 
 const mode = process.argv[2] || "--report";
 const adapter = new BaseJobAdapter({ key: "migration" });

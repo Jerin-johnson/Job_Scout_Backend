@@ -22,7 +22,7 @@ import {
   userRepository,
   UserRecord,
 } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
-import { enqueueMatchRefreshForUser } from "../../../infrastructure/database/mongoose/services/matchRefreshService.js";
+import { enqueueMatchRefreshForUser } from "../../../infrastructure/database/mongoose/repositories/MongooseMatchRefreshRepository.js";
 import {
   PLACE_CATALOG_VERSION,
   PLACE_SUGGESTIONS,
@@ -35,11 +35,11 @@ import {
   RESUME_AI_CONSENT_VERSION,
   requireResumeAiConsent,
 } from "../../../domain/services/profile/resumeAiConsent.js";
-import { deleteResumeForUser } from "../../../infrastructure/database/mongoose/services/resumeDataLifecycle.js";
+import { deleteResumeForUser } from "../../../infrastructure/storage/MongooseResumeRepository.js";
 import {
   JOB_ANALYTICS_CONSENT_VERSION,
   deleteInteractionEventsForUser,
-} from "../../../infrastructure/database/mongoose/services/interactionEvents.js";
+} from "../../../infrastructure/database/mongoose/repositories/MongooseInteractionEventRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
 import {

@@ -9,7 +9,7 @@ import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js"
 import { Match } from "../src/infrastructure/database/mongoose/models/MatchModel.js";
 import { Profile } from "../src/infrastructure/database/mongoose/models/ProfileModel.js";
 import { MatchRefresh } from "../src/infrastructure/database/mongoose/models/MatchRefreshModel.js";
-import { jobIngestionService } from "../src/infrastructure/database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../src/infrastructure/external-services/jobs/ingestion/JobIngestionEngine.js";
 import { CacheKeys } from "../src/shared/cache.js";
 import { profileController } from "../src/presentation/http/controllers/profileController.js";
 import { jobController } from "../src/presentation/http/controllers/jobController.js";
@@ -19,7 +19,7 @@ import { embeddingService } from "../src/infrastructure/ai/embeddingService.js";
 import {
   configureMatchRefreshQueue,
   requestMatchRefresh,
-} from "../src/infrastructure/database/mongoose/services/matchRefreshService.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseMatchRefreshRepository.js";
 
 let mongo;
 let mongoDataPath;

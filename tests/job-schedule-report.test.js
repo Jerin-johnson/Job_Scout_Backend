@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildJobScheduleReport } from "../src/infrastructure/database/mongoose/services/scheduleReportService.js";
+import { buildJobScheduleReport } from "../src/domain/services/jobs/scheduleReport.js";
 
 test("job schedule report distinguishes registered, mismatched, and missing repeat jobs", () => {
   const sources = [

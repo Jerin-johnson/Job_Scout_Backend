@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { detectAtsCareersUrl } from "../src/infrastructure/database/mongoose/services/trackedCompanyService.js";
+import { detectAtsCareersUrl } from "../src/infrastructure/database/mongoose/repositories/MongooseTrackedCompanyRepository.js";
 
 const ENDPOINTS = {
   greenhouse: (slug) =>

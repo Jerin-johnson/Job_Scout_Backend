@@ -4,7 +4,7 @@ import {
   convertAmount,
   isFxRateStale,
   refreshReferenceRates,
-} from "../src/infrastructure/database/mongoose/services/fxRates.js";
+} from "../src/infrastructure/database/mongoose/repositories/MongooseFxRateRepository.js";
 import {
   getJobRiskFlags,
   detectRepostSignal,

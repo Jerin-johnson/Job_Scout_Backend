@@ -1,6 +1,6 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../shared/utils/logger.js";
-import { quotaService } from "../database/mongoose/services/quotaService.js";
+import { quotaService } from "../cache/redisQuotaService.js";
 import { getModelRate } from "./modelPricingCatalog.js";
 import { randomUUID } from "node:crypto";
 import { invokeWithTransientRetry } from "./providerErrors.js";

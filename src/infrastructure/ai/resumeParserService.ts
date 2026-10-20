@@ -10,7 +10,7 @@ import {
   type ProfileRecord,
 } from "../database/mongoose/repositories/MongooseProfileRepository.js";
 import { userRepository } from "../database/mongoose/repositories/MongooseUserRepository.js";
-import { enqueueMatchRefreshForUser } from "../database/mongoose/services/matchRefreshService.js";
+import { enqueueMatchRefreshForUser } from "../database/mongoose/repositories/MongooseMatchRefreshRepository.js";
 import { storageService } from "../storage/storageService.js";
 import { logger } from "../../shared/utils/logger.js";
 import {

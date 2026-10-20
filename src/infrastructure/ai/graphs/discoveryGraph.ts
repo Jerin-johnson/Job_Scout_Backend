@@ -1,4 +1,4 @@
-import { jobIngestionService } from "../../database/mongoose/services/jobIngestionService.js";
+import { jobIngestionService } from "../../external-services/jobs/ingestion/JobIngestionEngine.js";
 import { profileRepository } from "../../database/mongoose/repositories/MongooseProfileRepository.js";
 import { embeddingService } from "../embeddingService.js";
 import { Match } from "../../database/mongoose/models/MatchModel.js";
@@ -13,7 +13,7 @@ import {
 import { HiddenJob } from "../../database/mongoose/models/HiddenJobModel.js";
 import { PLACE_SUGGESTIONS } from "../../../domain/services/profile/profileSuggestionCatalog.js";
 import { profileApplicantCountries } from "../../../domain/services/jobs/eligibility.js";
-import { latestReferenceRates } from "../../database/mongoose/services/fxRates.js";
+import { latestReferenceRates } from "../../database/mongoose/repositories/MongooseFxRateRepository.js";
 import type { IProfileDocument } from "../../database/mongoose/models/ProfileModel.js";
 
 export interface UserLike {
