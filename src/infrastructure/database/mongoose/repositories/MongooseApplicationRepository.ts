@@ -6,6 +6,7 @@ import { ApplicationEntity } from "../../../../domain/entities/Application.js";
 import {
   IApplicationRepository,
   IApplicationFilterOptions,
+  ApplicationBoardStats,
 } from "../../../../domain/repositories/IApplicationRepository.js";
 import { ApplicationMapper } from "../mappers/ApplicationMapper.js";
 import { isMongoReady } from "../../database.js";
@@ -22,6 +23,10 @@ function withApplicationDefaults(application: Record<string, unknown>): Record<s
     salaryMin: application.salaryMin ?? null,
     salaryMax: application.salaryMax ?? null,
   };
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, (c) => "\\" + c);
 }
 
 @injectable()
@@ -141,6 +146,136 @@ export class MongooseApplicationRepository
     };
     this.inMemoryStore.set(id, newApp);
     return this.toEntity(newApp);
+  }
+  async getBoardStats(userId: string): Promise<ApplicationBoardStats> {
+    const uid = userId.toString();
+    const now = new Date();
+    const weekStart = new Date(now.getTime() - 7 * 86400000);
+
+    let applications: Array<{
+      status?: string;
+      appliedDate?: Date;
+      createdAt?: Date;
+      nextFollowUpAt?: Date | null;
+      timeline?: Array<{ status?: string; changedAt: Date }>;
+    }> = [];
+
+    if (isMongoReady()) {
+      const docs = await this.model.find({ userId: uid, archivedAt: null }).lean();
+      applications = docs as unknown as Array<{
+        status?: string;
+        appliedDate?: Date;
+        createdAt?: Date;
+        nextFollowUpAt?: Date | null;
+        timeline?: Array<{ status?: string; changedAt: Date }>;
+      }>;
+    } else {
+      applications = [...this.inMemoryStore.values()].filter(
+        (app) => String(app.userId || "") === uid && !app.archivedAt,
+      ) as unknown as Array<{
+        status?: string;
+        appliedDate?: Date;
+        createdAt?: Date;
+        nextFollowUpAt?: Date | null;
+        timeline?: Array<{ status?: string; changedAt: Date }>;
+      }>;
+    }
+
+    const total = applications.length;
+    const applied = applications.filter((app) => app.status === "applied");
+    const responses = applications.filter((app) =>
+      ["screening", "interviewing", "offer", "rejected"].includes(app.status || ""),
+    ).length;
+
+    return {
+      totalActive: total,
+      appliedThisWeek: applied.filter((app) => {
+        if (app.timeline && app.timeline.length) {
+          return app.timeline.some(
+            (t) => t.status === "applied" && new Date(t.changedAt) >= weekStart,
+          );
+        }
+        const d = app.appliedDate ? new Date(app.appliedDate) : new Date(app.createdAt || 0);
+        return d >= weekStart;
+      }).length,
+      interviews: applications.filter((app) => app.status === "interviewing").length,
+      offers: applications.filter((app) => app.status === "offer").length,
+      responseRate: total ? Math.round((responses / total) * 100) : 0,
+      followUpsDue: applications.filter(
+        (app) => app.nextFollowUpAt && new Date(app.nextFollowUpAt) <= now,
+      ).length,
+    };
+  }
+
+  async findDuplicate(
+    userId: string,
+    params: { jobId?: string | null; companyName?: string; jobTitle?: string },
+  ): Promise<ApplicationEntity | null> {
+    const uid = userId.toString();
+    const { jobId, companyName, jobTitle } = params;
+    const normalizedCompany = companyName?.trim().toLowerCase();
+    const normalizedRole = jobTitle?.trim().toLowerCase();
+
+    if (isMongoReady()) {
+      const orConditions: Record<string, unknown>[] = [];
+      if (jobId) {
+        orConditions.push({ jobId });
+      }
+      if (normalizedCompany && normalizedRole) {
+        const escapedCompany = escapeRegex(normalizedCompany);
+        const escapedRole = escapeRegex(normalizedRole);
+        orConditions.push({
+          $or: [
+            {
+              companyName: { $regex: new RegExp("^" + escapedCompany + "$", "i") },
+              jobTitle: { $regex: new RegExp("^" + escapedRole + "$", "i") },
+            },
+            {
+              company: { $regex: new RegExp("^" + escapedCompany + "$", "i") },
+              role: { $regex: new RegExp("^" + escapedRole + "$", "i") },
+            },
+          ],
+        });
+      }
+      if (orConditions.length === 0) return null;
+
+      const doc = await this.model
+        .findOne({
+          userId: uid,
+          archivedAt: null,
+          $or: orConditions,
+        })
+        .lean();
+
+      return doc ? this.toEntity(withApplicationDefaults(doc as Record<string, unknown>)) : null;
+    }
+
+    const apps = [...this.inMemoryStore.values()].filter(
+      (a) => String(a.userId || "") === uid && !a.archivedAt,
+    );
+
+    const match = apps.find((app) => {
+      if (jobId && app.jobId && String(app.jobId) === String(jobId)) {
+        return true;
+      }
+      const appComp = String(app.companyName || app.company || "")
+        .trim()
+        .toLowerCase();
+      const appRole = String(app.jobTitle || app.role || "")
+        .trim()
+        .toLowerCase();
+      if (
+        normalizedCompany &&
+        normalizedRole &&
+        appComp === normalizedCompany &&
+        appRole === normalizedRole
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    return match ? this.toEntity(withApplicationDefaults(match)) : null;
   }
 }
 

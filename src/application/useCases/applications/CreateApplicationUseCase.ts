@@ -6,7 +6,7 @@ import {
   createApplicationInputSchema,
 } from "../../dtos/applicationDtos.js";
 import { IApplicationRepository } from "../../../domain/repositories/IApplicationRepository.js";
-import { ValidationError } from "../../errors/ApplicationError.js";
+import { ConflictError, ValidationError } from "../../errors/ApplicationError.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 
 @injectable()
@@ -25,6 +25,15 @@ export class CreateApplicationUseCase implements IUseCase<
       throw new ValidationError("Invalid application details", parseResult.error.issues);
     }
     const data = parseResult.data;
+
+    const duplicate = await this.applicationRepository.findDuplicate(data.userId, {
+      jobId: data.jobId || null,
+      companyName: data.company,
+      jobTitle: data.role,
+    });
+    if (duplicate) {
+      throw new ConflictError("This job is already in your application tracker");
+    }
 
     const created = await this.applicationRepository.create({
       userId: data.userId,

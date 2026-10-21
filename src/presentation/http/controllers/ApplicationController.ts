@@ -6,6 +6,7 @@ import { CreateApplicationUseCase } from "../../../application/useCases/applicat
 import { UpdateApplicationStatusUseCase } from "../../../application/useCases/applications/UpdateApplicationStatusUseCase.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
+import { IApplicationRepository } from "../../../domain/repositories/IApplicationRepository.js";
 import { applicationGraph } from "../../../infrastructure/ai/graphs/applicationGraph.js";
 import {
   applicationRepository,
@@ -48,20 +49,27 @@ export class ApplicationController {
     private readonly createApplicationUseCase: CreateApplicationUseCase,
     @inject(TOKENS.UpdateApplicationStatusUseCase)
     private readonly updateApplicationStatusUseCase: UpdateApplicationStatusUseCase,
+    @inject(TOKENS.ApplicationRepository)
+    private readonly applicationRepository: IApplicationRepository,
   ) {}
 
   list = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     const userId = getUserId(req.user);
 
     const query = req.query as Record<string, string | undefined>;
-    const applications = await this.getApplicationsUseCase.execute({
-      userId,
-      stages: query.stage ? query.stage.split(",") : undefined,
-      priority: query.priority,
-      pinned: query.pinned ? query.pinned === "true" : undefined,
-      followUp:
-        query.followUp === "overdue" || query.followUp === "due-soon" ? query.followUp : undefined,
-    });
+    const [applications, stats] = await Promise.all([
+      this.getApplicationsUseCase.execute({
+        userId,
+        stages: query.stage ? query.stage.split(",") : undefined,
+        priority: query.priority,
+        pinned: query.pinned ? query.pinned === "true" : undefined,
+        followUp:
+          query.followUp === "overdue" || query.followUp === "due-soon"
+            ? query.followUp
+            : undefined,
+      }),
+      this.applicationRepository.getBoardStats(userId),
+    ]);
 
     res.status(200).json(successResponse(applications));
   });

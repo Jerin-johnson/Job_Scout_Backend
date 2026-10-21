@@ -8,6 +8,7 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
   let baseUrl;
 
   before(async () => {
+    process.env.REQUIRE_EMAIL_VERIFICATION = "false";
     const { createApp } = await import("../dist/src/main/app.js");
     app = createApp();
 
@@ -24,7 +25,9 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
-    const { disconnectRedis } = await import("../src/infrastructure/cache/redis.js");
+    const { disconnectRedis } = await import("../dist/src/infrastructure/cache/redis.js").catch(
+      () => import("../src/infrastructure/cache/redis.js"),
+    );
     await disconnectRedis().catch(() => {});
   });
 

@@ -102,11 +102,12 @@ describe("Phase 4: Clean Architecture Application Layer Use Cases", () => {
     const registerUseCase = new RegisterUserUseCase(userRepo, hasher, tokens);
     const loginUseCase = new LoginUserUseCase(userRepo, hasher, tokens);
 
-    await registerUseCase.execute({
+    const registered = await registerUseCase.execute({
       email: "login@jobscout.com",
       password: "SecretPassword1!",
       name: "Login Test",
     });
+    await userRepo.update(registered.user.id, { isEmailVerified: true });
 
     const loginResult = await loginUseCase.execute({
       email: "login@jobscout.com",
@@ -194,6 +195,51 @@ describe("Phase 4: Clean Architecture Application Layer Use Cases", () => {
     });
 
     assert.equal(updated.status, "interviewing");
+  });
+  it("should reject duplicate application with ConflictError", async () => {
+    const appRepo = new MongooseApplicationRepository();
+    const createUseCase = new CreateApplicationUseCase(appRepo);
+
+    await createUseCase.execute({
+      userId: "usr_dup_test_1",
+      jobId: "job_xyz_1",
+      company: "Google",
+      role: "Software Engineer",
+      priority: "high",
+    });
+
+    // Duplicate by jobId
+    await assert.rejects(
+      async () => {
+        await createUseCase.execute({
+          userId: "usr_dup_test_1",
+          jobId: "job_xyz_1",
+          company: "Different Name",
+          role: "Different Role",
+        });
+      },
+      (err) => {
+        assert.equal(err.name, "ConflictError");
+        assert.equal(err.statusCode, 409);
+        return true;
+      },
+    );
+
+    // Duplicate by company and role (case-insensitive)
+    await assert.rejects(
+      async () => {
+        await createUseCase.execute({
+          userId: "usr_dup_test_1",
+          company: "  google  ",
+          role: "software engineer",
+        });
+      },
+      (err) => {
+        assert.equal(err.name, "ConflictError");
+        assert.equal(err.statusCode, 409);
+        return true;
+      },
+    );
   });
 
   it("should upsert and retrieve user profile", async () => {
