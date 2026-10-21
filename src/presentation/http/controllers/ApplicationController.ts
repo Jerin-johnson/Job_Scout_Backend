@@ -51,10 +51,7 @@ export class ApplicationController {
   ) {}
 
   list = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
+    const userId = getUserId(req.user);
 
     const query = req.query as Record<string, string | undefined>;
     const applications = await this.getApplicationsUseCase.execute({
@@ -70,10 +67,7 @@ export class ApplicationController {
   });
 
   create = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
+    const userId = getUserId(req.user);
 
     const application = await this.createApplicationUseCase.execute({
       ...req.body,
@@ -84,10 +78,7 @@ export class ApplicationController {
   });
 
   updateStatus = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
+    const userId = getUserId(req.user);
 
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : String(rawId || "");

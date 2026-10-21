@@ -42,7 +42,9 @@ export interface ApplicationOutputDTO {
   userId: string;
   jobId: string | null;
   companyName: string;
+  company?: string;
   jobTitle: string;
+  role?: string;
   status: string;
   priority: string;
   appliedDate: Date;

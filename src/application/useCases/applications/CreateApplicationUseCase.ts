@@ -10,9 +10,10 @@ import { ValidationError } from "../../errors/ApplicationError.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 
 @injectable()
-export class CreateApplicationUseCase
-  implements IUseCase<CreateApplicationInputDTO, ApplicationOutputDTO>
-{
+export class CreateApplicationUseCase implements IUseCase<
+  CreateApplicationInputDTO,
+  ApplicationOutputDTO
+> {
   constructor(
     @inject(TOKENS.ApplicationRepository)
     private readonly applicationRepository: IApplicationRepository,
@@ -54,7 +55,9 @@ export class CreateApplicationUseCase
       userId: created.userId,
       jobId: created.jobId ?? null,
       companyName: created.companyName,
+      company: created.companyName,
       jobTitle: created.jobTitle,
+      role: created.jobTitle,
       status: created.status,
       priority: created.priority,
       appliedDate: created.appliedDate,
