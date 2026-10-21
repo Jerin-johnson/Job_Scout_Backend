@@ -90,6 +90,7 @@ function serializeMatch(match: MatchRecord): Record<string, unknown> {
 
   return {
     jobId: String(job._id || match.jobId || ""),
+    id: String(job._id || match.jobId || ""),
     title: match.title || job.title || "Job title unavailable",
     company: match.company || job.company || "Company unavailable",
     location: match.location || job.location || "",
@@ -343,6 +344,8 @@ export const jobController = {
 
           return {
             ...publicJob,
+            id: String(job._id || job.id || ""),
+            jobId: String(job.jobId || job._id || job.id || ""),
             ...(match || {}),
             eligibility: match?.eligibility || classifyEligibility(job, profile || {}).status,
             eligibilityDetails:
