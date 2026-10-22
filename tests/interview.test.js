@@ -111,6 +111,8 @@ test("answer claims expire and can be released after failures", () => {
 test("interview request logging redacts answer, prompt, resume, and job text", () => {
   for (const field of [
     "req.body.answer",
+    "req.body.userAnswer",
+    "req.body.audioTranscript",
     "req.body.prompt",
     "req.body.resumeText",
     "req.body.jobDescription",

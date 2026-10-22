@@ -222,3 +222,29 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Plan/task list/walkthrough: inspect both repos and Graphify [x]; preserve work and branch both repos [x]; implement versioned scorer plus UI contract [x]; run repo checks and refresh Graphify [x].
 
 - Final verification: matching/presentation/ingestion unit suites passed 31/31; scoring evaluation and ranking gate passed; backend typecheck, ESLint, and AI docs check passed. Full backend suite completed with 276 passing, 1 skipped, and one pre-existing failure in `tests/tsyringe-foundation.test.js` (it imports `TestConsumer`/`setupTestContainer` absent from current source and `dist`). Frontend tests passed 56/56, lint and docs checks passed, and the production build passed outside the sandbox. Graphify refreshed in both repos and the parent merged graph; artifacts remain ignored.
+
+## Personalized rapid quiz — 2026-10-22
+
+- Added `stack-quiz-v1`: one small-tier shared-provider generation call creates an exact random 3–5 question pack from bounded profile skills, target roles, and role evidence. Structured output is validated; the server stores answer keys/rubrics in a user-scoped 30-minute cache session and returns only safe question fields. Quiz creation is rate limited and uses the existing `interview_prep` quota/usage ledger. Curated questions are the fallback.
+- MCQs use deterministic scoring. Free-text questions retain the existing key-point rubric; incorrect answers include the generated reference answer and explanation. Repeated answer submission returns its saved evaluation so points are not awarded again.
+- Targeted quiz tests passed 8/8; `npm run typecheck`, `npm run docs:check`, and filtered root ESLint passed. Unfiltered `npm run lint` traverses pre-existing `.worktrees/` output and reports generated-code errors; excluding nested worktrees and `dist/` is clean.
+- Graphify incremental update completed: 3,942 nodes / 8,154 edges / 243 communities. Parent merged graph: 5,253 nodes / 10,679 edges. No commit, merge, or push.
+
+## Interview voice, feedback, and persistent quiz history — 2026-10-22
+
+- Added owner-scoped `QuizAttempt` documents for new rapid quizzes. Mongo stores the question pack and actual submitted answer/selection plus reference answer and evaluation; records are bounded to 3–5 questions. Positional updates save each answer once; duplicate submissions return the saved evaluation. Redis remains the 30-minute active-session cache and is also cleared when a user deletes an attempt.
+- Added paginated list, owner-only detail, and CSRF-protected delete endpoints. Detail exposes answered questions only. The frontend adds strict response contracts, question-by-question review, and an inline deletion confirmation. Earlier answer text cannot be backfilled because it was never persisted; surviving active Redis sessions are adopted if answered after update.
+- Kept interview voice capture in the browser with native Web Speech; only editable textbox text goes to the existing evaluator. Voice question playback uses native SpeechSynthesis. `userAnswer` and `audioTranscript` are redacted from request logs. Full-session errors use accessible token-styled toasts, including a friendly minimum-answers message.
+- Backend `npm run typecheck` passed and targeted quiz/interview tests reported 23 passed, with the optional Mongo integration test skipped in the normal run. Frontend tests passed 94/94 and lint passed. Mongo memory-server was attempted but its bundled `mongod` exited with `fassert()` before running assertions. Root backend lint scans generated `.worktrees/` artifacts and fails there. Frontend production build failed with OneDrive `EPERM`; responsive browser checks were unavailable in this session.
+- Backend docs check and diff whitespace check passed. Graphify was refreshed in backend (3,963 nodes / 8,196 edges), frontend (1,400 / 2,686), and parent merged graph (5,354 / 10,882). No database writes, commits, merges, or pushes were made.
+
+## Quiz latency follow-up — 2026-10-22
+
+- Confirmed two avoidable waits: quiz startup performed profile/model work before checking Mongo readiness, and personalized generation inherited the general model timeout. Startup now checks persistence first; generation is cancellable after 8 seconds and falls back to curated questions. Durable session submissions return 503 immediately if Mongo is offline.
+- Verification: backend typecheck passed; focused quiz tests passed 10/10. Command duration dropped from 21.9s to 11.9s; test bodies completed in under 30ms. Remaining Node test-process shutdown delay is unexplained. No production data or external services were accessed.
+
+## Feature consolidation for development review — 2026-10-22
+
+- Consolidated the accumulated backend changes on `feat/job-discovery-ai-matching` for the requested development merge and main PR. Nested `.worktrees/` checkouts and ignored Graphify output are excluded from the repository commit.
+- Verification before commit: backend typecheck, docs check, focused quiz tests (10/10), and root lint excluding generated `.worktrees/` and `dist/` output passed. The full test run was blocked by Mongo integration server `EACCES`; unfiltered lint still reports generated-code errors from nested worktrees.
+- No production database or deployment was touched. Commit and merge are in progress.

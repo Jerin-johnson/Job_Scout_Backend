@@ -959,10 +959,12 @@ export const jobIngestionService = {
       user,
       requestId,
       onBatchComplete,
+      force,
     }: {
       user?: unknown;
       requestId?: string;
       onBatchComplete?: (stats: Record<string, unknown>) => Promise<void> | void;
+      force?: boolean;
     } = {},
   ) {
     if (!isMongoReady() && env.NODE_ENV === "production") {
@@ -1039,25 +1041,28 @@ export const jobIngestionService = {
     try {
       if (isMongoReady()) {
         const now = new Date();
+        const claimFilter: Record<string, unknown> = {
+          key: sourceKey,
+          enabled: true,
+          approved: true,
+          $or: [
+            { runState: { $ne: "running" } },
+            { runLeaseExpiresAt: { $lte: now } },
+            { runLeaseExpiresAt: null },
+          ],
+        };
+        if (!force) {
+          claimFilter.$and = [
+            {
+              $or: [
+                { lastRunAt: null },
+                { lastRunAt: { $lte: new Date(now.getTime() - source.quota.intervalMs) } },
+              ],
+            },
+          ];
+        }
         const claimed = await JobSource.findOneAndUpdate(
-          {
-            key: sourceKey,
-            enabled: true,
-            approved: true,
-            $or: [
-              { runState: { $ne: "running" } },
-              { runLeaseExpiresAt: { $lte: now } },
-              { runLeaseExpiresAt: null },
-            ],
-            $and: [
-              {
-                $or: [
-                  { lastRunAt: null },
-                  { lastRunAt: { $lte: new Date(now.getTime() - source.quota.intervalMs) } },
-                ],
-              },
-            ],
-          },
+          claimFilter,
           {
             $set: {
               runState: "running",
@@ -2214,7 +2219,7 @@ export const jobIngestionService = {
         const asOfDay =
           cursorData?.asOfDay ||
           Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
-        const candidateWindow = Math.min(500, Math.max(200, limit * 10));
+        const candidateWindow = Math.min(1000, Math.max(500, limit * 20));
         const candidates = (await Job.find(filter)
           .sort({ postedAt: -1, _id: 1 })
           .limit(candidateWindow)

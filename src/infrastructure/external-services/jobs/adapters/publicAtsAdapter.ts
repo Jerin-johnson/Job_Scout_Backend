@@ -1,5 +1,6 @@
 import { BaseJobAdapter, sourceDescriptionText } from "./baseAdapter.js";
 import { TrackedCompany } from "../../../database/mongoose/models/TrackedCompanyModel.js";
+import { logger } from "../../../../shared/utils/logger.js";
 
 export interface NormalizedPublicAtsJob {
   sourceJobId: string;
@@ -16,14 +17,16 @@ export function normalizePublicAtsJob(
   platform: string,
   slug: string,
   raw: Record<string, unknown> | null | undefined,
+  companyName?: string,
 ): NormalizedPublicAtsJob | null {
+  const displayCompany = companyName && companyName.trim() ? companyName.trim() : slug;
   if (platform === "ashby" && raw?.isListed !== true) return null;
   if (platform === "greenhouse") {
     const loc = raw?.location as { name?: string } | undefined;
     return {
       sourceJobId: String(raw?.id),
       title: String(raw?.title || ""),
-      company: slug,
+      company: displayCompany,
       location: loc?.name || "Unspecified",
       sourceUrl: String(raw?.absolute_url || ""),
       postedAt: raw?.updated_at ? new Date(String(raw.updated_at)) : null,
@@ -42,7 +45,7 @@ export function normalizePublicAtsJob(
     return {
       sourceJobId: String(raw?.id),
       title: String(raw?.text || ""),
-      company: slug,
+      company: displayCompany,
       location: cats?.location || "Unspecified",
       sourceUrl: String(raw?.hostedUrl || ""),
       postedAt: raw?.createdAt ? new Date(String(raw.createdAt)) : null,
@@ -55,7 +58,7 @@ export function normalizePublicAtsJob(
   return {
     sourceJobId: String(raw?.id),
     title: String(raw?.title || ""),
-    company: slug,
+    company: displayCompany,
     location: String(raw?.location || "Unspecified"),
     sourceUrl: String(raw?.jobUrl || ""),
     postedAt: raw?.publishedAt ? new Date(String(raw.publishedAt)) : null,
@@ -92,7 +95,7 @@ export class PublicAtsAdapter extends BaseJobAdapter {
       },
     });
     this.platform = options.key || "";
-    this.requestsPerRun = Math.min(50, Math.max(1, Number(options.requestsPerDay) || 10));
+    this.requestsPerRun = Math.min(100, Math.max(1, Number(options.requestsPerDay) || 50));
   }
 
   endpoint(slug: string): string {
@@ -103,32 +106,38 @@ export class PublicAtsAdapter extends BaseJobAdapter {
     return `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}?includeCompensation=false`;
   }
 
-  async fetchBoard(slug: string): Promise<NormalizedPublicAtsJob[]> {
-    if (this.platform !== "ashby") {
-      const response = await this.requestJson<
-        Record<string, unknown> | Array<Record<string, unknown>>
-      >(this.endpoint(slug), { acceptNotModified: false });
-      const records =
-        this.platform === "greenhouse"
-          ? (response.data as { jobs?: Array<Record<string, unknown>> })?.jobs
-          : (response.data as Array<Record<string, unknown>>);
-      return (Array.isArray(records) ? records : [])
-        .map((record) => normalizePublicAtsJob(this.platform, slug, record))
+  async fetchBoard(slug: string, companyName?: string): Promise<NormalizedPublicAtsJob[]> {
+    try {
+      if (this.platform !== "ashby") {
+        const response = await this.requestJson<
+          Record<string, unknown> | Array<Record<string, unknown>>
+        >(this.endpoint(slug), { acceptNotModified: false });
+        const records =
+          this.platform === "greenhouse"
+            ? (response.data as { jobs?: Array<Record<string, unknown>> })?.jobs
+            : (response.data as Array<Record<string, unknown>>);
+        return (Array.isArray(records) ? records : [])
+          .map((record) => normalizePublicAtsJob(this.platform, slug, record, companyName))
+          .filter((job): job is NormalizedPublicAtsJob =>
+            Boolean(job && job.title && job.sourceJobId && job.sourceUrl),
+          );
+      }
+      const response = await this.requestJson<{ jobs?: Array<Record<string, unknown>> }>(
+        this.endpoint(slug),
+        {
+          acceptNotModified: false,
+        },
+      );
+      return (response.data?.jobs || [])
+        .map((record) => normalizePublicAtsJob("ashby", slug, record, companyName))
         .filter((job): job is NormalizedPublicAtsJob =>
           Boolean(job && job.title && job.sourceJobId && job.sourceUrl),
         );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.warn({ platform: this.platform, slug, err: msg }, "Failed fetching board for company");
+      return [];
     }
-    const response = await this.requestJson<{ jobs?: Array<Record<string, unknown>> }>(
-      this.endpoint(slug),
-      {
-        acceptNotModified: false,
-      },
-    );
-    return (response.data?.jobs || [])
-      .map((record) => normalizePublicAtsJob("ashby", slug, record))
-      .filter((job): job is NormalizedPublicAtsJob =>
-        Boolean(job && job.title && job.sourceJobId && job.sourceUrl),
-      );
   }
 
   async fetchPage({ cursor }: { cursor?: string | null } = {}): Promise<{
@@ -138,14 +147,14 @@ export class PublicAtsAdapter extends BaseJobAdapter {
   }> {
     const companies = (await TrackedCompany.find({ platform: this.platform, status: "approved" })
       .sort({ _id: 1 })
-      .select("slug")
-      .lean()) as unknown as Array<{ slug: string }>;
+      .select("slug name")
+      .lean()) as unknown as Array<{ slug: string; name?: string }>;
     const start = Math.min(companies.length, Math.max(0, Number.parseInt(cursor || "0", 10) || 0));
     const budget = this.requestsPerRun;
     const end = Math.min(companies.length, start + budget);
     const jobs: NormalizedPublicAtsJob[] = [];
     for (const company of companies.slice(start, end)) {
-      jobs.push(...(await this.fetchBoard(company.slug)));
+      jobs.push(...(await this.fetchBoard(company.slug, company.name)));
     }
     return {
       jobs,

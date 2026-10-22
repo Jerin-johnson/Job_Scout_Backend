@@ -71,7 +71,28 @@ export class ApplicationController {
       this.applicationRepository.getBoardStats(userId),
     ]);
 
-    res.status(200).json(successResponse(applications));
+    const columns: Record<string, unknown[]> = {
+      saved: [],
+      applied: [],
+      screening: [],
+      interviewing: [],
+      offer: [],
+      rejected: [],
+    };
+    for (const app of applications) {
+      const statusKey = String(app.status || "saved");
+      if (columns[statusKey]) {
+        columns[statusKey].push(app);
+      }
+    }
+
+    res.status(200).json(
+      successResponse({
+        applications,
+        columns,
+        stats,
+      }),
+    );
   });
 
   create = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {

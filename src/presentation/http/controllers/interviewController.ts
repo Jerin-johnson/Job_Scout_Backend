@@ -18,7 +18,12 @@ import {
   emptySchema,
   sessionQuerySchema,
   startSchema,
+  quizSessionSchema,
+  quizSubmitSchema,
+  quizHistoryQuerySchema,
+  quizAttemptIdSchema,
 } from "../../../shared/schemas/interviewSchemas.js";
+import { stackQuizService } from "../../../infrastructure/interview/stackQuizService.js";
 
 function getUserId(user?: UserRecord): string {
   if (!user) return "";
@@ -256,5 +261,155 @@ export const interviewController = {
     const { pinned } = pinSchema.parse(req.body);
     const result = await interviewSessionService.pin(req.user, String(req.params.id), pinned);
     return res.status(200).json(successResponse(result));
+  }),
+
+  /**
+   * GET /api/v1/interview/quiz/question
+   */
+  getQuizQuestion: asyncHandler(async (req: Request, res: Response) => {
+    return res.status(410).json({
+      error: {
+        code: "QUIZ_SESSION_REQUIRED",
+        message: "Start a personalized quiz session to receive questions.",
+        requestId: req.id,
+      },
+    });
+  }),
+
+  startQuizSession: asyncHandler(async (req: Request, res: Response) => {
+    if (!isMongoReady()) {
+      return res.status(503).json({
+        error: {
+          code: "PERSISTENCE_UNAVAILABLE",
+          message: "Quiz history is temporarily unavailable",
+          requestId: req.id,
+        },
+      });
+    }
+    const body = quizSessionSchema.parse(req.body);
+    const user = req.user as UserRecord;
+    const result = await stackQuizService.startQuizSession({
+      userId: getUserId(user),
+      user: user as unknown as Parameters<typeof stackQuizService.startQuizSession>[0]["user"],
+      resumeId: body.resumeId,
+      focus: body.focus,
+    });
+    return res.status(200).json(successResponse(result));
+  }),
+
+  /**
+   * POST /api/v1/interview/quiz/submit
+   */
+  submitQuizAnswer: asyncHandler(async (req: Request, res: Response) => {
+    const body = quizSubmitSchema.parse(req.body);
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
+
+    const result = await stackQuizService.submitAnswer({
+      userId,
+      user,
+      quizSessionId: body.quizSessionId,
+      questionId: body.questionId,
+      stack: body.stack,
+      userAnswer: body.userAnswer,
+      selectedOptionIndex: body.selectedOptionIndex,
+      audioTranscript: body.audioTranscript,
+    });
+
+    return res.status(200).json(successResponse(result));
+  }),
+
+  /**
+   * GET /api/v1/interview/quiz/stats
+   */
+  getQuizStats: asyncHandler(async (req: Request, res: Response) => {
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
+
+    const stats = await stackQuizService.getStatsForUser(userId);
+    return res.status(200).json(successResponse(stats));
+  }),
+
+  listQuizHistory: asyncHandler(async (req: Request, res: Response) => {
+    if (!isMongoReady()) {
+      return res.status(503).json({
+        error: {
+          code: "PERSISTENCE_UNAVAILABLE",
+          message: "Quiz history is temporarily unavailable",
+          requestId: req.id,
+        },
+      });
+    }
+    const { page, limit } = quizHistoryQuerySchema.parse(req.query);
+    const result = await stackQuizService.listAttempts(
+      getUserId(req.user as UserRecord),
+      page,
+      limit,
+    );
+    return res.status(200).json(successResponse(result));
+  }),
+
+  getQuizHistoryDetail: asyncHandler(async (req: Request, res: Response) => {
+    if (!isMongoReady()) {
+      return res.status(503).json({
+        error: {
+          code: "PERSISTENCE_UNAVAILABLE",
+          message: "Quiz history is temporarily unavailable",
+          requestId: req.id,
+        },
+      });
+    }
+    const quizSessionId = quizAttemptIdSchema.parse(req.params.id);
+    const result = await stackQuizService.getAttemptDetail(
+      getUserId(req.user as UserRecord),
+      quizSessionId,
+    );
+    if (!result) {
+      return res.status(404).json({
+        error: { code: "NOT_FOUND", message: "Quiz attempt not found", requestId: req.id },
+      });
+    }
+    return res.status(200).json(successResponse(result));
+  }),
+
+  repracticeQuizHistory: asyncHandler(async (req: Request, res: Response) => {
+    if (!isMongoReady()) {
+      return res.status(503).json({
+        error: {
+          code: "PERSISTENCE_UNAVAILABLE",
+          message: "Quiz history is temporarily unavailable",
+          requestId: req.id,
+        },
+      });
+    }
+    const quizSessionId = quizAttemptIdSchema.parse(req.params.id);
+    const session = await stackQuizService.repracticeAttempt(
+      getUserId(req.user as UserRecord),
+      quizSessionId,
+    );
+    return res.status(201).json(successResponse(session));
+  }),
+
+  deleteQuizHistory: asyncHandler(async (req: Request, res: Response) => {
+    if (!isMongoReady()) {
+      return res.status(503).json({
+        error: {
+          code: "PERSISTENCE_UNAVAILABLE",
+          message: "Quiz history is temporarily unavailable",
+          requestId: req.id,
+        },
+      });
+    }
+    const quizSessionId = quizAttemptIdSchema.parse(req.params.id);
+    const deleted = await stackQuizService.deleteAttempt(
+      getUserId(req.user as UserRecord),
+      quizSessionId,
+    );
+    if (!deleted) {
+      return res.status(404).json({
+        error: { code: "NOT_FOUND", message: "Quiz attempt not found", requestId: req.id },
+      });
+    }
+    return res.status(200).json(successResponse({ deleted: true }));
   }),
 };

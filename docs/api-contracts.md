@@ -223,6 +223,18 @@ This document provides the canonical API contracts for all endpoints implemented
   - **Query DTO:** `limit?: number`
   - **Response `200 OK`:** `{ data: { reports: InterviewReportSummaryDTO[] } }`
 
+### Rapid technical quiz
+
+- **`POST /quiz/session`** requires `{ resumeId, focus }`, where focus is `{ type: "role", targetRole }` or `{ type: "application", applicationId }`. The backend verifies ownership and parsed resume facts before generating a 3–5 question pack; the answer key remains server-side.
+- **`GET /quiz/question`** returns `410 QUIZ_SESSION_REQUIRED`; quiz questions must be created in a grounded session.
+- **`POST /quiz/submit`** requires `quizSessionId` and accepts the candidate's current editable `userAnswer` and/or `selectedOptionIndex`.
+- **`GET /quiz/history?page=1&limit=10`** returns the authenticated user's paginated attempt summaries (maximum 20 per page).
+- **`GET /quiz/history/:id`** returns answered questions, the exact submitted answer/selection, reference answer, explanation, and evaluation. Unanswered questions are omitted.
+- **`POST /quiz/history/:id/repractice`** creates a fresh owner-scoped session from that saved question pack. A parsed resume remains required.
+- **`DELETE /quiz/history/:id`** deletes only that user's attempt and active Redis session; unknown or other-user IDs return `404`.
+
+Quiz history is retained until the user deletes an attempt. No audio recording is retained. Existing pre-history answers cannot be reconstructed from aggregate quiz stats.
+
 ### 2.7 AI Chat Assistant (`/api/v1/ai`)
 
 - **`POST /chat`**

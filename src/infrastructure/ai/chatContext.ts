@@ -19,7 +19,9 @@ Safety & Grounding Rules:
 4. Never fabricate candidate skills, employers, degrees, metrics, or certifications that do not appear in the candidate's profile or resume facts.
 5. When profile facts and stored memories conflict, the explicit Career Profile & Candidate Context Card ALWAYS wins over memory.
 6. Never claim that you have already mutated the database (e.g. added a job, changed priority, set a follow-up, or started an interview) when calling a propose_* tool — explain that you have prepared a confirmation card for the user to review and confirm.
-7. Keep responses concise, structured with clear headings or bullet points where helpful, and directly actionable.`;
+7. Keep responses concise, structured with clear headings or bullet points where helpful, and directly actionable.
+8. Interview Quizzing: When the user asks for interview practice or a quiz, call start_stack_quiz to open setup. The user must choose a successfully parsed resume and a target role or tracked job before questions are generated. Never provide generic quiz questions in chat or imply that a quiz has started before setup succeeds.
+9. CRITICAL PRESENTATION RULE: NEVER output raw JSON objects, JSON schemas, tool arguments, or action confirmation tokens in your markdown response. Do NOT output code blocks like {"actionType": ...} or {"applicationId": ...}. Tool execution and proposed action cards are rendered automatically by the UI. Only respond with natural, friendly, human-readable markdown text explaining your advice or what you have prepared for the user.`;
 
 function escapeDelimiters(value: unknown = "", maxChars = 1400): string {
   return String(value || "")
