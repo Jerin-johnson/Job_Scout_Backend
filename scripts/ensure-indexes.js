@@ -4,6 +4,7 @@ import { logger } from "../src/shared/utils/logger.js";
 import { InterviewSession } from "../src/infrastructure/database/mongoose/models/InterviewSessionModel.js";
 import { InterviewMessage } from "../src/infrastructure/database/mongoose/models/InterviewMessageModel.js";
 import { InterviewReport } from "../src/infrastructure/database/mongoose/models/InterviewReportModel.js";
+import { QuizAttemptModel } from "../src/infrastructure/database/mongoose/models/QuizAttemptModel.js";
 import { User } from "../src/infrastructure/database/mongoose/models/UserModel.js";
 import { Application } from "../src/infrastructure/database/mongoose/models/ApplicationModel.js";
 import { Job } from "../src/infrastructure/database/mongoose/models/JobModel.js";
@@ -16,6 +17,7 @@ const INDEXED_MODELS = [
   InterviewSession,
   InterviewMessage,
   InterviewReport,
+  QuizAttemptModel,
   Application,
   Job,
   JobSource,
@@ -150,6 +152,7 @@ async function ensureIndexes() {
     InterviewSession.createIndexes(),
     InterviewMessage.createIndexes(),
     InterviewReport.createIndexes(),
+    QuizAttemptModel.createIndexes(),
     Application.createIndexes(),
     Job.createIndexes(),
     JobSource.createIndexes(),

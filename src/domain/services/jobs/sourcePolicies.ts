@@ -112,7 +112,7 @@ const BASE_POLICIES: SourcePolicyDefinition[] = [
           : "https://www.ashbyhq.com/",
     retentionDays: 14,
     staleAfterDays: 2,
-    quota: { requestsPerDay: 10, intervalMs: 86400000, timeoutMs: 8000, maxRetries: 1 },
+    quota: { requestsPerDay: 100, intervalMs: 86400000, timeoutMs: 8000, maxRetries: 1 },
     termsVerifiedAt: new Date("2026-10-16T00:00:00.000Z"),
   })),
   {

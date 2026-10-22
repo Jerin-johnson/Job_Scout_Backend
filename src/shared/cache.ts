@@ -14,6 +14,7 @@ export const TTL = {
   RESPONSE: 60, // 30-120s
   PINNED_MEMORY: 86400, // 24h
   SESSION: 86400, // 24h
+  QUIZ_SESSION: 1800, // 30m
   EXACT_QUERY: 86400, // 24h
   JD_PARSE: 2592000, // 30d
   EMBEDDING: 7776000, // 90d
@@ -73,6 +74,7 @@ export const CacheKeys = {
   session: (userId: string, threadId: string) => `${CACHE_NAMESPACE}sess:${userId}:${threadId}`,
   interviewSession: (userId: string, interviewId: string) =>
     `${CACHE_NAMESPACE}interview:${userId}:${interviewId}`,
+  quizSession: (userId: string, quizId: string) => `${CACHE_NAMESPACE}quiz:${userId}:${quizId}`,
   exactQuery: (sha256: string) => `${CACHE_NAMESPACE}exact:${sha256}`,
   jobDescription: (hash: string) => `${CACHE_NAMESPACE}jd:${hash}`,
   embedding: (

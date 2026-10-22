@@ -17,6 +17,8 @@ export const redactPaths = [
   "body.email",
   "body.creditCard",
   "req.body.answer",
+  "req.body.userAnswer",
+  "req.body.audioTranscript",
   "req.body.candidateAnswer",
   "req.body.prompt",
   "req.body.jobDescription",
@@ -41,7 +43,8 @@ export const logger = pino({
 
 export const httpLogger = pinoHttp({
   logger,
-  genReqId: (req: IncomingMessage) => (req.headers["x-request-id"] as string | undefined) || nanoid(12),
+  genReqId: (req: IncomingMessage) =>
+    (req.headers["x-request-id"] as string | undefined) || nanoid(12),
   customLogLevel: (_req: IncomingMessage, res: ServerResponse, err?: Error) => {
     if (res.statusCode >= 500 || err) return "error";
     if (res.statusCode >= 400) return "warn";

@@ -18,7 +18,7 @@ async function run() {
   for (const sourceKey of ["greenhouse", "ashby", "lever"]) {
     console.log(`\n--- Starting ingestion for source: ${sourceKey} ---`);
     try {
-      const result = await jobIngestionService.ingestSource(sourceKey);
+      const result = await jobIngestionService.ingestSource(sourceKey, { force: true });
       console.log(`Source [${sourceKey}] ingestion finished:`, JSON.stringify(result, null, 2));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

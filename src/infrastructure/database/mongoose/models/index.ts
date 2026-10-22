@@ -9,6 +9,7 @@ export * from "./InteractionEventModel.js";
 export * from "./InterviewMessageModel.js";
 export * from "./InterviewReportModel.js";
 export * from "./InterviewSessionModel.js";
+export * from "./QuizAttemptModel.js";
 export * from "./JobCatalogVersionModel.js";
 export * from "./JobDetailModel.js";
 export * from "./JobMatchReportModel.js";

@@ -26,6 +26,7 @@ import { ChatSession } from "../database/mongoose/models/ChatSessionModel.js";
 import { purgeUserCheckpoints } from "../ai/checkpointer.js";
 import { storageService } from "../storage/storageService.js";
 import { CacheKeys, del } from "../../shared/cache.js";
+import { QuizAttemptModel } from "../database/mongoose/models/QuizAttemptModel.js";
 
 export interface DataExportBundle {
   exportedAt: string;
@@ -47,6 +48,7 @@ export interface DataExportBundle {
   agentMemories: unknown[];
   chatSessions: unknown[];
   interviews: unknown[];
+  quizAttempts: unknown[];
   interactionEvents: unknown[];
   feedback: unknown[];
 }
@@ -87,6 +89,7 @@ export const privacyService = {
 
     let documents: unknown[] = [];
     let interviews: unknown[] = [];
+    let quizAttempts: unknown[] = [];
     let resumes: unknown[] = [];
     let jobMatchReports: unknown[] = [];
     let interactionEvents: unknown[] = [];
@@ -128,6 +131,7 @@ export const privacyService = {
         UserFeedback.find({ userId }).lean(),
         ChatSession.find({ userId }).select("-messages").lean(),
       ]);
+      quizAttempts = await QuizAttemptModel.find({ userId }).lean();
     }
 
     return {
@@ -150,6 +154,7 @@ export const privacyService = {
       agentMemories: memories,
       chatSessions,
       interviews,
+      quizAttempts,
       interactionEvents,
       feedback,
     };
@@ -169,7 +174,10 @@ export const privacyService = {
     ]);
 
     if (isMongoReady()) {
+      const quizSessions = await QuizAttemptModel.find({ userId }).select("quizSessionId").lean();
       await Promise.all([
+        ...quizSessions.map((attempt) => del(CacheKeys.quizSession(userId, attempt.quizSessionId))),
+        QuizAttemptModel.deleteMany({ userId }),
         InterviewMessage.deleteMany({ userId }),
         InterviewReport.deleteMany({ userId }),
         InterviewSession.deleteMany({ userId }),

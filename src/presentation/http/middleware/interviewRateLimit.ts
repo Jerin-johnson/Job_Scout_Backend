@@ -49,6 +49,12 @@ export const answerRateLimit = createInterviewLimiter({
   windowMs: 10 * 60 * 1000,
 });
 
+export const quizSessionRateLimit = createInterviewLimiter({
+  name: "quiz-sessions",
+  limit: 6,
+  windowMs: 10 * 60 * 1000,
+});
+
 export const completeRateLimit = createInterviewLimiter({
   name: "complete",
   limit: 6,
