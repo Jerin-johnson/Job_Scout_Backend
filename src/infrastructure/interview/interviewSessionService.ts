@@ -376,6 +376,7 @@ export interface SessionRecordLike {
   activeAnswerClaimIndex?: number | null;
   reportTokenReserve?: number;
   isFreeTrial?: boolean;
+  consent?: { acceptedAt?: Date | null; version?: string };
   resumeFileHash?: string;
   save: () => Promise<unknown>;
   toObject?: () => Record<string, unknown>;
@@ -1181,6 +1182,23 @@ export const interviewSessionService = {
         }),
       ),
     };
+  },
+
+  async assertTranscriptionAllowed(
+    user: UserLikeSession | null | undefined,
+    idInput: string | string[],
+  ): Promise<void> {
+    const id = normalizeId(idInput);
+    const userId = idOf(user);
+    const session = (await repo.findSession(id, userId)) as unknown as SessionRecordLike | null;
+    if (!session) fail(404, "NOT_FOUND", "Interview session not found");
+    if (!session.consent?.acceptedAt || session.consent.version !== INTERVIEW_CONSENT_VERSION)
+      fail(403, "INTERVIEW_CONSENT_REQUIRED", "Accept the interview AI processing notice first");
+    await this.expireIfNeeded(session, userId);
+    if (session.status !== "in_progress")
+      fail(409, "INVALID_STATE", "Live transcription is available during an active interview");
+    const feature = session.isFreeTrial ? "mock_interview_trial" : "mock_interview";
+    await quotaService.checkQuota(user, feature);
   },
 
   async delete(

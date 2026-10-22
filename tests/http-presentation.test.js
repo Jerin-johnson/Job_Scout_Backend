@@ -104,6 +104,20 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
     assert.ok(json.error.requestId);
   });
 
+  it("POST /api/v1/interview/sessions/:id/transcription-session requires authentication", async () => {
+    const res = await fetch(
+      `${baseUrl}/api/v1/interview/sessions/${"a".repeat(24)}/transcription-session`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ consentAccepted: true }),
+      },
+    );
+    assert.equal(res.status, 401);
+    const json = await res.json();
+    assert.equal(json.error.code, "UNAUTHORIZED");
+  });
+
   it("POST & GET /api/v1/applications with valid Bearer token should succeed", async () => {
     // 1. Get access token
     const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {

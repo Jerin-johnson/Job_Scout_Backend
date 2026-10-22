@@ -7,6 +7,7 @@ import {
   answerRateLimit,
   completeRateLimit,
   quizSessionRateLimit,
+  transcriptionSessionRateLimit,
 } from "../middleware/interviewRateLimit.js";
 
 export const interviewRouter = Router();
@@ -53,6 +54,12 @@ interviewRouter.post(
 interviewRouter.delete("/quiz/history/:id", csrfProtection, interviewController.deleteQuizHistory);
 interviewRouter.get("/sessions", interviewController.listSessions);
 interviewRouter.post("/sessions", csrfProtection, interviewController.createSession);
+interviewRouter.post(
+  "/sessions/:id/transcription-session",
+  csrfProtection,
+  transcriptionSessionRateLimit,
+  interviewController.createTranscriptionSession,
+);
 interviewRouter.post("/sessions/:id/start", csrfProtection, interviewController.startSession);
 interviewRouter.post(
   "/sessions/:id/answers",

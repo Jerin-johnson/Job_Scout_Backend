@@ -13,9 +13,15 @@ interface InterviewLimiterOptions {
   name: string;
   limit: number;
   windowMs: number;
+  failClosed?: boolean;
 }
 
-function createInterviewLimiter({ name, limit, windowMs }: InterviewLimiterOptions) {
+function createInterviewLimiter({
+  name,
+  limit,
+  windowMs,
+  failClosed = false,
+}: InterviewLimiterOptions) {
   const store = isRedisReady()
     ? new RedisStore({
         prefix: `jobscout:ratelimit:interview:${name}:`,
@@ -29,7 +35,7 @@ function createInterviewLimiter({ name, limit, windowMs }: InterviewLimiterOptio
     limit,
     standardHeaders: "draft-8",
     legacyHeaders: false,
-    passOnStoreError: true,
+    passOnStoreError: !failClosed,
     keyGenerator: userKey,
     store,
     handler(_req: Request, res: Response) {
@@ -59,4 +65,11 @@ export const completeRateLimit = createInterviewLimiter({
   name: "complete",
   limit: 6,
   windowMs: 10 * 60 * 1000,
+});
+
+export const transcriptionSessionRateLimit = createInterviewLimiter({
+  name: "transcription-sessions",
+  limit: 5,
+  windowMs: 15 * 60 * 1000,
+  failClosed: true,
 });

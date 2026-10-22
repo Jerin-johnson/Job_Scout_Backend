@@ -248,3 +248,8 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Consolidated the accumulated backend changes on `feat/job-discovery-ai-matching` for the requested development merge and main PR. Nested `.worktrees/` checkouts and ignored Graphify output are excluded from the repository commit.
 - Verification before commit: backend typecheck, docs check, focused quiz tests (10/10), and root lint excluding generated `.worktrees/` and `dist/` output passed. The full test run was blocked by Mongo integration server `EACCES`; unfiltered lint still reports generated-code errors from nested worktrees.
 - No production database or deployment was touched. Commit and merge are in progress.
+
+## Live voice-to-text — 2026-10-21
+
+- Added an authenticated short-lived OpenAI Realtime credential endpoint for fixed `gpt-live-transcribe` sessions, scoped to the owner’s active/current-consent interview, quota-checked, CSRF-protected, non-cacheable, and limited to five requests per 15 minutes with fail-closed Redis storage behavior. Audio stays direct between browser and OpenAI; no new dependency or storage was added.
+- Verification: backend typecheck/build, lint, architecture/docs checks, and 5 focused tests passed. The full backend suite could not pass because MongoDB Memory Server could not download MongoDB (`fastdl.mongodb.org` DNS failure); its owner-scoping Mongo test is authored but unverified. Local HTTP route auth integration was blocked by loopback socket permissions. Graphify updated and queried: 3,926 nodes/8,099 edges. No commit, merge, or push.
