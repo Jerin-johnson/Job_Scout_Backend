@@ -1,22 +1,23 @@
 import { Router } from "express";
-import { resumeMatchController } from "../controllers/resumeMatchController.js";
+import { ResumeMatchController } from "../controllers/ResumeMatchController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
 import { generalApiLimiter } from "../middleware/rateLimiter.js";
+import { appContainer } from "../../../main/container.js";
 
-export const resumeMatchRouter = Router();
-resumeMatchRouter.use(authenticate, generalApiLimiter);
-resumeMatchRouter.post("/reports", csrfProtection, resumeMatchController.createOrFetch);
-resumeMatchRouter.get("/reports", resumeMatchController.list);
-resumeMatchRouter.get("/reports/:id", resumeMatchController.get);
-resumeMatchRouter.patch(
-  "/reports/:id/ignored-keywords",
-  csrfProtection,
-  resumeMatchController.ignoreKeywords,
-);
-resumeMatchRouter.post(
-  "/reports/:id/suggestions",
-  csrfProtection,
-  resumeMatchController.suggestions,
-);
-resumeMatchRouter.delete("/reports/:id", csrfProtection, resumeMatchController.remove);
+export function createResumeMatchRouter(): Router {
+  const router = Router();
+  const controller = appContainer.resolve(ResumeMatchController);
+
+  router.use(authenticate, generalApiLimiter);
+  router.post("/reports", csrfProtection, controller.createOrFetch);
+  router.get("/reports", controller.list);
+  router.get("/reports/:id", controller.get);
+  router.patch("/reports/:id/ignored-keywords", csrfProtection, controller.ignoreKeywords);
+  router.post("/reports/:id/suggestions", csrfProtection, controller.suggestions);
+  router.delete("/reports/:id", csrfProtection, controller.remove);
+
+  return router;
+}
+
+export const resumeMatchRouter = createResumeMatchRouter();

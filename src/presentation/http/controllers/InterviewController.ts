@@ -1,3 +1,8 @@
+import { injectable, inject } from "tsyringe";
+import { TOKENS } from "../../../shared/constants/injectionTokens.js";
+import { IInterviewSessionUseCase } from "../../../application/interfaces/useCases/interviews/IInterviewSessionUseCase.js";
+import { IInterviewSessionRepository } from "../../../domain/repositories/IInterviewSessionRepository.js";
+import { appContainer } from "../../../main/container.js";
 import { Request, Response } from "express";
 import { interviewGraph } from "../../../infrastructure/ai/graphs/interviewGraph.js";
 import { profileRepository } from "../../../infrastructure/database/mongoose/repositories/MongooseProfileRepository.js";
@@ -36,8 +41,16 @@ function getUserId(user?: UserRecord): string {
       : "";
 }
 
-export const interviewController = {
-  createTranscriptionSession: asyncHandler(async (req: Request, res: Response) => {
+@injectable()
+export class InterviewController {
+  constructor(
+    @inject(TOKENS.InterviewSessionUseCase)
+    private readonly interviewSessionUseCase: IInterviewSessionUseCase,
+    @inject(TOKENS.InterviewSessionRepository)
+    private readonly sessionRepo: IInterviewSessionRepository,
+  ) {}
+
+  createTranscriptionSession = asyncHandler(async (req: Request, res: Response) => {
     transcriptionSessionSchema.parse(req.body);
     const user = req.user as UserRecord;
     const sessionId = String(req.params.id || "");
@@ -55,13 +68,13 @@ export const interviewController = {
     const credential = await createRealtimeTranscriptionCredential(userId);
     res.setHeader("Cache-Control", "no-store, private");
     return res.status(200).json(successResponse(credential));
-  }),
+  });
 
   /**
    * POST /api/v1/interview/prep
    * Generates question bank, company overview, and STAR story templates
    */
-  prep: asyncHandler(async (req: Request, res: Response) => {
+  prep = asyncHandler(async (req: Request, res: Response) => {
     const { jobTitle, company, jdText } = prepSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -80,13 +93,13 @@ export const interviewController = {
     logger.info({ userId, company, jobTitle }, "Interview prep pack generated");
 
     return res.status(200).json(successResponse(prepResult));
-  }),
+  });
 
   /**
    * POST /api/v1/interview/mock/turn
    * Evaluates candidate turn using STAR scoring, capped at 5 turns
    */
-  mockTurn: asyncHandler(async (req: Request, res: Response) => {
+  mockTurn = asyncHandler(async (req: Request, res: Response) => {
     const { sessionId, questionId, question, candidateAnswer } = mockTurnSchema.parse(req.body);
     const user = req.user as UserRecord;
 
@@ -101,13 +114,13 @@ export const interviewController = {
     });
 
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
   /**
    * GET /api/v1/interview/:id/report
    * Returns comprehensive scorecard and feedback across mock interview turns
    */
-  getReport: asyncHandler(async (req: Request, res: Response) => {
+  getReport = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const user = req.user as UserRecord;
     const report = await interviewGraph.getMockSessionReport(String(id), getUserId(user));
@@ -123,9 +136,9 @@ export const interviewController = {
     }
 
     return res.status(200).json(successResponse(report));
-  }),
+  });
 
-  modes(_req: Request, res: Response): Response {
+  modes = (_req: Request, res: Response): Response => {
     return res.status(200).json(
       successResponse({
         modes: interviewSessionService.modes,
@@ -135,9 +148,9 @@ export const interviewController = {
         retentionDays: interviewSessionService.retentionDays,
       }),
     );
-  },
+  };
 
-  createSession: asyncHandler(async (req: Request, res: Response) => {
+  createSession = asyncHandler(async (req: Request, res: Response) => {
     const data = createSessionSchema.parse(req.body);
     if (data.consent.version !== interviewSessionService.consentVersion) {
       return res.status(409).json({
@@ -161,15 +174,15 @@ export const interviewController = {
       idempotencyKey: requestQuotaIdempotencyKey(req, "mock_interview"),
     });
     return res.status(201).json(successResponse({ session }));
-  }),
+  });
 
-  startSession: asyncHandler(async (req: Request, res: Response) => {
+  startSession = asyncHandler(async (req: Request, res: Response) => {
     const { timezone } = startSchema.parse(req.body);
     const session = await interviewSessionService.start(req.user, String(req.params.id), timezone);
     return res.status(200).json(successResponse(session));
-  }),
+  });
 
-  answer: asyncHandler(async (req: Request, res: Response) => {
+  answer = asyncHandler(async (req: Request, res: Response) => {
     const parsedData = answerSchema.parse(req.body);
     const idempotencyKey = String(req.get("Idempotency-Key") || "");
     if (!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
@@ -192,9 +205,9 @@ export const interviewController = {
       idempotencyKey,
     });
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
-  answerStream: asyncHandler(async (req: Request, res: Response) => {
+  answerStream = asyncHandler(async (req: Request, res: Response) => {
     const parsedData = answerSchema.parse(req.body);
     const idempotencyKey = String(req.get("Idempotency-Key") || "");
     if (!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
@@ -237,9 +250,9 @@ export const interviewController = {
       res.end();
     }
     return;
-  }),
+  });
 
-  completeSession: asyncHandler(async (req: Request, res: Response) => {
+  completeSession = asyncHandler(async (req: Request, res: Response) => {
     const parsedData = completeSchema.parse(req.body);
     const report = await interviewSessionService.complete(
       req.user,
@@ -247,20 +260,20 @@ export const interviewController = {
       parsedData,
     );
     return res.status(200).json(successResponse({ report }));
-  }),
+  });
 
-  listSessions: asyncHandler(async (req: Request, res: Response) => {
+  listSessions = asyncHandler(async (req: Request, res: Response) => {
     const { page, limit } = sessionQuerySchema.parse(req.query);
     const sessions = await interviewSessionService.history(req.user, page, limit);
     return res.status(200).json(successResponse({ sessions, page, limit }));
-  }),
+  });
 
-  sessionDetail: asyncHandler(async (req: Request, res: Response) => {
+  sessionDetail = asyncHandler(async (req: Request, res: Response) => {
     const detail = await interviewSessionService.detail(req.user, String(req.params.id));
     return res.status(200).json(successResponse(detail));
-  }),
+  });
 
-  sessionReport: asyncHandler(async (req: Request, res: Response) => {
+  sessionReport = asyncHandler(async (req: Request, res: Response) => {
     const report = (await interviewSessionService.report(
       req.user,
       String(req.params.id),
@@ -271,24 +284,24 @@ export const interviewController = {
       });
     }
     return res.status(200).json(successResponse({ report: report.report }));
-  }),
+  });
 
-  deleteSession: asyncHandler(async (req: Request, res: Response) => {
+  deleteSession = asyncHandler(async (req: Request, res: Response) => {
     emptySchema.parse(req.body);
     const result = await interviewSessionService.delete(req.user, String(req.params.id));
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
-  pinSession: asyncHandler(async (req: Request, res: Response) => {
+  pinSession = asyncHandler(async (req: Request, res: Response) => {
     const { pinned } = pinSchema.parse(req.body);
     const result = await interviewSessionService.pin(req.user, String(req.params.id), pinned);
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
   /**
    * GET /api/v1/interview/quiz/question
    */
-  getQuizQuestion: asyncHandler(async (req: Request, res: Response) => {
+  getQuizQuestion = asyncHandler(async (req: Request, res: Response) => {
     return res.status(410).json({
       error: {
         code: "QUIZ_SESSION_REQUIRED",
@@ -296,9 +309,9 @@ export const interviewController = {
         requestId: req.id,
       },
     });
-  }),
+  });
 
-  startQuizSession: asyncHandler(async (req: Request, res: Response) => {
+  startQuizSession = asyncHandler(async (req: Request, res: Response) => {
     if (!isMongoReady()) {
       return res.status(503).json({
         error: {
@@ -317,12 +330,12 @@ export const interviewController = {
       focus: body.focus,
     });
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
   /**
    * POST /api/v1/interview/quiz/submit
    */
-  submitQuizAnswer: asyncHandler(async (req: Request, res: Response) => {
+  submitQuizAnswer = asyncHandler(async (req: Request, res: Response) => {
     const body = quizSubmitSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -339,20 +352,20 @@ export const interviewController = {
     });
 
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
   /**
    * GET /api/v1/interview/quiz/stats
    */
-  getQuizStats: asyncHandler(async (req: Request, res: Response) => {
+  getQuizStats = asyncHandler(async (req: Request, res: Response) => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
 
     const stats = await stackQuizService.getStatsForUser(userId);
     return res.status(200).json(successResponse(stats));
-  }),
+  });
 
-  listQuizHistory: asyncHandler(async (req: Request, res: Response) => {
+  listQuizHistory = asyncHandler(async (req: Request, res: Response) => {
     if (!isMongoReady()) {
       return res.status(503).json({
         error: {
@@ -369,9 +382,9 @@ export const interviewController = {
       limit,
     );
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
-  getQuizHistoryDetail: asyncHandler(async (req: Request, res: Response) => {
+  getQuizHistoryDetail = asyncHandler(async (req: Request, res: Response) => {
     if (!isMongoReady()) {
       return res.status(503).json({
         error: {
@@ -392,9 +405,9 @@ export const interviewController = {
       });
     }
     return res.status(200).json(successResponse(result));
-  }),
+  });
 
-  repracticeQuizHistory: asyncHandler(async (req: Request, res: Response) => {
+  repracticeQuizHistory = asyncHandler(async (req: Request, res: Response) => {
     if (!isMongoReady()) {
       return res.status(503).json({
         error: {
@@ -410,9 +423,9 @@ export const interviewController = {
       quizSessionId,
     );
     return res.status(201).json(successResponse(session));
-  }),
+  });
 
-  deleteQuizHistory: asyncHandler(async (req: Request, res: Response) => {
+  deleteQuizHistory = asyncHandler(async (req: Request, res: Response) => {
     if (!isMongoReady()) {
       return res.status(503).json({
         error: {
@@ -433,5 +446,15 @@ export const interviewController = {
       });
     }
     return res.status(200).json(successResponse({ deleted: true }));
-  }),
-};
+  });
+}
+
+export const interviewController = new Proxy({} as InterviewController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(InterviewController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

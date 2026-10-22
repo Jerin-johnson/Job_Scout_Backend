@@ -1,3 +1,9 @@
+import { injectable, inject } from "tsyringe";
+import { TOKENS } from "../../../shared/constants/injectionTokens.js";
+import { IAdminRepository } from "../../../domain/repositories/IAdminRepository.js";
+import { IUserRepository } from "../../../domain/repositories/IUserRepository.js";
+import { IJobRepository } from "../../../domain/repositories/IJobRepository.js";
+import { appContainer } from "../../../main/container.js";
 import { Request, Response } from "express";
 import { getCacheMetrics } from "../../../shared/cache.js";
 import { isMongoReady } from "../../../infrastructure/database/database.js";
@@ -42,17 +48,27 @@ async function audit(
   );
 }
 
-export const adminController = {
-  listTrackedCompanies: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+@injectable()
+export class AdminController {
+  constructor(
+    @inject(TOKENS.AdminRepository)
+    private readonly adminRepository: IAdminRepository,
+    @inject(TOKENS.UserRepository)
+    private readonly userRepository: IUserRepository,
+    @inject(TOKENS.JobRepository)
+    private readonly jobRepository: IJobRepository,
+  ) {}
+
+  listTrackedCompanies = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const statusParam = String(req.query.status || "");
     const status = ["pending", "approved", "disabled"].includes(statusParam)
       ? statusParam
       : undefined;
     const companies = await adminPersistenceService.listTrackedCompanies(status);
     res.json(successResponse({ companies }));
-  }),
+  });
 
-  jobCoverage: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  jobCoverage = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
     const since = new Date(Date.now() - 30 * 86400000);
     const [coverage, interactionsData] = await Promise.all([
       jobIngestionService.coverageReport(),
@@ -72,9 +88,9 @@ export const adminController = {
         },
       }),
     );
-  }),
+  });
 
-  updateTrackedCompany: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateTrackedCompany = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { status } = updateTrackedCompanySchema.parse(req.body);
     const company = await adminPersistenceService.updateTrackedCompanyStatus(
       String(req.params.id),
@@ -86,9 +102,9 @@ export const adminController = {
     }
     await audit(req, "admin.jobs.company.status", { platform: company.platform, status });
     res.json(successResponse({ company }));
-  }),
+  });
 
-  listJobReports: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listJobReports = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const page = Math.max(1, Number.parseInt(String(req.query.page || ""), 10) || 1);
     const limit = Math.min(
       100,
@@ -101,9 +117,9 @@ export const adminController = {
         { page, limit, total, totalPages: Math.ceil(total / limit) },
       ),
     );
-  }),
+  });
 
-  getMetrics: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getMetrics = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const cacheMetrics = getCacheMetrics();
     const telemetry = await adminPersistenceService.getPlatformTelemetry();
 
@@ -171,9 +187,9 @@ export const adminController = {
         },
       }),
     );
-  }),
+  });
 
-  listUsers: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listUsers = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -202,9 +218,9 @@ export const adminController = {
           { page, limit, total, totalPages: Math.ceil(total / limit) },
         ),
       );
-  }),
+  });
 
-  updateUser: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateUser = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -320,9 +336,9 @@ export const adminController = {
       changes: parsed.data,
     });
     res.status(200).json(successResponse({ user: updated }));
-  }),
+  });
 
-  billingOverview: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  billingOverview = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -345,9 +361,9 @@ export const adminController = {
         ...overview,
       }),
     );
-  }),
+  });
 
-  listSubscriptions: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listSubscriptions = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -367,9 +383,9 @@ export const adminController = {
     const subscriptions = await adminPersistenceService.listSubscriptions(limit);
     await audit(req, "admin.billing.subscriptions.list", { limit });
     res.status(200).json(successResponse({ subscriptions }));
-  }),
+  });
 
-  cancelSubscription: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  cancelSubscription = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -449,9 +465,9 @@ export const adminController = {
         subscription: result,
       }),
     );
-  }),
+  });
 
-  listPayments: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listPayments = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -479,9 +495,9 @@ export const adminController = {
           { page, limit, total, totalPages: Math.ceil(total / limit) },
         ),
       );
-  }),
+  });
 
-  refundPayment: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  refundPayment = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -584,9 +600,9 @@ export const adminController = {
       await adminPersistenceService.revertPaymentStatus(payment._id, previousStatus);
       throw err;
     }
-  }),
+  });
 
-  listJobs: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listJobs = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const result = await jobIngestionService.searchJobs({
       q: String(req.query.q || "").trim(),
       source: String(req.query.source || "").trim(),
@@ -595,9 +611,9 @@ export const adminController = {
     });
     await audit(req, "admin.jobs.list", { page: result.page });
     res.status(200).json(successResponse(result));
-  }),
+  });
 
-  listAudit: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listAudit = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!isMongoReady()) {
       res
         .status(503)
@@ -624,14 +640,14 @@ export const adminController = {
           { page, limit, total, totalPages: Math.ceil(total / limit) },
         ),
       );
-  }),
+  });
 
-  listJobSources: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  listJobSources = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
     const sources = await jobIngestionService.sourceBudgets();
     res.status(200).json(successResponse({ sources }));
-  }),
+  });
 
-  updateJobSource: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateJobSource = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const input = updateJobSourceSchema.parse(req.body);
     let sources: unknown;
     const sourceKey = Array.isArray(req.params.key)
@@ -655,5 +671,15 @@ export const adminController = {
       { source: req.params.key },
     );
     res.status(200).json(successResponse({ sources }));
-  }),
-};
+  });
+}
+
+export const adminController = new Proxy({} as AdminController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(AdminController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

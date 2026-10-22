@@ -18,6 +18,7 @@ export interface AuthUserDTO {
   name: string;
   role: string;
   plan: string;
+  isEmailVerified?: boolean;
 }
 
 export interface AuthTokensDTO {
@@ -27,7 +28,9 @@ export interface AuthTokensDTO {
 
 export interface RegisterUserOutputDTO {
   user: AuthUserDTO;
-  tokens: AuthTokensDTO;
+  requiresVerification: boolean;
+  message: string;
+  tokens?: AuthTokensDTO;
 }
 
 export const loginInputSchema = z.object({
@@ -57,4 +60,27 @@ export type RefreshTokenInputDTO = z.infer<typeof refreshTokenInputSchema>;
 export interface RefreshTokenOutputDTO {
   accessToken: string;
   refreshToken: string;
+}
+
+export const verifyOtpInputSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  otp: z.string().regex(/^\d{6}$/, "OTP must be a 6-digit code"),
+});
+
+export type VerifyOtpInputDTO = z.infer<typeof verifyOtpInputSchema>;
+
+export interface VerifyOtpOutputDTO {
+  user: AuthUserDTO;
+  tokens: AuthTokensDTO;
+  message?: string;
+}
+
+export const resendOtpInputSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+
+export type ResendOtpInputDTO = z.infer<typeof resendOtpInputSchema>;
+
+export interface ResendOtpOutputDTO {
+  message: string;
 }

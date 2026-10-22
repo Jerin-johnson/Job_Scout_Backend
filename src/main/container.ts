@@ -23,8 +23,10 @@ import { IInterviewSessionRepository } from "../domain/repositories/IInterviewSe
 import { IResumeMatchReportService } from "../domain/repositories/IResumeMatchReportService.js";
 import { IPasswordHasher } from "../domain/security/IPasswordHasher.js";
 import { ITokenService } from "../domain/security/ITokenService.js";
+import { IOAuthService } from "../domain/security/IOAuthService.js";
 import { IStorageService } from "../domain/storage/IStorageService.js";
 import { IEmailService } from "../domain/notifications/IEmailService.js";
+import { IBillingGateway } from "../domain/services/IBillingGateway.js";
 
 // Infrastructure Implementations
 import { MongooseUserRepository } from "../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
@@ -47,12 +49,16 @@ import { MongooseInterviewSessionRepository } from "../infrastructure/interview/
 import { ConcreteResumeMatchReportService } from "../infrastructure/ai/services/resumeMatchReportService.js";
 import { BcryptPasswordHasher } from "../infrastructure/security/BcryptPasswordHasher.js";
 import { JwtTokenService } from "../infrastructure/security/JwtTokenService.js";
+import { GoogleOAuthService } from "../infrastructure/security/GoogleOAuthService.js";
 import { S3StorageService } from "../infrastructure/storage/S3StorageService.js";
 import { ResendEmailService } from "../infrastructure/email/ResendEmailService.js";
+import { BillingGatewayAdapter } from "../infrastructure/external-services/billing/BillingGatewayAdapter.js";
 
 // Application Use Cases
 import { RegisterUserUseCase } from "../application/useCases/auth/RegisterUserUseCase.js";
 import { LoginUserUseCase } from "../application/useCases/auth/LoginUserUseCase.js";
+import { GoogleLoginUseCase } from "../application/useCases/auth/GoogleLoginUseCase.js";
+import { GetCurrentUserUseCase } from "../application/useCases/auth/GetCurrentUserUseCase.js";
 import { RefreshTokenUseCase } from "../application/useCases/auth/RefreshTokenUseCase.js";
 import { VerifyEmailOtpUseCase } from "../application/useCases/auth/VerifyEmailOtpUseCase.js";
 import { ResendOtpUseCase } from "../application/useCases/auth/ResendOtpUseCase.js";
@@ -69,6 +75,8 @@ import {
 import { DeleteResumeUseCase } from "../application/useCases/resumes/DeleteResumeUseCase.js";
 import { ResumeMatchReportUseCase } from "../application/useCases/resumes/ResumeMatchReportUseCase.js";
 import { InterviewSessionUseCase } from "../application/useCases/interviews/InterviewSessionUseCase.js";
+import { CreateCheckoutSessionUseCase } from "../application/useCases/billing/CreateCheckoutSessionUseCase.js";
+import { HandleRazorpayWebhookUseCase } from "../application/useCases/billing/HandleRazorpayWebhookUseCase.js";
 
 export { TOKENS };
 
@@ -225,7 +233,7 @@ export function registerDependencies(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Security & Storage & Notifications
+  // Security & Storage & Notifications & External Services
   targetContainer.register<IPasswordHasher>(
     TOKENS.PasswordHasher,
     {
@@ -237,6 +245,13 @@ export function registerDependencies(
     TOKENS.TokenService,
     {
       useClass: JwtTokenService,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  targetContainer.register<IOAuthService>(
+    TOKENS.OAuthService,
+    {
+      useClass: GoogleOAuthService,
     },
     { lifecycle: Lifecycle.Singleton },
   );
@@ -254,6 +269,13 @@ export function registerDependencies(
     },
     { lifecycle: Lifecycle.Singleton },
   );
+  targetContainer.register<IBillingGateway>(
+    TOKENS.BillingGateway,
+    {
+      useClass: BillingGatewayAdapter,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
 
   // Use Cases
   targetContainer.register<RegisterUserUseCase>(TOKENS.RegisterUserUseCase, {
@@ -261,6 +283,12 @@ export function registerDependencies(
   });
   targetContainer.register<LoginUserUseCase>(TOKENS.LoginUserUseCase, {
     useClass: LoginUserUseCase,
+  });
+  targetContainer.register<GoogleLoginUseCase>(TOKENS.GoogleLoginUseCase, {
+    useClass: GoogleLoginUseCase,
+  });
+  targetContainer.register<GetCurrentUserUseCase>(TOKENS.GetCurrentUserUseCase, {
+    useClass: GetCurrentUserUseCase,
   });
   targetContainer.register<RefreshTokenUseCase>(TOKENS.RefreshTokenUseCase, {
     useClass: RefreshTokenUseCase,
@@ -303,6 +331,12 @@ export function registerDependencies(
   });
   targetContainer.register<InterviewSessionUseCase>(TOKENS.InterviewSessionUseCase, {
     useClass: InterviewSessionUseCase,
+  });
+  targetContainer.register<CreateCheckoutSessionUseCase>(TOKENS.CreateCheckoutSessionUseCase, {
+    useClass: CreateCheckoutSessionUseCase,
+  });
+  targetContainer.register<HandleRazorpayWebhookUseCase>(TOKENS.HandleRazorpayWebhookUseCase, {
+    useClass: HandleRazorpayWebhookUseCase,
   });
 
   return targetContainer;

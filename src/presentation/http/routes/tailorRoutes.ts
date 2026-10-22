@@ -1,23 +1,24 @@
 import { Router } from "express";
-import {
-  startTailor,
-  approveTailor,
-  rejectTailor,
-  getTailoringDoc,
-  exportDocument,
-  listTailoringDocs,
-} from "../controllers/tailoringController.js";
+import { TailoringController } from "../controllers/TailoringController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
 import { requireQuota } from "../middleware/quotaGate.js";
+import { appContainer } from "../../../main/container.js";
 
-export const tailorRouter = Router();
+export function createTailorRouter(): Router {
+  const router = Router();
+  const controller = appContainer.resolve(TailoringController);
 
-tailorRouter.use(authenticate);
+  router.use(authenticate);
 
-tailorRouter.get("/", listTailoringDocs);
-tailorRouter.post("/start", csrfProtection, requireQuota("tailor_resume"), startTailor);
-tailorRouter.get("/:id", getTailoringDoc);
-tailorRouter.post("/:id/approve", csrfProtection, approveTailor);
-tailorRouter.post("/:id/reject", csrfProtection, rejectTailor);
-tailorRouter.get("/:id/export", exportDocument);
+  router.get("/", controller.listTailoringDocs);
+  router.post("/start", csrfProtection, requireQuota("tailor_resume"), controller.startTailor);
+  router.get("/:id", controller.getTailoringDoc);
+  router.post("/:id/approve", csrfProtection, controller.approveTailor);
+  router.post("/:id/reject", csrfProtection, controller.rejectTailor);
+  router.get("/:id/export", controller.exportDocument);
+
+  return router;
+}
+
+export const tailorRouter = createTailorRouter();

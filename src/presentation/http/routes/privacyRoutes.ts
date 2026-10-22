@@ -1,11 +1,19 @@
 import { Router } from "express";
-import { privacyController } from "../controllers/privacyController.js";
+import { PrivacyController } from "../controllers/PrivacyController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
+import { appContainer } from "../../../main/container.js";
 
-export const privacyRouter = Router();
+export function createPrivacyRouter(): Router {
+  const router = Router();
+  const controller = appContainer.resolve(PrivacyController);
 
-privacyRouter.use(authenticate);
+  router.use(authenticate);
 
-privacyRouter.get("/export", privacyController.exportData);
-privacyRouter.delete("/delete-account", csrfProtection, privacyController.deleteAccount);
+  router.get("/export", controller.exportData);
+  router.delete("/delete-account", csrfProtection, controller.deleteAccount);
+
+  return router;
+}
+
+export const privacyRouter = createPrivacyRouter();

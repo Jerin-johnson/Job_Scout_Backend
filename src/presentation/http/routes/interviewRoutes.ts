@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { interviewController } from "../controllers/interviewController.js";
+import { InterviewController } from "../controllers/InterviewController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
 import { requireQuota } from "../middleware/quotaGate.js";
@@ -9,79 +9,62 @@ import {
   quizSessionRateLimit,
   transcriptionSessionRateLimit,
 } from "../middleware/interviewRateLimit.js";
+import { appContainer } from "../../../main/container.js";
 
-export const interviewRouter = Router();
+export function createInterviewRouter(): Router {
+  const router = Router();
+  const controller = appContainer.resolve(InterviewController);
 
-interviewRouter.use(authenticate);
+  router.use(authenticate);
 
-interviewRouter.post(
-  "/prep",
-  csrfProtection,
-  requireQuota("interview_prep"),
-  interviewController.prep,
-);
+  router.post("/prep", csrfProtection, requireQuota("interview_prep"), controller.prep);
 
-interviewRouter.post(
-  "/mock/turn",
-  csrfProtection,
-  requireQuota("mock_interview"),
-  interviewController.mockTurn,
-);
+  router.post("/mock/turn", csrfProtection, requireQuota("mock_interview"), controller.mockTurn);
 
-interviewRouter.get("/modes", interviewController.modes);
-interviewRouter.get("/quiz/question", interviewController.getQuizQuestion);
-interviewRouter.post(
-  "/quiz/session",
-  csrfProtection,
-  quizSessionRateLimit,
-  interviewController.startQuizSession,
-);
-interviewRouter.post(
-  "/quiz/submit",
-  csrfProtection,
-  answerRateLimit,
-  interviewController.submitQuizAnswer,
-);
-interviewRouter.get("/quiz/stats", interviewController.getQuizStats);
-interviewRouter.get("/quiz/history", interviewController.listQuizHistory);
-interviewRouter.get("/quiz/history/:id", interviewController.getQuizHistoryDetail);
-interviewRouter.post(
-  "/quiz/history/:id/repractice",
-  csrfProtection,
-  quizSessionRateLimit,
-  interviewController.repracticeQuizHistory,
-);
-interviewRouter.delete("/quiz/history/:id", csrfProtection, interviewController.deleteQuizHistory);
-interviewRouter.get("/sessions", interviewController.listSessions);
-interviewRouter.post("/sessions", csrfProtection, interviewController.createSession);
-interviewRouter.post(
-  "/sessions/:id/transcription-session",
-  csrfProtection,
-  transcriptionSessionRateLimit,
-  interviewController.createTranscriptionSession,
-);
-interviewRouter.post("/sessions/:id/start", csrfProtection, interviewController.startSession);
-interviewRouter.post(
-  "/sessions/:id/answers",
-  csrfProtection,
-  answerRateLimit,
-  interviewController.answer,
-);
-interviewRouter.post(
-  "/sessions/:id/answers/stream",
-  csrfProtection,
-  answerRateLimit,
-  interviewController.answerStream,
-);
-interviewRouter.post(
-  "/sessions/:id/complete",
-  csrfProtection,
-  completeRateLimit,
-  interviewController.completeSession,
-);
-interviewRouter.patch("/sessions/:id/pin", csrfProtection, interviewController.pinSession);
-interviewRouter.get("/sessions/:id/report", interviewController.sessionReport);
-interviewRouter.get("/sessions/:id", interviewController.sessionDetail);
-interviewRouter.delete("/sessions/:id", csrfProtection, interviewController.deleteSession);
+  router.get("/modes", controller.modes);
+  router.get("/quiz/question", controller.getQuizQuestion);
+  router.post("/quiz/session", csrfProtection, quizSessionRateLimit, controller.startQuizSession);
+  router.post("/quiz/submit", csrfProtection, answerRateLimit, controller.submitQuizAnswer);
+  router.get("/quiz/stats", controller.getQuizStats);
+  router.get("/quiz/history", controller.listQuizHistory);
+  router.get("/quiz/history/:id", controller.getQuizHistoryDetail);
+  router.post(
+    "/quiz/history/:id/repractice",
+    csrfProtection,
+    quizSessionRateLimit,
+    controller.repracticeQuizHistory,
+  );
+  router.delete("/quiz/history/:id", csrfProtection, controller.deleteQuizHistory);
+  router.get("/sessions", controller.listSessions);
+  router.post("/sessions", csrfProtection, controller.createSession);
+  router.post(
+    "/sessions/:id/transcription-session",
+    csrfProtection,
+    transcriptionSessionRateLimit,
+    controller.createTranscriptionSession,
+  );
+  router.post("/sessions/:id/start", csrfProtection, controller.startSession);
+  router.post("/sessions/:id/answers", csrfProtection, answerRateLimit, controller.answer);
+  router.post(
+    "/sessions/:id/answers/stream",
+    csrfProtection,
+    answerRateLimit,
+    controller.answerStream,
+  );
+  router.post(
+    "/sessions/:id/complete",
+    csrfProtection,
+    completeRateLimit,
+    controller.completeSession,
+  );
+  router.patch("/sessions/:id/pin", csrfProtection, controller.pinSession);
+  router.get("/sessions/:id/report", controller.sessionReport);
+  router.get("/sessions/:id", controller.sessionDetail);
+  router.delete("/sessions/:id", csrfProtection, controller.deleteSession);
 
-interviewRouter.get("/:id/report", interviewController.getReport);
+  router.get("/:id/report", controller.getReport);
+
+  return router;
+}
+
+export const interviewRouter = createInterviewRouter();

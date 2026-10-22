@@ -1,3 +1,7 @@
+import { injectable, inject } from "tsyringe";
+import { TOKENS } from "../../../shared/constants/injectionTokens.js";
+import { IUserRepository } from "../../../domain/repositories/IUserRepository.js";
+import { appContainer } from "../../../main/container.js";
 import { Request, Response } from "express";
 import { routeRequest } from "../../../infrastructure/ai/router.js";
 import {
@@ -73,12 +77,18 @@ interface CustomActionError extends Error {
   code?: string;
 }
 
-export const aiController = {
-  listChatModels: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
-    res.status(200).json(successResponse({ models: listChatModelOptions() }));
-  }),
+@injectable()
+export class AiController {
+  constructor(
+    @inject(TOKENS.UserRepository)
+    private readonly userRepo: IUserRepository,
+  ) {}
 
-  getChatContext: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listChatModels = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    res.status(200).json(successResponse({ models: listChatModelOptions() }));
+  });
+
+  getChatContext = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const context = await getCandidateContext(req.user as unknown as UserLike);
     res.status(200).json(
       successResponse({
@@ -89,9 +99,9 @@ export const aiController = {
         suggestions: context.suggestions,
       }),
     );
-  }),
+  });
 
-  updatePreferredName: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updatePreferredName = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = preferredNameSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -110,9 +120,9 @@ export const aiController = {
     await userRepository.update(userId, { preferredName: parsed.data.preferredName });
     await invalidateCandidateContext(userId);
     res.status(200).json(successResponse({ preferredName: parsed.data.preferredName }));
-  }),
+  });
 
-  route: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  route = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { prompt } = chatRequestSchema.parse(req.body);
     const user = req.user as UserRecord;
     const decision = await routeRequest({
@@ -122,17 +132,17 @@ export const aiController = {
       requestId: req.id ? String(req.id) : undefined,
     });
     res.status(200).json(successResponse({ decision }));
-  }),
+  });
 
-  listSessions: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listSessions = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = userIdOf(user);
     const limit = parseInt(String(req.query.limit || ""), 10) || 30;
     const sessions = await chatSessionService.listSessions(userId, { limit });
     res.status(200).json(successResponse({ sessions }));
-  }),
+  });
 
-  getSession: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getSession = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = userIdOf(user);
     const session = await chatSessionService.getSession(userId, String(req.params.id));
@@ -149,9 +159,9 @@ export const aiController = {
       return;
     }
     res.status(200).json(successResponse({ session }));
-  }),
+  });
 
-  renameSession: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  renameSession = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = renameSessionSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -185,16 +195,16 @@ export const aiController = {
       return;
     }
     res.status(200).json(successResponse({ session }));
-  }),
+  });
 
-  deleteSession: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  deleteSession = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = userIdOf(user);
     await chatSessionService.deleteSession(userId, String(req.params.id));
     res.status(200).json(successResponse({ deleted: true, threadId: req.params.id }));
-  }),
+  });
 
-  confirmAction: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  confirmAction = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = confirmActionSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -233,9 +243,9 @@ export const aiController = {
       }
       throw err;
     }
-  }),
+  });
 
-  streamChat: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  streamChat = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     let abortController: AbortController | undefined;
     const user = req.user as UserRecord;
     const userId = userIdOf(user);
@@ -480,5 +490,15 @@ export const aiController = {
       }
       return;
     }
-  }),
-};
+  });
+}
+
+export const aiController = new Proxy({} as AiController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(AiController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

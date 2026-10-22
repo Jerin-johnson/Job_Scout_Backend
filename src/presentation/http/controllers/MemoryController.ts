@@ -1,3 +1,7 @@
+import { injectable, inject } from "tsyringe";
+import { TOKENS } from "../../../shared/constants/injectionTokens.js";
+import { IUserRepository } from "../../../domain/repositories/IUserRepository.js";
+import { appContainer } from "../../../main/container.js";
 import { Request, Response } from "express";
 import {
   longTermMemory,
@@ -35,8 +39,14 @@ interface UserWithConsent extends UserRecord {
   };
 }
 
-export const memoryController = {
-  list: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+@injectable()
+export class MemoryController {
+  constructor(
+    @inject(TOKENS.UserRepository)
+    private readonly userRepo: IUserRepository,
+  ) {}
+
+  list = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const userReq = req.user as UserWithConsent;
     const userId = userReq?._id
       ? userReq._id.toString()
@@ -65,9 +75,9 @@ export const memoryController = {
         },
       }),
     );
-  }),
+  });
 
-  getConsent: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getConsent = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const userReq = req.user as UserWithConsent;
     const userId = userReq?._id
       ? userReq._id.toString()
@@ -82,9 +92,9 @@ export const memoryController = {
         memoryPaused: Boolean((user || userReq)?.memoryPaused),
       }),
     );
-  }),
+  });
 
-  updateConsent: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateConsent = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = consentSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -127,9 +137,9 @@ export const memoryController = {
         acceptedAt: null,
       }),
     );
-  }),
+  });
 
-  create: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  create = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = createMemorySchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -186,9 +196,9 @@ export const memoryController = {
         },
       }),
     );
-  }),
+  });
 
-  update: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  update = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = updateMemorySchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -238,9 +248,9 @@ export const memoryController = {
         },
       }),
     );
-  }),
+  });
 
-  delete: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  delete = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const userReq = req.user as UserWithConsent;
     const userId = userReq?._id
       ? userReq._id.toString()
@@ -249,9 +259,9 @@ export const memoryController = {
 
     await longTermMemory.deleteMemory(userId, id);
     res.status(200).json(successResponse({ message: "Memory removed successfully" }));
-  }),
+  });
 
-  forgetAll: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  forgetAll = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const userReq = req.user as UserWithConsent;
     const userId = userReq?._id
       ? userReq._id.toString()
@@ -259,9 +269,9 @@ export const memoryController = {
 
     await longTermMemory.forgetAll(userId);
     res.status(200).json(successResponse({ message: "All candidate memories purged" }));
-  }),
+  });
 
-  togglePause: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  togglePause = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const userReq = req.user as UserWithConsent;
     const userId = userReq?._id
       ? userReq._id.toString()
@@ -278,5 +288,15 @@ export const memoryController = {
         message: updated?.memoryPaused ? "Memory capture paused" : "Memory capture resumed",
       }),
     );
-  }),
-};
+  });
+}
+
+export const memoryController = new Proxy({} as MemoryController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(MemoryController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

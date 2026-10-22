@@ -1,19 +1,17 @@
-import { Request, Response, NextFunction, CookieOptions } from "express";
+import { Request, Response, CookieOptions } from "express";
 import { injectable, inject } from "tsyringe";
-import { IUserRepository } from "../../../domain/repositories/IUserRepository.js";
-import { RegisterUserUseCase } from "../../../application/useCases/auth/RegisterUserUseCase.js";
-import { LoginUserUseCase } from "../../../application/useCases/auth/LoginUserUseCase.js";
-import { RefreshTokenUseCase } from "../../../application/useCases/auth/RefreshTokenUseCase.js";
-import { VerifyEmailOtpUseCase } from "../../../application/useCases/auth/VerifyEmailOtpUseCase.js";
-import { ResendOtpUseCase } from "../../../application/useCases/auth/ResendOtpUseCase.js";
+import { IRegisterUserUseCase } from "../../../application/interfaces/useCases/auth/IRegisterUserUseCase.js";
+import { ILoginUserUseCase } from "../../../application/interfaces/useCases/auth/ILoginUserUseCase.js";
+import { IRefreshTokenUseCase } from "../../../application/interfaces/useCases/auth/IRefreshTokenUseCase.js";
+import { IVerifyEmailOtpUseCase } from "../../../application/interfaces/useCases/auth/IVerifyEmailOtpUseCase.js";
+import { IResendOtpUseCase } from "../../../application/interfaces/useCases/auth/IResendOtpUseCase.js";
+import { IGoogleLoginUseCase } from "../../../application/interfaces/useCases/auth/IGoogleLoginUseCase.js";
+import { IGetCurrentUserUseCase } from "../../../application/interfaces/useCases/auth/IGetCurrentUserUseCase.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { env } from "../../../config/env.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
-import { authService } from "../../../infrastructure/security/authService.js";
-import { googleAuthSchema } from "../../../shared/schemas/authSchemas.js";
-import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { successResponse, errorResponse } from "../../../shared/types/apiResponse.js";
+import { successResponse } from "../../../shared/types/apiResponse.js";
 import { appContainer } from "../../../main/container.js";
 
 const COOKIE_OPTIONS: CookieOptions = {
@@ -22,13 +20,6 @@ const COOKIE_OPTIONS: CookieOptions = {
   sameSite: "lax",
   domain: env.COOKIE_DOMAIN === "localhost" ? undefined : `.${env.COOKIE_DOMAIN}`,
 };
-
-interface SessionResult {
-  accessToken: string;
-  refreshToken: string;
-  user: unknown;
-  [key: string]: unknown;
-}
 
 function setAuthCookies(
   res: Response,
@@ -58,15 +49,19 @@ function clearAuthCookies(res: Response): void {
 export class AuthController {
   constructor(
     @inject(TOKENS.RegisterUserUseCase)
-    private readonly registerUseCase: RegisterUserUseCase,
+    private readonly registerUseCase: IRegisterUserUseCase,
     @inject(TOKENS.LoginUserUseCase)
-    private readonly loginUseCase: LoginUserUseCase,
+    private readonly loginUseCase: ILoginUserUseCase,
     @inject(TOKENS.RefreshTokenUseCase)
-    private readonly refreshTokenUseCase: RefreshTokenUseCase,
+    private readonly refreshTokenUseCase: IRefreshTokenUseCase,
     @inject(TOKENS.VerifyEmailOtpUseCase)
-    private readonly verifyEmailOtpUseCase: VerifyEmailOtpUseCase,
+    private readonly verifyEmailOtpUseCase: IVerifyEmailOtpUseCase,
     @inject(TOKENS.ResendOtpUseCase)
-    private readonly resendOtpUseCase: ResendOtpUseCase,
+    private readonly resendOtpUseCase: IResendOtpUseCase,
+    @inject(TOKENS.GoogleLoginUseCase)
+    private readonly googleLoginUseCase: IGoogleLoginUseCase,
+    @inject(TOKENS.GetCurrentUserUseCase)
+    private readonly getCurrentUserUseCase: IGetCurrentUserUseCase,
   ) {}
 
   register = asyncHandler(async (req: Request, res: Response): Promise<void> => {
@@ -115,6 +110,18 @@ export class AuthController {
     res.status(200).json(successResponse(result));
   });
 
+  googleAuth = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const session = await this.googleLoginUseCase.execute(req.body);
+    setAuthCookies(res, session.tokens);
+    const token = session.tokens.accessToken;
+    res.status(200).json(
+      successResponse({
+        user: session.user,
+        accessToken: token,
+      }),
+    );
+  });
+
   refresh = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const cookies = (req.cookies || {}) as Record<string, string | undefined>;
     const body = (req.body || {}) as Record<string, string | undefined>;
@@ -145,87 +152,11 @@ export class AuthController {
       }),
     );
   });
-}
 
-export const authController = {
-  register: (req: Request, res: Response, next: NextFunction): void => {
-    void appContainer.resolve(AuthController).register(req, res, next);
-  },
-
-  login: (req: Request, res: Response, next: NextFunction): void => {
-    void appContainer.resolve(AuthController).login(req, res, next);
-  },
-
-  verifyOtp: (req: Request, res: Response, next: NextFunction): void => {
-    void appContainer.resolve(AuthController).verifyOtp(req, res, next);
-  },
-
-  resendOtp: (req: Request, res: Response, next: NextFunction): void => {
-    void appContainer.resolve(AuthController).resendOtp(req, res, next);
-  },
-
-  googleAuth: asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const data = googleAuthSchema.parse(req.body);
-    const session = (await authService.googleLogin(data.idToken)) as SessionResult;
-
-    setAuthCookies(res, session);
-    const token = session.accessToken;
-    res.status(200).json(
-      successResponse({
-        user: session.user,
-        accessToken: token,
-      }),
-    );
-  }),
-
-  refresh: asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const rawRefreshToken =
-      (req.cookies?.refreshToken as string | undefined) ||
-      (req.body?.refreshToken as string | undefined);
-    if (!rawRefreshToken) {
-      res
-        .status(401)
-        .json(
-          errorResponse(
-            "REFRESH_TOKEN_REQUIRED",
-            "Refresh token is missing",
-            req.id ? String(req.id) : (req.headers["x-request-id"] as string) || undefined,
-          ),
-        );
-      return;
-    }
-
-    try {
-      const session = (await authService.rotateRefreshToken(rawRefreshToken)) as SessionResult;
-      setAuthCookies(res, session);
-
-      const token = session.accessToken;
-      res.status(200).json(
-        successResponse({
-          user: session.user,
-          accessToken: token,
-        }),
-      );
-    } catch (err) {
-      clearAuthCookies(res);
-      throw err;
-    }
-  }),
-
-  logout: asyncHandler(async (_req: Request, res: Response): Promise<void> => {
-    clearAuthCookies(res);
-    res.status(200).json(
-      successResponse({
-        message: "Successfully logged out",
-      }),
-    );
-  }),
-
-  me: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  me = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const rawUser = req.user as Record<string, unknown> | undefined;
     const userId = String(rawUser?.userId || rawUser?._id || rawUser?.id || "");
-    const userRepo = appContainer.resolve<IUserRepository>(TOKENS.UserRepository);
-    const user = userId ? await userRepo.findById(userId) : null;
+    const user = await this.getCurrentUserUseCase.execute(userId);
     res.status(200).json(
       successResponse({
         user: {
@@ -234,10 +165,20 @@ export const authController = {
           name: user?.name || (rawUser?.name as string | undefined),
           role: user?.role || (rawUser?.role as string | undefined) || "user",
           plan: user?.plan || (rawUser?.plan as string | undefined) || "free",
-          planVersion: user?.planVersion || 1,
-          profileVersion: user?.profileVersion || 1,
+          planVersion: (rawUser?.planVersion as number | undefined) || 1,
+          profileVersion: (rawUser?.profileVersion as number | undefined) || 1,
         },
       }),
     );
-  }),
-};
+  });
+}
+
+export const authController = new Proxy({} as AuthController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(AuthController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

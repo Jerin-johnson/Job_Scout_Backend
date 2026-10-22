@@ -5,8 +5,9 @@ import { textExtractionService } from "../../../infrastructure/ai/textExtraction
 import { resumeParserService } from "../../../infrastructure/ai/resumeParserService.js";
 import { injectable, inject } from "tsyringe";
 import { AuthenticatedRequest } from "../types/index.js";
-import { GetProfileUseCase } from "../../../application/useCases/profile/GetProfileUseCase.js";
-import { UpsertProfileUseCase } from "../../../application/useCases/profile/UpsertProfileUseCase.js";
+import { IGetProfileUseCase } from "../../../application/interfaces/useCases/profile/IGetProfileUseCase.js";
+import { IUpsertProfileUseCase } from "../../../application/interfaces/useCases/profile/IUpsertProfileUseCase.js";
+import { appContainer } from "../../../main/container.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
 import {
@@ -216,8 +217,30 @@ function getUserId(user?: UserRecord): string {
       : "";
 }
 
-export const profileController = {
-  getResumeAiConsent: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+@injectable()
+export class ProfileController {
+  constructor(
+    @inject(TOKENS.GetProfileUseCase)
+    private readonly getProfileUseCase: IGetProfileUseCase,
+    @inject(TOKENS.UpsertProfileUseCase)
+    private readonly upsertProfileUseCase: IUpsertProfileUseCase,
+  ) {}
+
+  upsertProfile = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new UnauthorizedError("User authentication required");
+    }
+
+    const profile = await this.upsertProfileUseCase.execute({
+      ...req.body,
+      userId,
+    });
+
+    res.status(200).json(successResponse(profile));
+  });
+
+  getResumeAiConsent = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const userDoc = await userRepository.findById(userId);
@@ -229,9 +252,9 @@ export const profileController = {
         acceptedAt: consent?.acceptedAt || null,
       }),
     );
-  }),
+  });
 
-  acceptResumeAiConsent: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  acceptResumeAiConsent = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const body = resumeAiConsentSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -240,9 +263,9 @@ export const profileController = {
       resumeAiConsent: { acceptedAt, version: body.version },
     });
     res.status(200).json(successResponse({ accepted: true, version: body.version, acceptedAt }));
-  }),
+  });
 
-  getJobAnalyticsConsent: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getJobAnalyticsConsent = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const userDoc = await userRepository.findById(userId);
@@ -255,9 +278,9 @@ export const profileController = {
         acceptedAt: consent?.acceptedAt || null,
       }),
     );
-  }),
+  });
 
-  updateJobAnalyticsConsent: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateJobAnalyticsConsent = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const body = jobAnalyticsConsentSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -280,9 +303,9 @@ export const profileController = {
         acceptedAt: null,
       }),
     );
-  }),
+  });
 
-  roleSuggestions: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  roleSuggestions = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const q = z
       .string()
       .trim()
@@ -290,9 +313,9 @@ export const profileController = {
       .max(80)
       .parse(req.query.q || "");
     resolveSuggestionResponse(req, res, "roles-v1", { suggestions: suggestRoles(q) });
-  }),
+  });
 
-  placeSuggestions: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  placeSuggestions = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const q = z
       .string()
       .trim()
@@ -308,9 +331,9 @@ export const profileController = {
       confirmationQuestion: pair.needsConfirmation || ambiguous ? "Is this in India?" : null,
       suggestions,
     });
-  }),
+  });
 
-  getCareerProfile: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getCareerProfile = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const profile = await profileRepository.findByUserId(userId);
@@ -339,9 +362,9 @@ export const profileController = {
         },
       }),
     );
-  }),
+  });
 
-  updateCareerProfile: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateCareerProfile = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { careerProfile, profileVersion } = careerPatchSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -367,9 +390,9 @@ export const profileController = {
       .json(
         successResponse({ careerProfile: profile.careerProfile, profileVersion: profile.version }),
       );
-  }),
+  });
 
-  createResumeUploadUrl: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  createResumeUploadUrl = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const input = resumeUploadRequestSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -391,9 +414,9 @@ export const profileController = {
         expiresInSeconds: 300,
       }),
     );
-  }),
+  });
 
-  completeResumeUpload: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  completeResumeUpload = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const input = completeResumeUploadSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -469,9 +492,9 @@ export const profileController = {
         resume: result.resume,
       }),
     );
-  }),
+  });
 
-  listResumes: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listResumes = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const resumes = await profileRepository.findResumesByUserId(userId);
@@ -497,9 +520,9 @@ export const profileController = {
         ),
       }),
     );
-  }),
+  });
 
-  deleteResume: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  deleteResume = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const paramId = String(req.params.id);
     if (!/^[a-f\d]{24}$/i.test(paramId)) {
       res.sendStatus(404);
@@ -513,9 +536,9 @@ export const profileController = {
       return;
     }
     res.sendStatus(204);
-  }),
+  });
 
-  rereadResume: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  rereadResume = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const paramId = String(req.params.id);
     if (!/^[a-f\d]{24}$/i.test(paramId)) {
       res.sendStatus(404);
@@ -550,9 +573,9 @@ export const profileController = {
           "Up to a fraction of a cent if the content-hash cache misses; cached extractions avoid another model call.",
       }),
     );
-  }),
+  });
 
-  uploadResume: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  uploadResume = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!req.file) {
       res
         .status(400)
@@ -584,9 +607,9 @@ export const profileController = {
         resume: result.resume,
       }),
     );
-  }),
+  });
 
-  getProfile: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getProfile = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const profile = await profileRepository.findByUserId(userId);
@@ -605,9 +628,9 @@ export const profileController = {
     }
 
     res.status(200).json(successResponse({ profile }));
-  }),
+  });
 
-  updatePreferences: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updatePreferences = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const preferences = preferencesSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -619,9 +642,9 @@ export const profileController = {
     res
       .status(200)
       .json(successResponse({ profile, profileVersion: updatedUser?.profileVersion || null }));
-  }),
+  });
 
-  confirmTargetRoles: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  confirmTargetRoles = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { targetRoles } = targetRolesSchema.parse(req.body);
     const user = req.user as UserRecord;
     const userId = getUserId(user);
@@ -640,9 +663,9 @@ export const profileController = {
         profileVersion: updatedUser?.profileVersion || null,
       }),
     );
-  }),
+  });
 
-  getFacts: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getFacts = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const profile = await profileRepository.findByUserId(userId);
@@ -716,39 +739,15 @@ export const profileController = {
         facts,
       }),
     );
-  }),
-};
-
-@injectable()
-export class ProfileController {
-  constructor(
-    @inject(TOKENS.GetProfileUseCase)
-    private readonly getProfileUseCase: GetProfileUseCase,
-    @inject(TOKENS.UpsertProfileUseCase)
-    private readonly upsertProfileUseCase: UpsertProfileUseCase,
-  ) {}
-
-  getProfile = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
-
-    const profile = await this.getProfileUseCase.execute({ userId });
-    res.status(200).json(successResponse(profile));
-  });
-
-  upsertProfile = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
-
-    const profile = await this.upsertProfileUseCase.execute({
-      ...req.body,
-      userId,
-    });
-
-    res.status(200).json(successResponse(profile));
   });
 }
+
+export const profileController = new Proxy({} as ProfileController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(ProfileController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

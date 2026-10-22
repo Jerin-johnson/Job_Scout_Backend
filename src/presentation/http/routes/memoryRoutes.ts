@@ -1,18 +1,26 @@
 import { Router } from "express";
-import { memoryController } from "../controllers/memoryController.js";
+import { MemoryController } from "../controllers/MemoryController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
+import { appContainer } from "../../../main/container.js";
 
-export const memoryRouter = Router();
+export function createMemoryRouter(): Router {
+  const router = Router();
+  const controller = appContainer.resolve(MemoryController);
 
-memoryRouter.use(authenticate);
+  router.use(authenticate);
 
-memoryRouter.get("/", memoryController.list);
-memoryRouter.get("/consent", memoryController.getConsent);
-memoryRouter.put("/consent", csrfProtection, memoryController.updateConsent);
-memoryRouter.post("/", csrfProtection, memoryController.create);
-memoryRouter.patch("/:id", csrfProtection, memoryController.update);
-memoryRouter.delete("/:id", csrfProtection, memoryController.delete);
-memoryRouter.delete("/", csrfProtection, memoryController.forgetAll);
-memoryRouter.post("/forget-all", csrfProtection, memoryController.forgetAll);
-memoryRouter.post("/toggle-pause", csrfProtection, memoryController.togglePause);
+  router.get("/", controller.list);
+  router.get("/consent", controller.getConsent);
+  router.put("/consent", csrfProtection, controller.updateConsent);
+  router.post("/", csrfProtection, controller.create);
+  router.patch("/:id", csrfProtection, controller.update);
+  router.delete("/:id", csrfProtection, controller.delete);
+  router.delete("/", csrfProtection, controller.forgetAll);
+  router.post("/forget-all", csrfProtection, controller.forgetAll);
+  router.post("/toggle-pause", csrfProtection, controller.togglePause);
+
+  return router;
+}
+
+export const memoryRouter = createMemoryRouter();

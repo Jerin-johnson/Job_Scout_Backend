@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { injectable, inject } from "tsyringe";
 import { acceptRequestQuota } from "../middleware/quotaGate.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
@@ -8,13 +9,22 @@ import {
   ignoredKeywordSchema,
 } from "../../../shared/schemas/resumeMatchSchemas.js";
 import { resumeMatchReportService } from "../../../infrastructure/ai/services/resumeMatchReportService.js";
+import { IResumeMatchReportService } from "../../../domain/repositories/IResumeMatchReportService.js";
+import { TOKENS } from "../../../shared/constants/injectionTokens.js";
+import { appContainer } from "../../../main/container.js";
 
 function ownerId(user?: UserRecord): string {
   return String(user?._id || (user as unknown as { id?: string })?.id || "");
 }
 
-export const resumeMatchController = {
-  createOrFetch: asyncHandler(async (req: Request, res: Response) => {
+@injectable()
+export class ResumeMatchController {
+  constructor(
+    @inject(TOKENS.ResumeMatchReportService)
+    private readonly reportService: IResumeMatchReportService,
+  ) {}
+
+  createOrFetch = asyncHandler(async (req: Request, res: Response) => {
     const parsed = createResumeMatchSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -33,24 +43,24 @@ export const resumeMatchController = {
       parsed.data,
     );
     return res.status(statusCode).json(successResponse({ report, cacheHit }));
-  }),
+  });
 
-  list: asyncHandler(async (req: Request, res: Response) => {
+  list = asyncHandler(async (req: Request, res: Response) => {
     const user = req.user as UserRecord;
     const userId = ownerId(user);
     const reports = await resumeMatchReportService.listReports(userId);
     return res.status(200).json(successResponse({ reports }));
-  }),
+  });
 
-  get: asyncHandler(async (req: Request, res: Response) => {
+  get = asyncHandler(async (req: Request, res: Response) => {
     const user = req.user as UserRecord;
     const userId = ownerId(user);
     const report = await resumeMatchReportService.getReport(String(req.params.id), userId);
     if (!report) return res.sendStatus(404);
     return res.status(200).json(successResponse({ report }));
-  }),
+  });
 
-  ignoreKeywords: asyncHandler(async (req: Request, res: Response) => {
+  ignoreKeywords = asyncHandler(async (req: Request, res: Response) => {
     const parsed = ignoredKeywordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -70,9 +80,9 @@ export const resumeMatchController = {
     );
     if (!report) return res.sendStatus(404);
     return res.status(200).json(successResponse({ report }));
-  }),
+  });
 
-  suggestions: async (
+  suggestions = async (
     req: Request,
     res: Response,
     next: NextFunction,
@@ -128,13 +138,23 @@ export const resumeMatchController = {
       }
       next(error);
     }
-  },
+  };
 
-  remove: asyncHandler(async (req: Request, res: Response) => {
+  remove = asyncHandler(async (req: Request, res: Response) => {
     const user = req.user as UserRecord;
     const userId = ownerId(user);
     const deleted = await resumeMatchReportService.deleteReport(String(req.params.id), userId);
     if (!deleted) return res.sendStatus(404);
     return res.status(200).json(successResponse({ deleted: true }));
-  }),
-};
+  });
+}
+
+export const resumeMatchController = new Proxy({} as ResumeMatchController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(ResumeMatchController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

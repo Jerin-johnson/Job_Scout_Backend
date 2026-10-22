@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { injectable, inject } from "tsyringe";
 import { AuthenticatedRequest } from "../types/index.js";
-import { GetApplicationsUseCase } from "../../../application/useCases/applications/GetApplicationsUseCase.js";
-import { CreateApplicationUseCase } from "../../../application/useCases/applications/CreateApplicationUseCase.js";
-import { UpdateApplicationStatusUseCase } from "../../../application/useCases/applications/UpdateApplicationStatusUseCase.js";
+import { IGetApplicationsUseCase } from "../../../application/interfaces/useCases/applications/IGetApplicationsUseCase.js";
+import { ICreateApplicationUseCase } from "../../../application/interfaces/useCases/applications/ICreateApplicationUseCase.js";
+import { IUpdateApplicationStatusUseCase } from "../../../application/interfaces/useCases/applications/IUpdateApplicationStatusUseCase.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
 import { IApplicationRepository } from "../../../domain/repositories/IApplicationRepository.js";
@@ -30,6 +30,7 @@ import {
   updateApplicationStatusSchema,
   archiveApplicationSchema,
 } from "../../../shared/schemas/applicationSchemas.js";
+import { appContainer } from "../../../main/container.js";
 
 function getUserId(user?: unknown): string {
   if (!user || typeof user !== "object") throw new UnauthorizedError("User identification missing");
@@ -44,11 +45,11 @@ function getUserId(user?: unknown): string {
 export class ApplicationController {
   constructor(
     @inject(TOKENS.GetApplicationsUseCase)
-    private readonly getApplicationsUseCase: GetApplicationsUseCase,
+    private readonly getApplicationsUseCase: IGetApplicationsUseCase,
     @inject(TOKENS.CreateApplicationUseCase)
-    private readonly createApplicationUseCase: CreateApplicationUseCase,
+    private readonly createApplicationUseCase: ICreateApplicationUseCase,
     @inject(TOKENS.UpdateApplicationStatusUseCase)
-    private readonly updateApplicationStatusUseCase: UpdateApplicationStatusUseCase,
+    private readonly updateApplicationStatusUseCase: IUpdateApplicationStatusUseCase,
     @inject(TOKENS.ApplicationRepository)
     private readonly applicationRepository: IApplicationRepository,
   ) {}
@@ -106,24 +107,7 @@ export class ApplicationController {
     res.status(201).json(successResponse(application));
   });
 
-  updateStatus = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = getUserId(req.user);
-
-    const rawId = req.params.id;
-    const id = Array.isArray(rawId) ? rawId[0] : String(rawId || "");
-    const application = await this.updateApplicationStatusUseCase.execute({
-      id,
-      userId,
-      status: req.body.status,
-      note: req.body.note,
-    });
-
-    res.status(200).json(successResponse(application));
-  });
-}
-
-export const applicationController = {
-  getApplications: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getApplications = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const query = req.query as Record<string, string | undefined>;
@@ -144,7 +128,7 @@ export const applicationController = {
 
     const [applications, stats] = await Promise.all([
       applicationRepository.findApplications(userId, filters),
-      applicationRepository.getBoardStats(userId),
+      this.applicationRepository.getBoardStats(userId),
     ]);
 
     res.status(200).json(
@@ -154,9 +138,9 @@ export const applicationController = {
         total: applications.length,
       }),
     );
-  }),
+  });
 
-  getApplicationById: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getApplicationById = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const appId = String(req.params.id);
@@ -170,9 +154,9 @@ export const applicationController = {
       return;
     }
     res.status(200).json(successResponse({ application }));
-  }),
+  });
 
-  createApplication: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  createApplication = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = createApplicationSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -216,9 +200,9 @@ export const applicationController = {
     await invalidateCandidateContext(userId);
 
     res.status(201).json(successResponse({ application }));
-  }),
+  });
 
-  updateApplication: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateApplication = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = updateApplicationSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -310,9 +294,9 @@ export const applicationController = {
     await del(CacheKeys.response(userId, "kanban", 1));
     await invalidateCandidateContext(userId);
     res.status(200).json(successResponse({ application: updated }));
-  }),
+  });
 
-  updateStatus: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateStatus = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = updateApplicationStatusSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -387,9 +371,9 @@ export const applicationController = {
         application: updated,
       }),
     );
-  }),
+  });
 
-  approveFollowUp: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  approveFollowUp = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const appId = String(req.params.id);
@@ -415,9 +399,9 @@ export const applicationController = {
         application: sent,
       }),
     );
-  }),
+  });
 
-  archiveApplication: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  archiveApplication = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = archiveApplicationSchema.safeParse(req.body);
     if (!parsed.success) {
       res
@@ -469,9 +453,9 @@ export const applicationController = {
     await del(CacheKeys.response(userId, "kanban", 1));
     await invalidateCandidateContext(userId);
     res.status(200).json(successResponse({ application: updated }));
-  }),
+  });
 
-  deleteApplication: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  deleteApplication = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as UserRecord;
     const userId = getUserId(user);
     const appId = String(req.params.id);
@@ -494,5 +478,15 @@ export const applicationController = {
         id: appId,
       }),
     );
-  }),
-};
+  });
+}
+
+export const applicationController = new Proxy({} as ApplicationController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(ApplicationController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

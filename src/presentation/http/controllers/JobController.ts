@@ -1,3 +1,9 @@
+import { injectable, inject } from "tsyringe";
+import { TOKENS } from "../../../shared/constants/injectionTokens.js";
+import { IJobRepository } from "../../../domain/repositories/IJobRepository.js";
+import { IProfileRepository } from "../../../domain/repositories/IProfileRepository.js";
+import { ISavedSearchRepository } from "../../../domain/repositories/ISavedSearchRepository.js";
+import { appContainer } from "../../../main/container.js";
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { discoveryGraph } from "../../../infrastructure/ai/graphs/discoveryGraph.js";
@@ -130,8 +136,18 @@ function profileApplicantCountry(profile: Record<string, unknown> | null | undef
   ).toUpperCase();
 }
 
-export const jobController = {
-  coverage: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+@injectable()
+export class JobController {
+  constructor(
+    @inject(TOKENS.JobRepository)
+    private readonly jobRepository: IJobRepository,
+    @inject(TOKENS.ProfileRepository)
+    private readonly profileRepository: IProfileRepository,
+    @inject(TOKENS.SavedSearchRepository)
+    private readonly savedSearchRepository: ISavedSearchRepository,
+  ) {}
+
+  coverage = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as { _id?: string; id?: string };
     const userId = user._id || user.id;
     const profile = await profileRepository.findByUserId(userId as string);
@@ -139,9 +155,9 @@ export const jobController = {
       jobIngestionService.coverageReport as (profile: unknown) => Promise<unknown>
     )(profile);
     res.status(200).json(successResponse(report));
-  }),
+  });
 
-  trackCompany: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  trackCompany = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { careersUrl } = trackCompanySchema.parse(req.body);
     const user = req.user as { _id?: string; id?: string };
     const userId = user._id || user.id;
@@ -152,9 +168,9 @@ export const jobController = {
         message: "Company board verified and queued for admin review.",
       }),
     );
-  }),
+  });
 
-  getMatches: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getMatches = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as {
       _id?: { toString(): string };
       id?: string;
@@ -258,9 +274,9 @@ export const jobController = {
 
     await set(cacheKey, payload, matches.length ? TTL.RESPONSE : 3);
     res.status(200).json(successResponse(payload));
-  }),
+  });
 
-  searchCatalog: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  searchCatalog = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const page = Math.max(1, Number.parseInt(String(req.query.page), 10) || 1);
     const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query.limit), 10) || 20));
     const cursor = String(req.query.cursor || "").slice(0, 512);
@@ -401,9 +417,9 @@ export const jobController = {
     }
 
     res.status(200).json(successResponse(result));
-  }),
+  });
 
-  getJobDetails: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getJobDetails = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!mongoose.isValidObjectId(req.params.id)) {
       res.sendStatus(404);
       return;
@@ -536,9 +552,9 @@ export const jobController = {
         ),
       }),
     );
-  }),
+  });
 
-  recordApplyClick: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  recordApplyClick = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!mongoose.isValidObjectId(req.params.id)) {
       res.sendStatus(404);
       return;
@@ -568,9 +584,9 @@ export const jobController = {
     });
 
     res.status(204).end();
-  }),
+  });
 
-  hideJob: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  hideJob = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!mongoose.isValidObjectId(req.params.id)) {
       res.sendStatus(404);
       return;
@@ -603,9 +619,9 @@ export const jobController = {
     });
 
     res.status(204).end();
-  }),
+  });
 
-  reportJob: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  reportJob = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (!mongoose.isValidObjectId(req.params.id)) {
       res.sendStatus(404);
       return;
@@ -633,9 +649,9 @@ export const jobController = {
 
     await jobPersistenceService.incrementJobReports(job._id, parsed.data.reason);
     res.status(204).end();
-  }),
+  });
 
-  getMatchRefresh: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getMatchRefresh = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as {
       _id?: { toString(): string };
       id?: string;
@@ -644,9 +660,9 @@ export const jobController = {
     const userId = user._id ? user._id.toString() : (user.id as string);
     const refresh = await getMatchRefresh(userId, user.profileVersion || 1);
     res.status(200).json(successResponse({ refresh }));
-  }),
+  });
 
-  getMatchDebug: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getMatchDebug = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     if (process.env.NODE_ENV === "production") {
       res.sendStatus(404);
       return;
@@ -786,9 +802,9 @@ export const jobController = {
         roleSuggestions: suggestTargetRoleCorrections(profile || {}),
       }),
     );
-  }),
+  });
 
-  runDiscovery: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  runDiscovery = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const input = runDiscoverySchema.parse(req.body || {});
     const user = req.user as {
       _id?: { toString(): string };
@@ -835,9 +851,9 @@ export const jobController = {
       }
       throw err;
     }
-  }),
+  });
 
-  recordFeedback: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  recordFeedback = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
     const { feedback, reason } = feedbackSchema.parse(req.body);
     const user = req.user as {
@@ -897,9 +913,9 @@ export const jobController = {
         match: updated,
       }),
     );
-  }),
+  });
 
-  listSavedSearches: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  listSavedSearches = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as { _id?: string; id?: string; plan?: string };
     const userId = user?._id || user?.id;
     const result = await (
@@ -909,9 +925,9 @@ export const jobController = {
       ) => Promise<unknown>
     )(userId, { plan: user?.plan });
     res.status(200).json(successResponse(result));
-  }),
+  });
 
-  createSavedSearch: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  createSavedSearch = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = createSavedSearchSchema.safeParse(req.body || {});
     if (!parsed.success) {
       res
@@ -944,9 +960,9 @@ export const jobController = {
       }
       throw err;
     }
-  }),
+  });
 
-  updateSavedSearch: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateSavedSearch = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = updateSavedSearchSchema.safeParse(req.body || {});
     if (!parsed.success) {
       res
@@ -977,9 +993,9 @@ export const jobController = {
       return;
     }
     res.status(200).json(successResponse({ savedSearch: updated }));
-  }),
+  });
 
-  deleteSavedSearch: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  deleteSavedSearch = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.user as { _id?: string; id?: string } | undefined;
     const userId = user?._id || user?.id || "";
     const searchId = Array.isArray(req.params.id) ? req.params.id[0] || "" : req.params.id || "";
@@ -997,9 +1013,9 @@ export const jobController = {
       return;
     }
     res.status(200).json(successResponse({ deleted: true }));
-  }),
+  });
 
-  previewSavedSearch: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  previewSavedSearch = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const parsed = savedSearchFiltersSchema.safeParse(req.body?.filters ?? req.body ?? {});
     if (!parsed.success) {
       res
@@ -1027,9 +1043,9 @@ export const jobController = {
       eligibilityCountryCodes,
     });
     res.status(200).json(successResponse(preview));
-  }),
+  });
 
-  unsubscribeSavedSearch: asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  unsubscribeSavedSearch = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const token = String(req.body?.token || req.query?.token || "").trim();
     const user = req.user as { _id?: string; id?: string } | undefined;
     const userId = user?._id || user?.id || "";
@@ -1053,5 +1069,15 @@ export const jobController = {
         savedSearch: updated,
       }),
     );
-  }),
-};
+  });
+}
+
+export const jobController = new Proxy({} as JobController, {
+  get(_target, prop) {
+    const instance = appContainer.resolve(JobController);
+    const value = (instance as unknown as Record<string, unknown>)[prop as string];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(instance)
+      : value;
+  },
+});

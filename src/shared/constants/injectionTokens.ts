@@ -34,6 +34,8 @@ export const TOKENS = {
   StorageService: Symbol.for("IStorageService"),
   EmailService: Symbol.for("IEmailService"),
   CacheService: Symbol.for("ICacheService"),
+  OAuthService: Symbol.for("IOAuthService"),
+  BillingGateway: Symbol.for("IBillingGateway"),
 
   // Use Cases - Auth
   RegisterUserUseCase: Symbol.for("RegisterUserUseCase"),
@@ -42,6 +44,7 @@ export const TOKENS = {
   RefreshTokenUseCase: Symbol.for("RefreshTokenUseCase"),
   VerifyEmailOtpUseCase: Symbol.for("VerifyEmailOtpUseCase"),
   ResendOtpUseCase: Symbol.for("ResendOtpUseCase"),
+  GetCurrentUserUseCase: Symbol.for("GetCurrentUserUseCase"),
 
   // Use Cases - Applications
   GetApplicationsUseCase: Symbol.for("GetApplicationsUseCase"),
@@ -78,6 +81,10 @@ export const TOKENS = {
   SubmitFeedbackUseCase: Symbol.for("SubmitFeedbackUseCase"),
   ExportUserDataUseCase: Symbol.for("ExportUserDataUseCase"),
   DeleteUserAccountUseCase: Symbol.for("DeleteUserAccountUseCase"),
+
+  // Use Cases - Billing
+  CreateCheckoutSessionUseCase: Symbol.for("CreateCheckoutSessionUseCase"),
+  HandleRazorpayWebhookUseCase: Symbol.for("HandleRazorpayWebhookUseCase"),
 
   // Testing
   TestService: Symbol.for("ITestService"),

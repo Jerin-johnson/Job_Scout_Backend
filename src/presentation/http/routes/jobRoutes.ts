@@ -1,54 +1,62 @@
 import { Router } from "express";
-import { jobController } from "../controllers/jobController.js";
+import { JobController } from "../controllers/JobController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
 import { requireQuota } from "../middleware/quotaGate.js";
 import { generalApiLimiter } from "../middleware/rateLimiter.js";
+import { appContainer } from "../../../main/container.js";
 
-export const jobRouter = Router();
+export function createJobRouter(): Router {
+  const jobRouter = Router();
+  const controller = appContainer.resolve(JobController);
 
-jobRouter.post(
-  "/saved-searches/:id/unsubscribe",
-  generalApiLimiter,
-  jobController.unsubscribeSavedSearch,
-);
+  jobRouter.post(
+    "/saved-searches/:id/unsubscribe",
+    generalApiLimiter,
+    controller.unsubscribeSavedSearch,
+  );
 
-jobRouter.use(authenticate);
+  jobRouter.use(authenticate);
 
-jobRouter.get("/matches", jobController.getMatches);
-jobRouter.get("/coverage", jobController.coverage);
-jobRouter.get("/matches/refresh", jobController.getMatchRefresh);
-jobRouter.get("/matches/debug", jobController.getMatchDebug);
-jobRouter.get("/saved-searches", jobController.listSavedSearches);
-jobRouter.post(
-  "/saved-searches/preview",
-  csrfProtection,
-  generalApiLimiter,
-  jobController.previewSavedSearch,
-);
-jobRouter.post(
-  "/saved-searches",
-  csrfProtection,
-  generalApiLimiter,
-  jobController.createSavedSearch,
-);
-jobRouter.patch(
-  "/saved-searches/:id",
-  csrfProtection,
-  generalApiLimiter,
-  jobController.updateSavedSearch,
-);
-jobRouter.delete(
-  "/saved-searches/:id",
-  csrfProtection,
-  generalApiLimiter,
-  jobController.deleteSavedSearch,
-);
-jobRouter.get("/catalog/:id", jobController.getJobDetails);
-jobRouter.get("/catalog", jobController.searchCatalog);
-jobRouter.post("/companies/track", csrfProtection, generalApiLimiter, jobController.trackCompany);
-jobRouter.post("/:id/apply-click", csrfProtection, jobController.recordApplyClick);
-jobRouter.post("/:id/hide", csrfProtection, jobController.hideJob);
-jobRouter.post("/:id/report", csrfProtection, jobController.reportJob);
-jobRouter.post("/discover", csrfProtection, requireQuota("match_jobs"), jobController.runDiscovery);
-jobRouter.post("/:id/feedback", csrfProtection, jobController.recordFeedback);
+  jobRouter.get("/matches", controller.getMatches);
+  jobRouter.get("/coverage", controller.coverage);
+  jobRouter.get("/matches/refresh", controller.getMatchRefresh);
+  jobRouter.get("/matches/debug", controller.getMatchDebug);
+  jobRouter.get("/saved-searches", controller.listSavedSearches);
+  jobRouter.post(
+    "/saved-searches/preview",
+    csrfProtection,
+    generalApiLimiter,
+    controller.previewSavedSearch,
+  );
+  jobRouter.post(
+    "/saved-searches",
+    csrfProtection,
+    generalApiLimiter,
+    controller.createSavedSearch,
+  );
+  jobRouter.patch(
+    "/saved-searches/:id",
+    csrfProtection,
+    generalApiLimiter,
+    controller.updateSavedSearch,
+  );
+  jobRouter.delete(
+    "/saved-searches/:id",
+    csrfProtection,
+    generalApiLimiter,
+    controller.deleteSavedSearch,
+  );
+  jobRouter.get("/catalog/:id", controller.getJobDetails);
+  jobRouter.get("/catalog", controller.searchCatalog);
+  jobRouter.post("/companies/track", csrfProtection, generalApiLimiter, controller.trackCompany);
+  jobRouter.post("/:id/apply-click", csrfProtection, controller.recordApplyClick);
+  jobRouter.post("/:id/hide", csrfProtection, controller.hideJob);
+  jobRouter.post("/:id/report", csrfProtection, controller.reportJob);
+  jobRouter.post("/discover", csrfProtection, requireQuota("match_jobs"), controller.runDiscovery);
+  jobRouter.post("/:id/feedback", csrfProtection, controller.recordFeedback);
+
+  return jobRouter;
+}
+
+export const jobRouter = createJobRouter();
