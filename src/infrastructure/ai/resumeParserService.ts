@@ -381,8 +381,14 @@ export const resumeParserService = {
     }
 
     const totalFacts = factCount(facts);
+    const existingResumes = await profileRepository.findResumesByUserId(userId);
+    const hasActive = existingResumes.some(
+      (r) => (r as unknown as { isActive?: boolean }).isActive,
+    );
+    const shouldBeActive = existingResumes.length === 0 || !hasActive;
 
     const resume = await profileRepository.createResume({
+      isActive: shouldBeActive,
       userId,
       fileHash,
       originalFilename,

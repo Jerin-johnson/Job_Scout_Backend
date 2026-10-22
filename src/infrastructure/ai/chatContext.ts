@@ -222,6 +222,8 @@ export async function assembleChatContext({
         activeApplications: 0,
         followUpsDue: 0,
         hasResume: false,
+        activeResumeFilename: "",
+        activeResumeFacts: 0,
         lastInterviewScore: null,
       },
       text: "",

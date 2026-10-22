@@ -23,4 +23,5 @@ export interface ResumeEntity extends IBaseEntity {
   encryptedRawText: IEncryptedRawText;
   parsedFactsCount: number;
   factsSummary: IFactsSummary;
+  isActive?: boolean;
 }

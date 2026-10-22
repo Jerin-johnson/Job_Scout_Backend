@@ -67,6 +67,11 @@ export function createProfileRouter(): Router {
     generalApiLimiter,
     controller.deleteResume as RequestHandler,
   );
+  router.patch(
+    "/resumes/:id/activate",
+    csrfProtection,
+    controller.activateResume as RequestHandler,
+  );
   router.post(
     "/resumes/:id/reread",
     csrfProtection,

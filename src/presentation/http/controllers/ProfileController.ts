@@ -508,6 +508,7 @@ export class ProfileController {
             parsedFactsCount,
             factsSummary,
             createdAt,
+            isActive,
           }: ResumeRecord) => ({
             id: _id!.toString(),
             originalFilename,
@@ -515,6 +516,7 @@ export class ProfileController {
             parsedFactsCount,
             factsSummary,
             createdAt,
+            isActive: Boolean(isActive),
             status: "ready",
           }),
         ),
@@ -536,6 +538,23 @@ export class ProfileController {
       return;
     }
     res.sendStatus(204);
+  });
+
+  activateResume = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const paramId = String(req.params.id);
+    if (!/^[a-f\d]{24}$/i.test(paramId)) {
+      res.sendStatus(404);
+      return;
+    }
+    const user = req.user as UserRecord;
+    const userId = getUserId(user);
+    const activated = await profileRepository.setActiveResume(paramId, userId);
+    if (!activated) {
+      res.sendStatus(404);
+      return;
+    }
+    await invalidateCandidateContext(userId);
+    res.status(200).json(successResponse({ resumeId: paramId, isActive: true }));
   });
 
   rereadResume = asyncHandler(async (req: Request, res: Response): Promise<void> => {

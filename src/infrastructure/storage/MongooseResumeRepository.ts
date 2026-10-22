@@ -24,10 +24,23 @@ export async function deleteResumeForUser({
   await JobMatchReport.deleteMany({ userId, resumeId: resume._id });
   await Resume.deleteOne({ _id: resume._id, userId });
   await del(CacheKeys.resumeParse(`${userId}:${resume.fileHash}:resume-match-v1`));
-  await Profile.updateOne(
-    { userId },
-    { $set: { roles: [], skills: [], education: [] }, $inc: { version: 1 } },
-  );
+  const remainingCount = await Resume.countDocuments({ userId });
+  if (remainingCount === 0) {
+    await Profile.updateOne(
+      { userId },
+      { $set: { roles: [], skills: [], education: [] }, $inc: { version: 1 } },
+    );
+  } else {
+    const wasActive = (resume as unknown as { isActive?: boolean }).isActive;
+    if (wasActive) {
+      await Resume.findOneAndUpdate(
+        { userId },
+        { $set: { isActive: true } },
+        { sort: { createdAt: -1 } },
+      );
+    }
+    await Profile.updateOne({ userId }, { $inc: { version: 1 } });
+  }
   await invalidateCandidateContext(userId);
   const updatedUser = await userRepository.bumpProfileVersion(userId);
   if (updatedUser) await enqueueMatchRefreshForUser(userId, updatedUser.profileVersion);

@@ -23,6 +23,8 @@ export interface CandidateCard {
   activeApplications: number;
   followUpsDue: number;
   hasResume: boolean;
+  activeResumeFilename: string;
+  activeResumeFacts: number;
   lastInterviewScore: number | null;
 }
 
@@ -85,6 +87,8 @@ export function formatCandidateContext(card: Partial<CandidateCard> = {}): strin
         : `${card.lastInterviewScore}/100`,
     ],
     ["Resume available", card.hasResume ? "yes" : "no"],
+    ["Active resume", card.activeResumeFilename],
+    ["Resume facts extracted", card.activeResumeFacts || ""],
   ];
   const text = fields
     .filter(([, value]) => value !== "" && value !== null && value !== undefined)
@@ -114,7 +118,7 @@ async function loadCandidateContext(
     ? new mongoose.Types.ObjectId(String(userId))
     : userId;
   const profilePromise = profileRepository.findByUserId(id);
-  const countsPromise: Promise<[number, number, boolean, { _id: unknown } | null]> = isMongoReady()
+  const countsPromise: Promise<[number, number, unknown, { _id: unknown } | null]> = isMongoReady()
     ? Promise.all([
         Application.countDocuments({ userId: id, archivedAt: null }),
         Application.countDocuments({
@@ -122,7 +126,9 @@ async function loadCandidateContext(
           archivedAt: null,
           nextFollowUpAt: { $lte: new Date() },
         }),
-        Resume.exists({ userId: id }).then(Boolean),
+        Resume.findOne({ userId: id, isActive: true })
+          .lean()
+          .then((doc) => doc || Resume.findOne({ userId: id }).sort({ createdAt: -1 }).lean()),
         InterviewSession.findOne({ userId: id, status: "completed" })
           .sort({ completedAt: -1, updatedAt: -1 })
           .select("_id")
@@ -130,15 +136,19 @@ async function loadCandidateContext(
       ])
     : applicationRepository.getBoardStats(id).then(async (stats) => {
         const resumes = await profileRepository.findResumesByUserId(id);
+        const activeResume =
+          resumes.find((r) => (r as unknown as { isActive?: boolean }).isActive) ||
+          resumes[0] ||
+          null;
         return [
           stats.totalActive,
           stats.followUpsDue,
-          resumes.length > 0,
+          activeResume,
           null as { _id: unknown } | null,
         ];
       });
 
-  const [profile, [activeApplications, followUpsDue, hasResume, latestInterview]] =
+  const [profile, [activeApplications, followUpsDue, activeResumeDoc, latestInterview]] =
     await Promise.all([profilePromise, countsPromise]);
   let lastInterviewScore: number | null = null;
   if (latestInterview && isMongoReady()) {
@@ -179,7 +189,13 @@ async function loadCandidateContext(
     plan: safeText(user?.plan || "free", 24),
     activeApplications,
     followUpsDue,
-    hasResume: Boolean(hasResume),
+    hasResume: Boolean(activeResumeDoc),
+    activeResumeFilename: activeResumeDoc
+      ? safeText((activeResumeDoc as Record<string, unknown>).originalFilename, 120)
+      : "",
+    activeResumeFacts: activeResumeDoc
+      ? Number((activeResumeDoc as Record<string, unknown>).parsedFactsCount) || 0
+      : 0,
     lastInterviewScore,
   };
   return { card, text: formatCandidateContext(card), suggestions: buildSuggestions(card) };

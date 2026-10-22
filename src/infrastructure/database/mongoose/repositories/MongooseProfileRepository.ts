@@ -156,6 +156,7 @@ export class MongooseProfileRepository
         education: 0,
         totalFacts: 0,
       },
+      isActive: Boolean(resumeData.isActive),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -189,6 +190,34 @@ export class MongooseProfileRepository
     }
     return this.inMemoryResumes.find((r) => r.s3Key === s3Key && r.userId === userId) || null;
   }
+
+  async setActiveResume(resumeId: string, userId: string): Promise<ResumeEntity | null> {
+    if (isMongoReady()) {
+      await ResumeModel.updateMany({ userId }, { $set: { isActive: false } });
+      const doc = await ResumeModel.findOneAndUpdate(
+        { _id: resumeId, userId },
+        { $set: { isActive: true } },
+        { new: true },
+      ).lean();
+      return doc ? ResumeMapper.toEntity(doc as Record<string, unknown>) : null;
+    }
+    for (const r of this.inMemoryResumes) {
+      r.isActive = r.id === resumeId && r.userId === userId;
+    }
+    return this.inMemoryResumes.find((r) => r.id === resumeId && r.userId === userId) || null;
+  }
+
+  async findActiveResumeByUserId(userId: string): Promise<ResumeEntity | null> {
+    if (isMongoReady()) {
+      const doc = await ResumeModel.findOne({ userId, isActive: true }).lean();
+      if (doc) return ResumeMapper.toEntity(doc as Record<string, unknown>);
+      const fallback = await ResumeModel.findOne({ userId }).sort({ createdAt: -1 }).lean();
+      return fallback ? ResumeMapper.toEntity(fallback as Record<string, unknown>) : null;
+    }
+    const active = this.inMemoryResumes.find((r) => r.userId === userId && r.isActive);
+    if (active) return active;
+    return this.inMemoryResumes.find((r) => r.userId === userId) || null;
+  }
 }
 
 export interface ProfileRecord {
@@ -215,6 +244,7 @@ export interface ResumeRecord {
   parsedData?: Record<string, unknown>;
   parsedFactsCount?: number;
   factsSummary?: { skills?: number; roles?: number; education?: number; totalFacts?: number };
+  isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   [key: string]: unknown;
@@ -353,6 +383,45 @@ export const profileRepository = {
         (resume) => resume.s3Key === s3Key && resume.userId.toString() === userId.toString(),
       ) || null
     );
+  },
+
+  async setActiveResume(
+    resumeId: string | mongoose.Types.ObjectId,
+    userId: string | mongoose.Types.ObjectId,
+  ): Promise<ResumeRecord | null> {
+    const uid = userId.toString();
+    if (isMongoReady()) {
+      await ResumeModel.updateMany({ userId }, { $set: { isActive: false } });
+      const doc = await ResumeModel.findOneAndUpdate(
+        { _id: resumeId, userId },
+        { $set: { isActive: true } },
+        { new: true },
+      ).lean();
+      return doc as unknown as ResumeRecord | null;
+    }
+    for (const r of inMemoryResumes) {
+      r.isActive = r._id?.toString() === resumeId.toString() && r.userId.toString() === uid;
+    }
+    return (
+      inMemoryResumes.find(
+        (r) => r._id?.toString() === resumeId.toString() && r.userId.toString() === uid,
+      ) || null
+    );
+  },
+
+  async findActiveResumeByUserId(
+    userId: string | mongoose.Types.ObjectId,
+  ): Promise<ResumeRecord | null> {
+    const uid = userId.toString();
+    if (isMongoReady()) {
+      const doc = await ResumeModel.findOne({ userId, isActive: true }).lean();
+      if (doc) return doc as unknown as ResumeRecord;
+      const fallback = await ResumeModel.findOne({ userId }).sort({ createdAt: -1 }).lean();
+      return fallback as unknown as ResumeRecord | null;
+    }
+    const active = inMemoryResumes.find((r) => r.userId.toString() === uid && r.isActive);
+    if (active) return active;
+    return inMemoryResumes.find((r) => r.userId.toString() === uid) || null;
   },
 };
 

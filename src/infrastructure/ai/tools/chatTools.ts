@@ -629,10 +629,9 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
       .strict(),
     func: async (args, runManager, callConfig) => {
       const { userId } = resolveCtx(runManager, callConfig);
-      const resumes = await profileRepository.findResumesByUserId(userId);
       const selectedResume = args.resumeId
-        ? resumes.find((r) => String(r._id) === String(args.resumeId))
-        : resumes[0];
+        ? await profileRepository.findResumeByIdAndUserId(args.resumeId, userId)
+        : await profileRepository.findActiveResumeByUserId(userId);
       if (!selectedResume) {
         notifyComplete(runManager, callConfig, {
           toolName: "run_resume_match",

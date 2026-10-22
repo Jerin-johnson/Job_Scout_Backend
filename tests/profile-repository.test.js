@@ -18,3 +18,29 @@ test("an empty extractor role result does not erase previously source-grounded h
   assert.equal(profile.roles.length, 1);
   assert.equal(profile.roles[0].factId, "role_existing");
 });
+
+test("setActiveResume marks only the targeted resume active and returns active resume", async () => {
+  const userId = "profile-active-resume-test";
+  const r1 = await profileRepository.createResume({
+    userId,
+    s3Key: `resumes/${userId}/r1.pdf`,
+    fileHash: "hash1",
+    originalFilename: "resume1.pdf",
+    isActive: true,
+  });
+  const r2 = await profileRepository.createResume({
+    userId,
+    s3Key: `resumes/${userId}/r2.pdf`,
+    fileHash: "hash2",
+    originalFilename: "resume2.pdf",
+    isActive: false,
+  });
+
+  const activeBefore = await profileRepository.findActiveResumeByUserId(userId);
+  assert.equal(activeBefore?.originalFilename, r1.originalFilename);
+
+  await profileRepository.setActiveResume(r2._id || r2.id, userId);
+
+  const activeAfter = await profileRepository.findActiveResumeByUserId(userId);
+  assert.equal(activeAfter?.originalFilename, r2.originalFilename);
+});

@@ -8,4 +8,6 @@ export interface IProfileRepository {
   findResumesByUserId(userId: string): Promise<ResumeEntity[]>;
   findResumeByIdAndUserId(resumeId: string, userId: string): Promise<ResumeEntity | null>;
   findResumeByS3KeyAndUserId(s3Key: string, userId: string): Promise<ResumeEntity | null>;
+  setActiveResume(resumeId: string, userId: string): Promise<ResumeEntity | null>;
+  findActiveResumeByUserId(userId: string): Promise<ResumeEntity | null>;
 }

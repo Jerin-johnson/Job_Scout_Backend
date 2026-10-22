@@ -23,6 +23,7 @@ export interface IResumeDocument extends Document {
   encryptedRawText: IEncryptedRawTextSubdoc;
   parsedFactsCount: number;
   factsSummary: IFactsSummarySubdoc;
+  isActive: boolean;
   createdAt: Date;
 }
 
@@ -67,6 +68,10 @@ export const ResumeSchema = new Schema<IResumeDocument>(
       education: { type: Number, default: 0 },
       totalFacts: { type: Number, default: 0 },
     },
+    isActive: {
+      type: Boolean,
+      default: false,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -84,4 +89,3 @@ export const ResumeModel: Model<IResumeDocument> =
   mongoose.model<IResumeDocument>("Resume", ResumeSchema);
 
 export { ResumeModel as Resume };
-

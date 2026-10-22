@@ -29,8 +29,15 @@ export class ResumeMapper {
         education: typeof summary.education === "number" ? summary.education : 0,
         totalFacts: typeof summary.totalFacts === "number" ? summary.totalFacts : 0,
       },
-      createdAt: raw.createdAt instanceof Date ? raw.createdAt : new Date(String(raw.createdAt || Date.now())),
-      updatedAt: raw.updatedAt instanceof Date ? raw.updatedAt : new Date(String(raw.updatedAt || Date.now())),
+      isActive: typeof raw.isActive === "boolean" ? raw.isActive : false,
+      createdAt:
+        raw.createdAt instanceof Date
+          ? raw.createdAt
+          : new Date(String(raw.createdAt || Date.now())),
+      updatedAt:
+        raw.updatedAt instanceof Date
+          ? raw.updatedAt
+          : new Date(String(raw.updatedAt || Date.now())),
     };
   }
 
