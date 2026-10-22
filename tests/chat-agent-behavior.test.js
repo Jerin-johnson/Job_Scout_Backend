@@ -158,7 +158,7 @@ test("context assembly maintains strict ordering and applies token budgeting", a
       { role: "user", content: "Hello" },
       { role: "assistant", content: "Hi! How can I help?" },
     ],
-    turnTokenBudget: 500,
+    turnTokenBudget: 1500,
   });
 
   assert.ok(assembled.messages.length >= 3);

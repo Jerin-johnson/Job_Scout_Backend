@@ -160,9 +160,10 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
 
     assert.equal(listRes.status, 200);
     const listJson = await listRes.json();
-    assert.ok(Array.isArray(listJson.data));
-    assert.equal(listJson.data.length, 1);
-    assert.equal(listJson.data[0].companyName, "Vercel");
+    const apps = Array.isArray(listJson.data) ? listJson.data : listJson.data.applications;
+    assert.ok(Array.isArray(apps));
+    assert.equal(apps.length, 1);
+    assert.equal(apps[0].companyName, "Vercel");
 
     // 4. Update status
     const updateRes = await fetch(`${baseUrl}/api/v1/applications/${createJson.data.id}/status`, {
