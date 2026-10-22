@@ -35,7 +35,7 @@ export interface InterviewModeConfig {
   antiPatterns: string[];
 }
 
-export const INTERVIEW_CONSENT_VERSION = "2026-10-15-v1";
+export const INTERVIEW_CONSENT_VERSION = "2026-10-21-v2";
 export const INTERVIEW_REPORT_SCHEMA_VERSION = "2";
 
 export const INTERVIEW_PROMPT_VERSION = "2026-10-15-v2";

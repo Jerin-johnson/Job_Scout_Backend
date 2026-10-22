@@ -78,4 +78,6 @@ export const startSchema = z
   .strict()
   .default({});
 
+export const transcriptionSessionSchema = z.object({ consentAccepted: z.literal(true) }).strict();
+
 export type StartInput = z.infer<typeof startSchema>;

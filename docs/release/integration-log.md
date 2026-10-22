@@ -222,3 +222,8 @@ Do not merge `main` until the dependency audit can run successfully and all rele
 - Plan/task list/walkthrough: inspect both repos and Graphify [x]; preserve work and branch both repos [x]; implement versioned scorer plus UI contract [x]; run repo checks and refresh Graphify [x].
 
 - Final verification: matching/presentation/ingestion unit suites passed 31/31; scoring evaluation and ranking gate passed; backend typecheck, ESLint, and AI docs check passed. Full backend suite completed with 276 passing, 1 skipped, and one pre-existing failure in `tests/tsyringe-foundation.test.js` (it imports `TestConsumer`/`setupTestContainer` absent from current source and `dist`). Frontend tests passed 56/56, lint and docs checks passed, and the production build passed outside the sandbox. Graphify refreshed in both repos and the parent merged graph; artifacts remain ignored.
+
+## Live voice-to-text — 2026-10-21
+
+- Added an authenticated short-lived OpenAI Realtime credential endpoint for fixed `gpt-live-transcribe` sessions, scoped to the owner’s active/current-consent interview, quota-checked, CSRF-protected, non-cacheable, and limited to five requests per 15 minutes with fail-closed Redis storage behavior. Audio stays direct between browser and OpenAI; no new dependency or storage was added.
+- Verification: backend typecheck/build, lint, architecture/docs checks, and 5 focused tests passed. The full backend suite could not pass because MongoDB Memory Server could not download MongoDB (`fastdl.mongodb.org` DNS failure); its owner-scoping Mongo test is authored but unverified. Local HTTP route auth integration was blocked by loopback socket permissions. Graphify updated and queried: 3,926 nodes/8,099 edges. No commit, merge, or push.

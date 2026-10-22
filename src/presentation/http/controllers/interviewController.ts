@@ -4,6 +4,7 @@ import { profileRepository } from "../../../infrastructure/database/mongoose/rep
 import { logger } from "../../../shared/utils/logger.js";
 import { isMongoReady } from "../../../infrastructure/database/database.js";
 import { interviewSessionService } from "../../../infrastructure/interview/interviewSessionService.js";
+import { createRealtimeTranscriptionCredential } from "../../../infrastructure/interview/realtimeTranscriptionService.js";
 import { acceptRequestQuota, requestQuotaIdempotencyKey } from "../middleware/quotaGate.js";
 import { UserRecord } from "../../../infrastructure/database/mongoose/repositories/MongooseUserRepository.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
@@ -18,6 +19,7 @@ import {
   emptySchema,
   sessionQuerySchema,
   startSchema,
+  transcriptionSessionSchema,
 } from "../../../shared/schemas/interviewSchemas.js";
 
 function getUserId(user?: UserRecord): string {
@@ -30,6 +32,26 @@ function getUserId(user?: UserRecord): string {
 }
 
 export const interviewController = {
+  createTranscriptionSession: asyncHandler(async (req: Request, res: Response) => {
+    transcriptionSessionSchema.parse(req.body);
+    const user = req.user as UserRecord;
+    const sessionId = String(req.params.id || "");
+    if (!sessionId || sessionId.length > 128) {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_SESSION_ID",
+          message: "Choose a valid interview session",
+          requestId: req.id,
+        },
+      });
+    }
+    await interviewSessionService.assertTranscriptionAllowed(user, sessionId);
+    const userId = getUserId(user);
+    const credential = await createRealtimeTranscriptionCredential(userId);
+    res.setHeader("Cache-Control", "no-store, private");
+    return res.status(200).json(successResponse(credential));
+  }),
+
   /**
    * POST /api/v1/interview/prep
    * Generates question bank, company overview, and STAR story templates

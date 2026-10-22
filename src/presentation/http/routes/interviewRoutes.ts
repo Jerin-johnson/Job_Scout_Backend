@@ -3,7 +3,11 @@ import { interviewController } from "../controllers/interviewController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
 import { requireQuota } from "../middleware/quotaGate.js";
-import { answerRateLimit, completeRateLimit } from "../middleware/interviewRateLimit.js";
+import {
+  answerRateLimit,
+  completeRateLimit,
+  transcriptionSessionRateLimit,
+} from "../middleware/interviewRateLimit.js";
 
 export const interviewRouter = Router();
 
@@ -26,6 +30,12 @@ interviewRouter.post(
 interviewRouter.get("/modes", interviewController.modes);
 interviewRouter.get("/sessions", interviewController.listSessions);
 interviewRouter.post("/sessions", csrfProtection, interviewController.createSession);
+interviewRouter.post(
+  "/sessions/:id/transcription-session",
+  csrfProtection,
+  transcriptionSessionRateLimit,
+  interviewController.createTranscriptionSession,
+);
 interviewRouter.post("/sessions/:id/start", csrfProtection, interviewController.startSession);
 interviewRouter.post(
   "/sessions/:id/answers",
