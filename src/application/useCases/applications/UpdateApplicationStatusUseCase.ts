@@ -10,9 +10,10 @@ import { NotFoundError, ValidationError } from "../../errors/ApplicationError.js
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 
 @injectable()
-export class UpdateApplicationStatusUseCase
-  implements IUseCase<UpdateApplicationStatusInputDTO, ApplicationOutputDTO>
-{
+export class UpdateApplicationStatusUseCase implements IUseCase<
+  UpdateApplicationStatusInputDTO,
+  ApplicationOutputDTO
+> {
   constructor(
     @inject(TOKENS.ApplicationRepository)
     private readonly applicationRepository: IApplicationRepository,
@@ -54,7 +55,9 @@ export class UpdateApplicationStatusUseCase
       userId: updated.userId,
       jobId: updated.jobId ?? null,
       companyName: updated.companyName,
+      company: updated.companyName,
       jobTitle: updated.jobTitle,
+      role: updated.jobTitle,
       status: updated.status,
       priority: updated.priority,
       appliedDate: updated.appliedDate,

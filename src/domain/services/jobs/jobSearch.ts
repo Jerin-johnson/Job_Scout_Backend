@@ -27,7 +27,12 @@ const BASE_SKILL_VOCABULARY = [
   "rust",
   "react",
   "nextjs",
+  "node",
   "nodejs",
+  "node.js",
+  "reactjs",
+  "vuejs",
+  "angularjs",
   "express",
   "mongodb",
   "postgresql",
@@ -100,7 +105,131 @@ const BASE_SKILL_VOCABULARY = [
   "hospitality",
   "chef",
   "cook",
+  "mern",
+  "mean",
+  "mevn",
+  "lamp",
+  "jamstack",
+  "sde",
+  "swe",
+  "sdet",
+  "k8s",
+  "genai",
 ];
+
+export const TECH_STACK_SYNONYMS: Record<string, string[]> = {
+  node: ["node", "nodejs", "node.js", "backend"],
+  nodejs: ["nodejs", "node", "node.js", "backend"],
+  "node.js": ["node.js", "nodejs", "node", "backend"],
+  react: ["react", "reactjs", "frontend"],
+  reactjs: ["reactjs", "react", "frontend"],
+  vue: ["vue", "vuejs", "frontend"],
+  vuejs: ["vuejs", "vue", "frontend"],
+  angular: ["angular", "angularjs", "frontend"],
+  angularjs: ["angularjs", "angular", "frontend"],
+  mern: [
+    "mern",
+    "react",
+    "node",
+    "nodejs",
+    "node.js",
+    "express",
+    "mongodb",
+    "fullstack",
+    "full-stack",
+  ],
+  mean: [
+    "mean",
+    "angular",
+    "node",
+    "nodejs",
+    "node.js",
+    "express",
+    "mongodb",
+    "fullstack",
+    "full-stack",
+  ],
+  mevn: [
+    "mevn",
+    "vue",
+    "node",
+    "nodejs",
+    "node.js",
+    "express",
+    "mongodb",
+    "fullstack",
+    "full-stack",
+  ],
+  lamp: ["lamp", "linux", "apache", "mysql", "php", "backend"],
+  jamstack: ["jamstack", "javascript", "react", "nextjs", "vue", "frontend"],
+  fullstack: ["fullstack", "full-stack", "react", "node", "nodejs", "frontend", "backend"],
+  "full-stack": ["fullstack", "full-stack", "react", "node", "nodejs", "frontend", "backend"],
+  frontend: [
+    "frontend",
+    "front-end",
+    "react",
+    "vue",
+    "angular",
+    "ui",
+    "javascript",
+    "typescript",
+    "nextjs",
+    "web",
+  ],
+  "front-end": [
+    "frontend",
+    "front-end",
+    "react",
+    "vue",
+    "angular",
+    "ui",
+    "javascript",
+    "typescript",
+    "nextjs",
+    "web",
+  ],
+  backend: [
+    "backend",
+    "back-end",
+    "node",
+    "nodejs",
+    "express",
+    "python",
+    "golang",
+    "java",
+    "api",
+    "django",
+    "fastapi",
+  ],
+  "back-end": [
+    "backend",
+    "back-end",
+    "node",
+    "nodejs",
+    "express",
+    "python",
+    "golang",
+    "java",
+    "api",
+    "django",
+    "fastapi",
+  ],
+  devops: ["devops", "docker", "kubernetes", "aws", "terraform", "ci/cd", "cloud", "infra", "sre"],
+  sre: ["sre", "reliability", "devops", "kubernetes", "cloud", "infrastructure", "observability"],
+  sde: ["sde", "software", "engineer", "developer", "swe"],
+  swe: ["swe", "software", "engineer", "developer", "sde"],
+  sdet: ["sdet", "qa", "automation", "testing", "selenium", "cypress", "engineer", "test"],
+  qa: ["qa", "testing", "quality", "automation", "selenium", "cypress", "sdet", "test"],
+  ml: ["ml", "machine", "learning", "python", "ai", "deep", "tensorflow", "pytorch", "data"],
+  ai: ["ai", "artificial", "intelligence", "machine", "learning", "llm", "genai", "nlp"],
+  genai: ["genai", "ai", "generative", "llm", "openai", "rag", "langchain"],
+  datascience: ["data", "science", "python", "sql", "machine", "analytics"],
+  android: ["android", "kotlin", "java", "mobile"],
+  ios: ["ios", "swift", "swiftui", "mobile"],
+  mobile: ["mobile", "react-native", "flutter", "android", "ios", "kotlin", "swift"],
+  golang: ["golang", "go", "backend"],
+  k8s: ["k8s", "kubernetes", "devops", "docker", "cloud"],
+};
 
 const DEFAULT_VOCABULARY = (() => {
   const words = new Set(BASE_SKILL_VOCABULARY);
@@ -168,9 +297,28 @@ export function buildSearchTokens(job: JobForSearchLike = {}, maxTokens = 40): s
   const locationTokens = tokenizeSearchText(
     `${job.structuredLocation?.city || ""} ${job.structuredLocation?.countryCode || ""}`,
   );
+  const skillSet = new Set([...skillTokens, ...tagTokens]);
+  const hasReact = skillSet.has("react") || titleTokens.includes("react");
+  const hasNode = skillSet.has("node") || skillSet.has("nodejs") || skillSet.has("node.js");
+  const hasMongo = skillSet.has("mongodb") || skillSet.has("mongo");
+  const hasExpress = skillSet.has("express");
+  const isFullstack =
+    titleTokens.includes("fullstack") ||
+    (titleTokens.includes("full") && titleTokens.includes("stack")) ||
+    skillSet.has("fullstack");
+
+  const derivedTokens: string[] = [];
+  if (isFullstack) {
+    derivedTokens.push("fullstack");
+  }
+  if ((hasReact && (hasNode || hasMongo || hasExpress)) || (isFullstack && hasReact)) {
+    derivedTokens.push("mern");
+  }
+
   const combined = new Set([
     ...titleTokens,
     ...companyTokens,
+    ...derivedTokens,
     ...skillTokens,
     ...tagTokens,
     ...occupationTokens,
@@ -217,6 +365,7 @@ export interface TokenGroup {
   original: string;
   exact: string;
   typos: string[];
+  synonyms: string[];
   all: string[];
 }
 
@@ -249,8 +398,12 @@ export function expandQueryTokensWithTypos(
   const vocabSet = new Set(vocab);
   const typoCorrections: Record<string, string> = {};
   const tokenGroups: TokenGroup[] = tokens.map((token) => {
+    const rawSynonyms = TECH_STACK_SYNONYMS[token.toLowerCase()] || [];
+    const synonyms = rawSynonyms.filter((s) => s !== token.toLowerCase());
+
     if (token.length < 4 || vocabSet.has(token)) {
-      return { original: token, exact: token, typos: [], all: [token] };
+      const allTokens = [...new Set([token, ...synonyms])];
+      return { original: token, exact: token, typos: [], synonyms, all: allTokens };
     }
     const maxDist = token.length >= 8 ? 2 : 1;
     const candidates: Array<{ word: string; dist: number; lengthDiff: number }> = [];
@@ -267,11 +420,13 @@ export function expandQueryTokensWithTypos(
     );
     const typos = candidates.slice(0, 3).map((item) => item.word);
     if (typos.length) typoCorrections[token] = typos[0];
+    const allTokens = [...new Set([token, ...synonyms, ...typos])];
     return {
       original: token,
       exact: token,
       typos,
-      all: [token, ...typos],
+      synonyms,
+      all: allTokens,
     };
   });
 
@@ -336,31 +491,42 @@ export function scoreCatalogSearchRelevance(
 
   let lexicalScore = 0;
   for (const group of querySpec.tokenGroups) {
+    const synonyms = group.synonyms || [];
+    const isFullStackTitle =
+      synonyms.includes("fullstack") &&
+      (titleTokens.has("fullstack") || (titleTokens.has("full") && titleTokens.has("stack")));
     if (titleTokens.has(group.exact)) {
-      lexicalScore += 10;
+      lexicalScore += 20;
+    } else if (isFullStackTitle || synonyms.some((syn) => titleTokens.has(syn))) {
+      lexicalScore += 15;
     } else if (group.typos.some((typo) => titleTokens.has(typo))) {
-      lexicalScore += 6;
+      lexicalScore += 12;
     }
 
     if (skillTokens.has(group.exact)) {
-      lexicalScore += 6;
+      lexicalScore += 12;
+    } else if (synonyms.some((syn) => skillTokens.has(syn))) {
+      const matchedSynCount = synonyms.filter((syn) => skillTokens.has(syn)).length;
+      lexicalScore += Math.min(18, 6 + matchedSynCount * 3);
     } else if (group.typos.some((typo) => skillTokens.has(typo))) {
-      lexicalScore += 3;
+      lexicalScore += 5;
     }
 
     if (companyTokens.has(group.exact)) {
-      lexicalScore += 5;
+      lexicalScore += 8;
     } else if (group.typos.some((typo) => companyTokens.has(typo))) {
-      lexicalScore += 3;
+      lexicalScore += 4;
     }
 
     if (
       !titleTokens.has(group.exact) &&
       !skillTokens.has(group.exact) &&
       !companyTokens.has(group.exact) &&
-      (searchTokens.has(group.exact) || group.typos.some((typo) => searchTokens.has(typo)))
+      (searchTokens.has(group.exact) ||
+        synonyms.some((syn) => searchTokens.has(syn)) ||
+        group.typos.some((typo) => searchTokens.has(typo)))
     ) {
-      lexicalScore += 2;
+      lexicalScore += 3;
     }
   }
 

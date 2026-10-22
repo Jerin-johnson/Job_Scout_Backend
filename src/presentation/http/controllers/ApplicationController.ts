@@ -6,6 +6,7 @@ import { CreateApplicationUseCase } from "../../../application/useCases/applicat
 import { UpdateApplicationStatusUseCase } from "../../../application/useCases/applications/UpdateApplicationStatusUseCase.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 import { UnauthorizedError } from "../../../application/errors/ApplicationError.js";
+import { IApplicationRepository } from "../../../domain/repositories/IApplicationRepository.js";
 import { applicationGraph } from "../../../infrastructure/ai/graphs/applicationGraph.js";
 import {
   applicationRepository,
@@ -30,10 +31,12 @@ import {
   archiveApplicationSchema,
 } from "../../../shared/schemas/applicationSchemas.js";
 
-function getUserId(user: UserRecord): string {
-  if (user && user._id) return user._id.toString();
-  if (user && (user as unknown as { id?: string }).id)
-    return String((user as unknown as { id?: string }).id);
+function getUserId(user?: unknown): string {
+  if (!user || typeof user !== "object") throw new UnauthorizedError("User identification missing");
+  const u = user as Record<string, unknown>;
+  if (u.userId) return String(u.userId);
+  if (u._id) return String(u._id);
+  if (u.id) return String(u.id);
   throw new UnauthorizedError("User identification missing");
 }
 
@@ -46,32 +49,54 @@ export class ApplicationController {
     private readonly createApplicationUseCase: CreateApplicationUseCase,
     @inject(TOKENS.UpdateApplicationStatusUseCase)
     private readonly updateApplicationStatusUseCase: UpdateApplicationStatusUseCase,
+    @inject(TOKENS.ApplicationRepository)
+    private readonly applicationRepository: IApplicationRepository,
   ) {}
 
   list = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
+    const userId = getUserId(req.user);
 
     const query = req.query as Record<string, string | undefined>;
-    const applications = await this.getApplicationsUseCase.execute({
-      userId,
-      stages: query.stage ? query.stage.split(",") : undefined,
-      priority: query.priority,
-      pinned: query.pinned ? query.pinned === "true" : undefined,
-      followUp:
-        query.followUp === "overdue" || query.followUp === "due-soon" ? query.followUp : undefined,
-    });
+    const [applications, stats] = await Promise.all([
+      this.getApplicationsUseCase.execute({
+        userId,
+        stages: query.stage ? query.stage.split(",") : undefined,
+        priority: query.priority,
+        pinned: query.pinned ? query.pinned === "true" : undefined,
+        followUp:
+          query.followUp === "overdue" || query.followUp === "due-soon"
+            ? query.followUp
+            : undefined,
+      }),
+      this.applicationRepository.getBoardStats(userId),
+    ]);
 
-    res.status(200).json(successResponse(applications));
+    const columns: Record<string, unknown[]> = {
+      saved: [],
+      applied: [],
+      screening: [],
+      interviewing: [],
+      offer: [],
+      rejected: [],
+    };
+    for (const app of applications) {
+      const statusKey = String(app.status || "saved");
+      if (columns[statusKey]) {
+        columns[statusKey].push(app);
+      }
+    }
+
+    res.status(200).json(
+      successResponse({
+        applications,
+        columns,
+        stats,
+      }),
+    );
   });
 
   create = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
+    const userId = getUserId(req.user);
 
     const application = await this.createApplicationUseCase.execute({
       ...req.body,
@@ -82,10 +107,7 @@ export class ApplicationController {
   });
 
   updateStatus = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required");
-    }
+    const userId = getUserId(req.user);
 
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : String(rawId || "");

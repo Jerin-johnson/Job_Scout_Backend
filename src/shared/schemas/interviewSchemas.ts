@@ -78,4 +78,60 @@ export const startSchema = z
   .strict()
   .default({});
 
+export const transcriptionSessionSchema = z.object({ consentAccepted: z.literal(true) }).strict();
+
 export type StartInput = z.infer<typeof startSchema>;
+
+export const quizQuestionQuerySchema = z
+  .object({
+    stack: z.string().trim().max(64).optional(),
+    type: z.enum(["quick_mcq", "scenario_voice"]).optional(),
+    difficulty: z.enum(["junior", "mid", "senior"]).optional(),
+  })
+  .strict();
+
+export type QuizQuestionQueryInput = z.infer<typeof quizQuestionQuerySchema>;
+
+export const quizSessionSchema = z
+  .object({
+    resumeId: z.string().trim().min(1).max(128),
+    focus: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("role"), targetRole: z.string().trim().min(2).max(160) }).strict(),
+      z
+        .object({
+          type: z.literal("application"),
+          applicationId: z.string().trim().min(1).max(128),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+
+export type QuizSessionInput = z.infer<typeof quizSessionSchema>;
+
+export const quizSubmitSchema = z
+  .object({
+    quizSessionId: z.string().min(1).max(128),
+    questionId: z.string().min(1).max(128),
+    stack: z.string().trim().max(64).optional(),
+    userAnswer: z.string().max(4000).optional().default(""),
+    selectedOptionIndex: z.number().int().min(0).max(10).optional(),
+    audioTranscript: z.string().max(4000).optional().default(""),
+  })
+  .strict();
+
+export type QuizSubmitInput = z.infer<typeof quizSubmitSchema>;
+
+export const quizHistoryQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(10000).default(1),
+    limit: z.coerce.number().int().min(1).max(20).default(10),
+  })
+  .strict();
+
+export const quizAttemptIdSchema = z
+  .string()
+  .trim()
+  .min(12)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);

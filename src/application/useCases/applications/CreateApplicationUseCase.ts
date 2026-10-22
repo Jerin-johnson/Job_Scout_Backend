@@ -6,13 +6,14 @@ import {
   createApplicationInputSchema,
 } from "../../dtos/applicationDtos.js";
 import { IApplicationRepository } from "../../../domain/repositories/IApplicationRepository.js";
-import { ValidationError } from "../../errors/ApplicationError.js";
+import { ConflictError, ValidationError } from "../../errors/ApplicationError.js";
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 
 @injectable()
-export class CreateApplicationUseCase
-  implements IUseCase<CreateApplicationInputDTO, ApplicationOutputDTO>
-{
+export class CreateApplicationUseCase implements IUseCase<
+  CreateApplicationInputDTO,
+  ApplicationOutputDTO
+> {
   constructor(
     @inject(TOKENS.ApplicationRepository)
     private readonly applicationRepository: IApplicationRepository,
@@ -24,6 +25,15 @@ export class CreateApplicationUseCase
       throw new ValidationError("Invalid application details", parseResult.error.issues);
     }
     const data = parseResult.data;
+
+    const duplicate = await this.applicationRepository.findDuplicate(data.userId, {
+      jobId: data.jobId || null,
+      companyName: data.company,
+      jobTitle: data.role,
+    });
+    if (duplicate) {
+      throw new ConflictError("This job is already in your application tracker");
+    }
 
     const created = await this.applicationRepository.create({
       userId: data.userId,
@@ -54,7 +64,9 @@ export class CreateApplicationUseCase
       userId: created.userId,
       jobId: created.jobId ?? null,
       companyName: created.companyName,
+      company: created.companyName,
       jobTitle: created.jobTitle,
+      role: created.jobTitle,
       status: created.status,
       priority: created.priority,
       appliedDate: created.appliedDate,

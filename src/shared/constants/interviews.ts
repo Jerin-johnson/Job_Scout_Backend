@@ -35,7 +35,7 @@ export interface InterviewModeConfig {
   antiPatterns: string[];
 }
 
-export const INTERVIEW_CONSENT_VERSION = "2026-10-15-v1";
+export const INTERVIEW_CONSENT_VERSION = "2026-10-21-v2";
 export const INTERVIEW_REPORT_SCHEMA_VERSION = "2";
 
 export const INTERVIEW_PROMPT_VERSION = "2026-10-15-v2";
@@ -66,7 +66,13 @@ const COMMON_RULES = [
   "Never give hints or feedback mid-interview. Ask one question at a time, never repeat a question or topic, and keep each spoken-style turn to at most two sentences.",
 ];
 
-function dimension(name: string, weight: number, one: string, three: string, five: string): RubricDimension {
+function dimension(
+  name: string,
+  weight: number,
+  one: string,
+  three: string,
+  five: string,
+): RubricDimension {
   return { name, weight, anchors: { 1: one, 3: three, 5: five } };
 }
 

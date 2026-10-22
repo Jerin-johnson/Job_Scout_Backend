@@ -87,6 +87,9 @@ export class MongooseUserRepository
       lockUntil: null,
       refreshTokens: [],
       memoryPaused: false,
+      isEmailVerified: userData.isEmailVerified !== undefined ? userData.isEmailVerified : false,
+      emailVerificationOtpHash: userData.emailVerificationOtpHash || null,
+      emailVerificationOtpExpiresAt: userData.emailVerificationOtpExpiresAt || null,
       isDeleted: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -168,6 +171,66 @@ export class MongooseUserRepository
     }
     return null;
   }
+
+  async setEmailVerificationOtp(
+    id: string,
+    otpHash: string,
+    expiresAt: Date,
+  ): Promise<UserEntity | null> {
+    const idStr = String(id);
+    if (isMongoReady()) {
+      const doc = await this.model
+        .findByIdAndUpdate(
+          idStr,
+          {
+            $set: {
+              emailVerificationOtpHash: otpHash,
+              emailVerificationOtpExpiresAt: expiresAt,
+            },
+          },
+          { new: true },
+        )
+        .lean();
+      return doc ? this.toEntity(doc as Record<string, unknown>) : null;
+    }
+    const current = await this.findById(idStr);
+    if (current) {
+      return this.update(idStr, {
+        emailVerificationOtpHash: otpHash,
+        emailVerificationOtpExpiresAt: expiresAt,
+      });
+    }
+    return null;
+  }
+
+  async verifyEmail(id: string): Promise<UserEntity | null> {
+    const idStr = String(id);
+    if (isMongoReady()) {
+      const doc = await this.model
+        .findByIdAndUpdate(
+          idStr,
+          {
+            $set: {
+              isEmailVerified: true,
+              emailVerificationOtpHash: null,
+              emailVerificationOtpExpiresAt: null,
+            },
+          },
+          { new: true },
+        )
+        .lean();
+      return doc ? this.toEntity(doc as Record<string, unknown>) : null;
+    }
+    const current = await this.findById(idStr);
+    if (current) {
+      return this.update(idStr, {
+        isEmailVerified: true,
+        emailVerificationOtpHash: null,
+        emailVerificationOtpExpiresAt: null,
+      });
+    }
+    return null;
+  }
 }
 
 export interface UserRecord {
@@ -186,6 +249,9 @@ export interface UserRecord {
   lockUntil?: Date | null;
   refreshTokens?: IRefreshTokenMeta[];
   memoryPaused?: boolean;
+  isEmailVerified?: boolean;
+  emailVerificationOtpHash?: string | null;
+  emailVerificationOtpExpiresAt?: Date | null;
   isDeleted?: boolean;
   timezone?: string;
   mockInterviewTrialUsedAt?: Date | null;
@@ -216,7 +282,7 @@ export const userRepository = {
     const idStr = id.toString();
     if (isMongoReady()) {
       return (await UserModel.findOne({
-        _id: id,
+        _id: idStr,
         isDeleted: false,
       }).lean()) as unknown as UserRecord | null;
     }
@@ -229,16 +295,14 @@ export const userRepository = {
   async create(userData: Partial<UserRecord>): Promise<UserRecord> {
     const normalized = (userData.email || "").toLowerCase().trim();
     if (isMongoReady()) {
-      const user = new UserModel({
+      const u = new UserModel({
         ...userData,
         email: normalized,
       });
-      return (await user.save()).toObject() as unknown as UserRecord;
+      return (await u.save()).toObject() as unknown as UserRecord;
     }
-
-    const mockId = new mongoose.Types.ObjectId().toString();
     const newUser: UserRecord = {
-      _id: mockId,
+      _id: new mongoose.Types.ObjectId(),
       email: normalized,
       passwordHash: userData.passwordHash || null,
       googleId: userData.googleId || null,
@@ -253,6 +317,9 @@ export const userRepository = {
       lockUntil: null,
       refreshTokens: [],
       memoryPaused: false,
+      isEmailVerified: userData.isEmailVerified !== undefined ? userData.isEmailVerified : false,
+      emailVerificationOtpHash: userData.emailVerificationOtpHash || null,
+      emailVerificationOtpExpiresAt: userData.emailVerificationOtpExpiresAt || null,
       isDeleted: false,
       createdAt: new Date(),
       updatedAt: new Date(),

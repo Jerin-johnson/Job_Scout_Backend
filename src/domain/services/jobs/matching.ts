@@ -461,8 +461,18 @@ export function scoreJobMatch(
       ? Number(confirmedCareerExperience.confirmedYears)
       : 0;
   const profileYears = Math.max(careerYears, 0, ...roleYears);
+  const hasConfirmedExperience = Boolean(
+    confirmedCareerExperience?.isFresher ||
+    (confirmedCareerExperience?.needsConfirmation !== true &&
+      confirmedCareerExperience?.confirmedYears !== null &&
+      confirmedCareerExperience?.confirmedYears !== undefined) ||
+    roleYears.some((years) => years > 0),
+  );
+  const v2_1 = version === "lexical-v2.1";
   const experienceFit =
-    features.experienceYears === null || features.experienceYears === undefined || !profileYears
+    features.experienceYears === null ||
+    features.experienceYears === undefined ||
+    (!profileYears && !(v2_1 && hasConfirmedExperience))
       ? 0.55
       : profileYears >= features.experienceYears
         ? 1
@@ -607,7 +617,7 @@ export function scoreJobMatch(
           salaryFit * weights.salary +
           recencyFit * weights.recency,
   );
-  const fairThreshold = version === "lexical-v2" ? 40 : 50;
+  const fairThreshold = version === "lexical-v2" || v2_1 ? 40 : 50;
   const band =
     score >= 80 ? "strong" : score >= 65 ? "good" : score >= fairThreshold ? "fair" : "low";
   const reasons = [
@@ -620,6 +630,15 @@ export function scoreJobMatch(
       : job.remoteType === "remote"
         ? `Remote role; eligibility ${eligibility}`
         : "Location fit is approximate",
+    ...(v2_1 && features.experienceYears !== null && features.experienceYears !== undefined
+      ? [
+          !hasConfirmedExperience
+            ? "Experience is unconfirmed in your profile; this factor is neutral"
+            : profileYears >= features.experienceYears
+              ? "Your confirmed experience meets the stated requirement"
+              : `Your confirmed experience is below the stated ${features.experienceYears}-year requirement`,
+        ]
+      : []),
     ...(v4 &&
     !profile.roles?.length &&
     !confirmedCareerExperience?.isFresher &&

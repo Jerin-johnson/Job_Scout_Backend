@@ -6,6 +6,8 @@ import { InterviewMessage } from "../src/infrastructure/database/mongoose/models
 import { InterviewReport } from "../src/infrastructure/database/mongoose/models/InterviewReportModel.js";
 import { InterviewSession } from "../src/infrastructure/database/mongoose/models/InterviewSessionModel.js";
 import { interviewRepository as repo } from "../src/infrastructure/database/mongoose/repositories/MongooseInterviewRepository.js";
+import { interviewSessionService } from "../src/infrastructure/interview/interviewSessionService.js";
+import { INTERVIEW_CONSENT_VERSION } from "../src/shared/constants/interviews.js";
 
 let MongoMemoryServer;
 try {
@@ -54,7 +56,7 @@ test(
       });
       assert.ok(repeated, "same session reservation is idempotent");
 
-      const owner = new mongoose.Types.ObjectId();
+      const owner = user._id;
       const otherOwner = new mongoose.Types.ObjectId();
       const interviewId = new mongoose.Types.ObjectId();
       const session = await InterviewSession.create({
@@ -65,7 +67,7 @@ test(
         level: "mid",
         mode: "technical",
         durationMinutes: 20,
-        consent: { acceptedAt: new Date(), version: "test" },
+        consent: { acceptedAt: new Date(), version: INTERVIEW_CONSENT_VERSION },
         questionPlan: ["Question one?"],
         tokenCap: 12000,
         status: "in_progress",
@@ -73,6 +75,17 @@ test(
       });
       assert.ok(await repo.findSession(session._id, owner));
       assert.equal(await repo.findSession(session._id, otherOwner), null);
+      await assert.doesNotReject(() =>
+        interviewSessionService.assertTranscriptionAllowed(user, session._id.toString()),
+      );
+      await assert.rejects(
+        interviewSessionService.assertTranscriptionAllowed(
+          { _id: otherOwner, plan: "premium" },
+          session._id.toString(),
+        ),
+        { statusCode: 404 },
+        "a different account cannot create a transcription credential for this interview",
+      );
 
       const claims = await Promise.all([
         repo.claimQuestion(session._id, owner, 0, "claim-one-123"),

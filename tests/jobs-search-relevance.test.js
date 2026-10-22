@@ -120,3 +120,30 @@ test("relevance sort comparator and cursor pagination produce stable non-overlap
     ["507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014"],
   );
 });
+
+test("expandQueryTokensWithTypos expands tech stack synonyms (MERN, MEAN, fullstack, devops) and derives search tokens", () => {
+  const mernSpec = expandQueryTokensWithTypos("mern");
+  assert.equal(mernSpec.tokens[0], "mern");
+  assert.ok(mernSpec.tokenGroups[0].all.includes("react"));
+  assert.ok(mernSpec.tokenGroups[0].all.includes("node"));
+  assert.ok(mernSpec.tokenGroups[0].all.includes("mongodb"));
+  assert.ok(mernSpec.tokenGroups[0].all.includes("fullstack"));
+
+  const fullstackJob = {
+    title: "Senior Full Stack Architect",
+    company: "Acme",
+    features: {
+      titleTokens: ["senior", "full", "stack", "architect"],
+      skills: ["react", "node.js", "mongodb", "typescript"],
+    },
+  };
+  const tokens = buildSearchTokens(fullstackJob);
+  assert.ok(tokens.includes("fullstack"));
+  assert.ok(tokens.includes("mern"));
+
+  const scoreResult = scoreCatalogSearchRelevance(fullstackJob, mernSpec);
+  assert.ok(
+    scoreResult.lexicalScore >= 10,
+    `Expected lexicalScore >= 10, got ${scoreResult.lexicalScore}`,
+  );
+});

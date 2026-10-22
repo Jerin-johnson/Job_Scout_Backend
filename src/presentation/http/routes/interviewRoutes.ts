@@ -3,7 +3,12 @@ import { interviewController } from "../controllers/interviewController.js";
 import { authenticate } from "../middleware/auth.js";
 import { csrfProtection } from "../middleware/csrf.js";
 import { requireQuota } from "../middleware/quotaGate.js";
-import { answerRateLimit, completeRateLimit } from "../middleware/interviewRateLimit.js";
+import {
+  answerRateLimit,
+  completeRateLimit,
+  quizSessionRateLimit,
+  transcriptionSessionRateLimit,
+} from "../middleware/interviewRateLimit.js";
 
 export const interviewRouter = Router();
 
@@ -24,8 +29,37 @@ interviewRouter.post(
 );
 
 interviewRouter.get("/modes", interviewController.modes);
+interviewRouter.get("/quiz/question", interviewController.getQuizQuestion);
+interviewRouter.post(
+  "/quiz/session",
+  csrfProtection,
+  quizSessionRateLimit,
+  interviewController.startQuizSession,
+);
+interviewRouter.post(
+  "/quiz/submit",
+  csrfProtection,
+  answerRateLimit,
+  interviewController.submitQuizAnswer,
+);
+interviewRouter.get("/quiz/stats", interviewController.getQuizStats);
+interviewRouter.get("/quiz/history", interviewController.listQuizHistory);
+interviewRouter.get("/quiz/history/:id", interviewController.getQuizHistoryDetail);
+interviewRouter.post(
+  "/quiz/history/:id/repractice",
+  csrfProtection,
+  quizSessionRateLimit,
+  interviewController.repracticeQuizHistory,
+);
+interviewRouter.delete("/quiz/history/:id", csrfProtection, interviewController.deleteQuizHistory);
 interviewRouter.get("/sessions", interviewController.listSessions);
 interviewRouter.post("/sessions", csrfProtection, interviewController.createSession);
+interviewRouter.post(
+  "/sessions/:id/transcription-session",
+  csrfProtection,
+  transcriptionSessionRateLimit,
+  interviewController.createTranscriptionSession,
+);
 interviewRouter.post("/sessions/:id/start", csrfProtection, interviewController.startSession);
 interviewRouter.post(
   "/sessions/:id/answers",

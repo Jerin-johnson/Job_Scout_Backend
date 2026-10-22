@@ -8,6 +8,7 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
   let baseUrl;
 
   before(async () => {
+    process.env.REQUIRE_EMAIL_VERIFICATION = "false";
     const { createApp } = await import("../dist/src/main/app.js");
     app = createApp();
 
@@ -24,7 +25,9 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
-    const { disconnectRedis } = await import("../src/infrastructure/cache/redis.js");
+    const { disconnectRedis } = await import("../dist/src/infrastructure/cache/redis.js").catch(
+      () => import("../src/infrastructure/cache/redis.js"),
+    );
     await disconnectRedis().catch(() => {});
   });
 
@@ -101,6 +104,20 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
     assert.ok(json.error.requestId);
   });
 
+  it("POST /api/v1/interview/sessions/:id/transcription-session requires authentication", async () => {
+    const res = await fetch(
+      `${baseUrl}/api/v1/interview/sessions/${"a".repeat(24)}/transcription-session`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ consentAccepted: true }),
+      },
+    );
+    assert.equal(res.status, 401);
+    const json = await res.json();
+    assert.equal(json.error.code, "UNAUTHORIZED");
+  });
+
   it("POST & GET /api/v1/applications with valid Bearer token should succeed", async () => {
     // 1. Get access token
     const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
@@ -143,9 +160,10 @@ describe("Phase 6: Clean Architecture HTTP Presentation Layer", () => {
 
     assert.equal(listRes.status, 200);
     const listJson = await listRes.json();
-    assert.ok(Array.isArray(listJson.data));
-    assert.equal(listJson.data.length, 1);
-    assert.equal(listJson.data[0].companyName, "Vercel");
+    const apps = Array.isArray(listJson.data) ? listJson.data : listJson.data.applications;
+    assert.ok(Array.isArray(apps));
+    assert.equal(apps.length, 1);
+    assert.equal(apps[0].companyName, "Vercel");
 
     // 4. Update status
     const updateRes = await fetch(`${baseUrl}/api/v1/applications/${createJson.data.id}/status`, {

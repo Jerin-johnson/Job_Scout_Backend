@@ -26,6 +26,9 @@ export interface IUserDocument extends Document {
   lockUntil?: Date | null;
   refreshTokens: IRefreshTokenSubdoc[];
   memoryPaused: boolean;
+  isEmailVerified: boolean;
+  emailVerificationOtpHash?: string | null;
+  emailVerificationOtpExpiresAt?: Date | null;
   resumeAiConsent?: { acceptedAt?: Date | null; version?: string | null };
   jobAnalyticsConsent?: { acceptedAt?: Date | null; version?: string | null };
   memoryConsent?: { acceptedAt?: Date | null; version?: string | null };
@@ -130,6 +133,19 @@ export const UserSchema = new Schema<IUserDocument>(
       type: Boolean,
       default: false,
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    emailVerificationOtpHash: {
+      type: String,
+      default: null,
+    },
+    emailVerificationOtpExpiresAt: {
+      type: Date,
+      default: null,
+    },
     resumeAiConsent: {
       acceptedAt: { type: Date, default: null },
       version: { type: String, default: null },
@@ -183,4 +199,3 @@ export const UserModel: Model<IUserDocument> =
   mongoose.model<IUserDocument>("User", UserSchema);
 
 export { UserModel as User };
-

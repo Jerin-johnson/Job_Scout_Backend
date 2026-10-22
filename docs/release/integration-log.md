@@ -204,3 +204,52 @@ Do not merge `main` until the dependency audit can run successfully and all rele
   - **Phase 6 (Presentation Layer & Controllers):** Implemented `AuthController`, `ApplicationController`, `ProfileController`, JWT authentication middleware, global error handling middleware, modular routes, and `src/main/app.ts` / `src/main/server.ts`.
   - **Phase 7 (Entry Points Unification & Worker Migration):** Built type-safe BullMQ worker in `src/main/worker.ts`, completed router integration in `src/presentation/http/routes/index.ts` mounting all domains, unified `src/app.js`, `src/server.js`, and `src/worker.js` as clean delegation stubs to compiled TypeScript targets, and updated `package.json` scripts (`start`, `dev`, `worker`, `worker:dev`).
   - **Phase 8 (Verification & Zero `any` Enforcement):** Enforced zero `any` keyword usage across all TypeScript code, utilizing `unknown` with runtime type narrowing. Full test suite passing (260 tests, 259 passed, 1 skipped). Build, lint, docs checks, and secret scanners passing with 0 errors.
+
+# Research documentation — public Jobright product analysis — 2026-10-20
+
+- **Plan:** inspect both repos and applicable instructions; query existing graphs; verify Jobright through public first-party sources and isolated REA; inspect current architecture; write the seven research deliverables and index links; validate docs and review Git state.
+- **Task list:** [x] inspect/status; [x] Graphify/REA/public evidence; [x] verify implementation and existing docs; [x] add seven deliverables and index; [x] docs check and diff review.
+- Added seven research documents under `docs/ai/` and linked them from the AI documentation index. Scope is public-site/product research plus repository-grounded independent architecture advice; no application source, dependencies, environment, deployment, database, or cloud resources were changed.
+- Consulted the existing backend and frontend Graphify artifacts for targeted navigation, then verified the current repository architecture in source/docs. REA used an isolated unauthenticated homepage capture; no private routes, credentials, response bodies, or user data were accessed. Capture limitations and dropped network events are recorded in the evidence register.
+- Official Jobright product, privacy, and terms pages, plus official Greenhouse, Lever, Ashby, Google Search Central and Google Gemini pricing documentation are linked in the research files. Product marketing statements are labeled as claims; Jobright's source vendors, model-to-feature mapping, ranking logic and private architecture remain unknown.
+- **Walkthrough / checks:** `npm run docs:check` passed (114 markdown pages); `git diff --check` passed. No application tests were run because this task made documentation-only edits. Initial status showed no changes; later status checks revealed unrelated backend edits in `src/presentation/http/controllers/{ApplicationController,ProfileController,interviewController,privacyController,tailoringController}.ts`, `src/presentation/http/middleware/authMiddleware.ts`, and `src/presentation/http/types/index.ts`. Those were preserved and not included in this task. Frontend and backend are separate repositories, both on `development` and each one commit ahead of `origin/development`. No commit, merge or push was made.
+
+## Job discovery and AI matching — 2026-10-20
+
+- Implemented lexical-v2.1 for explicitly confirmed zero-year experience, retaining v2 weights and retrieval; v3/v4 remain evaluation-only. Kept all job sources behind their existing approval, rights, quota, and kill-switch gates.
+- Frontend match contract now carries deterministic reasons and displays up to four, including the evidence-based experience explanation. No new dependency, paid integration, production/hosted database access, commit, or push.
+- Local fixture evaluation passed: no v2.1 score changes across 15 frozen existing fixtures; the new confirmed-fresher fixture applies the expected correction. Pairwise gate: 19/19 relevance and 14/14 eligibility.
+- Plan/task list/walkthrough: inspect both repos and Graphify [x]; preserve work and branch both repos [x]; implement versioned scorer plus UI contract [x]; run repo checks and refresh Graphify [x].
+
+- Final verification: matching/presentation/ingestion unit suites passed 31/31; scoring evaluation and ranking gate passed; backend typecheck, ESLint, and AI docs check passed. Full backend suite completed with 276 passing, 1 skipped, and one pre-existing failure in `tests/tsyringe-foundation.test.js` (it imports `TestConsumer`/`setupTestContainer` absent from current source and `dist`). Frontend tests passed 56/56, lint and docs checks passed, and the production build passed outside the sandbox. Graphify refreshed in both repos and the parent merged graph; artifacts remain ignored.
+
+## Personalized rapid quiz — 2026-10-22
+
+- Added `stack-quiz-v1`: one small-tier shared-provider generation call creates an exact random 3–5 question pack from bounded profile skills, target roles, and role evidence. Structured output is validated; the server stores answer keys/rubrics in a user-scoped 30-minute cache session and returns only safe question fields. Quiz creation is rate limited and uses the existing `interview_prep` quota/usage ledger. Curated questions are the fallback.
+- MCQs use deterministic scoring. Free-text questions retain the existing key-point rubric; incorrect answers include the generated reference answer and explanation. Repeated answer submission returns its saved evaluation so points are not awarded again.
+- Targeted quiz tests passed 8/8; `npm run typecheck`, `npm run docs:check`, and filtered root ESLint passed. Unfiltered `npm run lint` traverses pre-existing `.worktrees/` output and reports generated-code errors; excluding nested worktrees and `dist/` is clean.
+- Graphify incremental update completed: 3,942 nodes / 8,154 edges / 243 communities. Parent merged graph: 5,253 nodes / 10,679 edges. No commit, merge, or push.
+
+## Interview voice, feedback, and persistent quiz history — 2026-10-22
+
+- Added owner-scoped `QuizAttempt` documents for new rapid quizzes. Mongo stores the question pack and actual submitted answer/selection plus reference answer and evaluation; records are bounded to 3–5 questions. Positional updates save each answer once; duplicate submissions return the saved evaluation. Redis remains the 30-minute active-session cache and is also cleared when a user deletes an attempt.
+- Added paginated list, owner-only detail, and CSRF-protected delete endpoints. Detail exposes answered questions only. The frontend adds strict response contracts, question-by-question review, and an inline deletion confirmation. Earlier answer text cannot be backfilled because it was never persisted; surviving active Redis sessions are adopted if answered after update.
+- Kept interview voice capture in the browser with native Web Speech; only editable textbox text goes to the existing evaluator. Voice question playback uses native SpeechSynthesis. `userAnswer` and `audioTranscript` are redacted from request logs. Full-session errors use accessible token-styled toasts, including a friendly minimum-answers message.
+- Backend `npm run typecheck` passed and targeted quiz/interview tests reported 23 passed, with the optional Mongo integration test skipped in the normal run. Frontend tests passed 94/94 and lint passed. Mongo memory-server was attempted but its bundled `mongod` exited with `fassert()` before running assertions. Root backend lint scans generated `.worktrees/` artifacts and fails there. Frontend production build failed with OneDrive `EPERM`; responsive browser checks were unavailable in this session.
+- Backend docs check and diff whitespace check passed. Graphify was refreshed in backend (3,963 nodes / 8,196 edges), frontend (1,400 / 2,686), and parent merged graph (5,354 / 10,882). No database writes, commits, merges, or pushes were made.
+
+## Quiz latency follow-up — 2026-10-22
+
+- Confirmed two avoidable waits: quiz startup performed profile/model work before checking Mongo readiness, and personalized generation inherited the general model timeout. Startup now checks persistence first; generation is cancellable after 8 seconds and falls back to curated questions. Durable session submissions return 503 immediately if Mongo is offline.
+- Verification: backend typecheck passed; focused quiz tests passed 10/10. Command duration dropped from 21.9s to 11.9s; test bodies completed in under 30ms. Remaining Node test-process shutdown delay is unexplained. No production data or external services were accessed.
+
+## Feature consolidation for development review — 2026-10-22
+
+- Consolidated the accumulated backend changes on `feat/job-discovery-ai-matching` for the requested development merge and main PR. Nested `.worktrees/` checkouts and ignored Graphify output are excluded from the repository commit.
+- Verification before commit: backend typecheck, docs check, focused quiz tests (10/10), and root lint excluding generated `.worktrees/` and `dist/` output passed. The full test run was blocked by Mongo integration server `EACCES`; unfiltered lint still reports generated-code errors from nested worktrees.
+- No production database or deployment was touched. Commit and merge are in progress.
+
+## Live voice-to-text — 2026-10-21
+
+- Added an authenticated short-lived OpenAI Realtime credential endpoint for fixed `gpt-live-transcribe` sessions, scoped to the owner’s active/current-consent interview, quota-checked, CSRF-protected, non-cacheable, and limited to five requests per 15 minutes with fail-closed Redis storage behavior. Audio stays direct between browser and OpenAI; no new dependency or storage was added.
+- Verification: backend typecheck/build, lint, architecture/docs checks, and 5 focused tests passed. The full backend suite could not pass because MongoDB Memory Server could not download MongoDB (`fastdl.mongodb.org` DNS failure); its owner-scoping Mongo test is authored but unverified. Local HTTP route auth integration was blocked by loopback socket permissions. Graphify updated and queried: 3,926 nodes/8,099 edges. No commit, merge, or push.

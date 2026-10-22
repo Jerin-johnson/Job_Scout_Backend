@@ -17,6 +17,18 @@ Target sections are proposals only; they are not enabled by this documentation c
 3. Operations: [safety](10-safety-and-privacy.md), [evaluation](11-evaluation.md), [observability](12-observability.md), [failure runbooks](13-failure-modes-and-runbooks.md), [roadmap](14-roadmap-and-open-decisions.md).
 4. [Coverage and occupation classification](15-classification-and-catalog-coverage.md), [data inventory](16-data-inventory.md), [Phase 3 job quality and supply](17-phase3-job-quality.md), [job source policy](18-job-source-policy.md), [data supply research](data-supply-strategy.md), [data supply decision memo](../decisions/data-supply-decisions.md), [job catalog scale-up](jobs-scale.md), [scale research](scale-research.md), [working agreement](working-agreement.md), [ADRs](adr/), [Mermaid diagrams](diagrams/), and [brief template](prompts-and-briefs/brief-template.md).
 
+## Public product research: Jobright.ai
+
+Research-only, accessed 2026-10-20. These documents distinguish Jobright's public claims from unknown internals and propose an independent implementation for IrowzScout:
+
+- [Product analysis](jobright-product-analysis.md)
+- [Job-data discovery research](job-data-discovery-research.md)
+- [Resume and LLM analysis](resume-and-llm-analysis.md)
+- [IrowzScout reference architecture](irowzscout-reference-architecture.md)
+- [Matching algorithm](matching-algorithm.md)
+- [Evidence register](research-evidence-register.md)
+- [Implementation roadmap](implementation-roadmap.md)
+
 See [current known issues](KNOWN_ISSUES.md) and the [data-supply change log](CHANGELOG.md) for evidence gaps and recent changes.
 
 ## Glossary
@@ -24,7 +36,7 @@ See [current known issues](KNOWN_ISSUES.md) and the [data-supply change log](CHA
 - **Tier:** configured small/strong model selection; it does not guarantee different model IDs.
 - **Route:** the server-selected feature/provider/model path for one request.
 - **Prompt version:** version value saved with a mock interview session; most other prompts are not yet centrally versioned.
-- **Score version:** matching implementation identifier used in caches and persisted match records (lexical-v2 is active; lexical-v3 remains parked).
+- **Score version:** matching implementation identifier used in caches and persisted match records (lexical-v2.1 is active; lexical-v2 is retained for comparison and lexical-v3 remains parked).
 - **Funnel:** counts from active catalog through eligibility, candidate cap, location, and score threshold.
 - **Ledger:** UsageEvent records for provider/model, estimated or reported tokens, outcome, cost and retry metadata.
 

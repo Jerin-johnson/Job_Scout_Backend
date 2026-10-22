@@ -18,3 +18,12 @@ export const loginSchema = z.object({
 export const googleAuthSchema = z.object({
   idToken: z.string().min(10, "Valid Google ID token is required"),
 });
+
+export const verifyOtpSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  otp: z.string().regex(/^\d{6}$/, "OTP must be a 6-digit code"),
+});
+
+export const resendOtpSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});

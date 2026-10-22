@@ -5,9 +5,10 @@ import { IApplicationRepository } from "../../../domain/repositories/IApplicatio
 import { TOKENS } from "../../../shared/constants/injectionTokens.js";
 
 @injectable()
-export class GetApplicationsUseCase
-  implements IUseCase<GetApplicationsInputDTO, ApplicationOutputDTO[]>
-{
+export class GetApplicationsUseCase implements IUseCase<
+  GetApplicationsInputDTO,
+  ApplicationOutputDTO[]
+> {
   constructor(
     @inject(TOKENS.ApplicationRepository)
     private readonly applicationRepository: IApplicationRepository,
@@ -28,7 +29,9 @@ export class GetApplicationsUseCase
       userId: app.userId,
       jobId: app.jobId ?? null,
       companyName: app.companyName,
+      company: app.companyName,
       jobTitle: app.jobTitle,
+      role: app.jobTitle,
       status: app.status,
       priority: app.priority,
       appliedDate: app.appliedDate,

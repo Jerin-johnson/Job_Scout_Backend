@@ -23,7 +23,12 @@ export function authMiddleware(
   try {
     const tokenService = appContainer.resolve<ITokenService>(TOKENS.TokenService);
     const payload = tokenService.verifyAccessToken(token);
-    req.user = payload;
+    req.user = {
+      ...payload,
+      _id: payload.userId,
+      id: payload.userId,
+      userId: payload.userId,
+    };
     next();
   } catch {
     next(new UnauthorizedError("Invalid or expired authentication token"));

@@ -1,7 +1,7 @@
 import { injectable } from "tsyringe";
 import mongoose from "mongoose";
 import { BaseMongooseRepository } from "./BaseMongooseRepository.js";
-import { ProfileModel, IProfileDocument } from "../models/ProfileModel.js";
+import { ProfileModel, IProfileDocument, IQuizProgressSubdoc } from "../models/ProfileModel.js";
 import { ProfileEntity } from "../../../../domain/entities/Profile.js";
 import { ResumeEntity } from "../../../../domain/entities/Resume.js";
 import { IProfileRepository } from "../../../../domain/repositories/IProfileRepository.js";
@@ -198,6 +198,7 @@ export interface ProfileRecord {
   skills?: string[];
   preferences?: Record<string, unknown>;
   careerProfile?: Record<string, unknown>;
+  quizProgress?: IQuizProgressSubdoc;
   matchTokens?: string[];
   matchCountryCodes?: string[];
   version?: number;
@@ -212,6 +213,8 @@ export interface ResumeRecord {
   fileHash?: string;
   extractedText?: string;
   parsedData?: Record<string, unknown>;
+  parsedFactsCount?: number;
+  factsSummary?: { skills?: number; roles?: number; education?: number; totalFacts?: number };
   createdAt?: Date;
   updatedAt?: Date;
   [key: string]: unknown;

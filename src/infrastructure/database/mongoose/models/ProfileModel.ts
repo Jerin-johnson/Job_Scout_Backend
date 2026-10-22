@@ -33,6 +33,15 @@ export interface IProfilePreferences {
   remotePreference?: "remote" | "hybrid" | "onsite" | "any";
 }
 
+export interface IQuizProgressSubdoc {
+  points: number;
+  streak: number;
+  lastQuizAt?: Date | null;
+  questionsCompleted: number;
+  correctAnswers: number;
+  badges: string[];
+}
+
 export interface IProfileDocument extends Document {
   userId: mongoose.Types.ObjectId;
   roles: IRoleFactSubdoc[];
@@ -40,6 +49,7 @@ export interface IProfileDocument extends Document {
   education: IEducationFactSubdoc[];
   preferences: IProfilePreferences;
   careerProfile?: Record<string, unknown>;
+  quizProgress?: IQuizProgressSubdoc;
   matchTokens: string[];
   matchCountryCodes: string[];
   version: number;
@@ -102,6 +112,14 @@ export const ProfileSchema = new Schema<IProfileDocument>(
       },
     },
     careerProfile: { type: Schema.Types.Mixed, default: undefined },
+    quizProgress: {
+      points: { type: Number, default: 0 },
+      streak: { type: Number, default: 0 },
+      lastQuizAt: { type: Date, default: null },
+      questionsCompleted: { type: Number, default: 0 },
+      correctAnswers: { type: Number, default: 0 },
+      badges: [{ type: String }],
+    },
     matchTokens: {
       type: [{ type: String }],
       default: [],
@@ -127,4 +145,3 @@ export const ProfileModel: Model<IProfileDocument> =
   mongoose.model<IProfileDocument>("Profile", ProfileSchema);
 
 export { ProfileModel as Profile };
-

@@ -35,6 +35,7 @@ import { InterviewReport } from "../../database/mongoose/models/InterviewReportM
 import { AuditLog } from "../../database/mongoose/models/AuditLogModel.js";
 import { CacheKeys, del } from "../../../shared/cache.js";
 import { logger } from "../../../shared/utils/logger.js";
+import { stackQuizService } from "../../interview/stackQuizService.js";
 
 export const ACTION_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -77,6 +78,7 @@ export const TOOL_STATUS_LABELS = Object.freeze({
   propose_set_application_priority: "Preparing priority update card...",
   propose_start_practice_interview: "Preparing mock interview launch card...",
   propose_open_resume_match: "Preparing resume match workspace card...",
+  start_stack_quiz: "Loading stack interview quiz...",
 });
 
 export const TOOL_SOURCE_LABELS = Object.freeze({
@@ -96,6 +98,7 @@ export const TOOL_SOURCE_LABELS = Object.freeze({
   propose_set_application_priority: "Applications",
   propose_start_practice_interview: "Interviews",
   propose_open_resume_match: "Resume Match",
+  start_stack_quiz: "Interview Quiz",
 });
 
 export interface ActionEnvelope {
@@ -1413,6 +1416,47 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
     },
   });
 
+  const startStackQuizTool = new DynamicStructuredTool({
+    name: "start_stack_quiz",
+    description:
+      "Open personalized interview quiz setup. The user will select a parsed resume and target role or tracked job before questions are generated.",
+    schema: z.object({}).strict(),
+    func: async (_args, runManager, callConfig) => {
+      const { userId } = resolveCtx(runManager, callConfig);
+
+      const actionPayload = {};
+
+      const confirmationToken = createActionToken({
+        userId,
+        actionType: "stack_quiz",
+        payload: actionPayload,
+      });
+
+      const proposedAction = {
+        actionId: `act_${randomUUID()}`,
+        actionType: "stack_quiz",
+        title: "Start a personalized interview quiz",
+        description:
+          "Choose a parsed resume and target role or tracked job to prepare a relevant quiz.",
+        payload: actionPayload,
+        confirmationToken,
+        requiresConfirmation: false,
+      };
+
+      notifyComplete(runManager, callConfig, {
+        toolName: "start_stack_quiz",
+        sourceLabel: TOOL_SOURCE_LABELS.start_stack_quiz,
+        proposedAction,
+        summary: "Opened personalized quiz setup",
+      });
+
+      return wrapUntrustedToolResult("start_stack_quiz", {
+        status: "QUIZ_SETUP_REQUIRED",
+        proposedAction,
+      });
+    },
+  });
+
   return [
     getProfileSummaryTool,
     getCareerProfileStatusTool,
@@ -1430,6 +1474,7 @@ export function createChatTools(defaultConfig: ContextUserConfig = {}) {
     proposeSetApplicationPriorityTool,
     proposeStartPracticeInterviewTool,
     proposeOpenResumeMatchTool,
+    startStackQuizTool,
   ];
 }
 
@@ -1771,6 +1816,13 @@ export async function confirmProposedAction({
         score: scored.match.score,
         band: scored.match.band,
       },
+    };
+  } else if (actionType === "stack_quiz") {
+    executionResult = {
+      actionType,
+      status: "confirmed",
+      message: "Technical quiz session active.",
+      payload,
     };
   } else {
     throw createHttpError(`Unsupported action type: ${actionType}`, 400, "UNSUPPORTED_ACTION_TYPE");

@@ -46,4 +46,5 @@ if (process.env.SMOKE_ALLOW_LIVE_AI !== "true") {
   process.env.S3_ACCESS_KEY_ID ||= "dummy_s3_key";
   process.env.S3_SECRET_ACCESS_KEY ||= "dummy_s3_secret";
   process.env.RESEND_API_KEY ||= "re_dummy_key";
+  process.env.REQUIRE_EMAIL_VERIFICATION ||= "false";
 }
